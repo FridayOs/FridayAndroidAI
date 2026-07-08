@@ -1,5 +1,0 @@
-<resources>
-    <string name="app_name">Tool-Neuron</string>
-    <string name="island_accessibility_label">Tool Neuron Island</string>
-    <string name="island_accessibility_description">Lets the floating Tool Neuron pill move out of the way of buttons and other tappable items in apps you have open. Tool Neuron reads only what is on screen, only to compute where the pill should sit. Nothing leaves your device.</string>
-</resources>

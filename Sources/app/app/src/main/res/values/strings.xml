@@ -1,0 +1,5 @@
+<resources>
+    <string name="app_name">FRIDAY AI</string>
+    <string name="island_accessibility_label">FRIDAY AI Island</string>
+    <string name="island_accessibility_description">Lets the floating FRIDAY AI pill move out of the way of buttons and other tappable items in apps you have open. FRIDAY AI reads only what is on screen, only to compute where the pill should sit. Nothing leaves your device.</string>
+</resources>
