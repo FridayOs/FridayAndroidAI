@@ -114,6 +114,11 @@ fun AppTopBar(
         NavScreens.ServerScreen.route -> ServerTopBar()
         NavScreens.PluginInstall.route -> PluginInstallTopBar(onBack = onBack)
         NavScreens.HfExplorer.route -> GuideTopBar(title = "HF Explorer", onBack = onBack)
+        NavScreens.FridaySplash.route -> Unit
+        NavScreens.FridayLogin.route -> Unit
+        NavScreens.FridayVoice.route -> Unit
+        NavScreens.FridayChat.route -> Unit
+        NavScreens.FridayHistory.route -> Unit
         else -> {
             if (currentRoute?.startsWith("hf_repo/") == true) {
                 GuideTopBar(title = "Repository", onBack = onBack)

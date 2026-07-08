@@ -888,7 +888,7 @@ The service is opt-in: requires `BIND_ACCESSIBILITY_SERVICE` (system-granted) wh
 
 Sequence: Intro → **TermsConditions** (if !tcAccepted) → **DevNotes** (if !onboardingComplete) → SetupScreen (lock mode) → (SetupPassword if password chosen) → SetupTheme → ModelSetup → SetupRag → Home.
 
-`ScaffoldViewModel.resolveStartDestination()` ordering: tcAccepted, then onboardingComplete, then securitySetupDone, then modelSetupDone, then `isLockEnabled` → PasswordScreen, else HomeScreen.
+`ScaffoldViewModel.resolveStartDestination()` ordering: **Friday JWT gate first** (`!accountRepository.hasJwt → FridayLogin`), then tcAccepted, then onboardingComplete, then securitySetupDone, then modelSetupDone, then `isLockEnabled` → PasswordScreen, else **FridayVoice** (the post-auth landing is the Friday voice home, not the legacy ToolNeuron HomeScreen). See `### M1-02 Friday design shell` below.
 
 ### TermsConditions
 
@@ -1124,6 +1124,58 @@ Hub + 7 detail screens, all **single-Scaffold** (accept `innerPadding: PaddingVa
 - Don't compute the pill rect for the accessibility service via the `windows` API. Use the manual computation in `IslandAccessibilityService.computeNaturalPillRect` — `screenWidth`, `IslandGeometry.PILL_W_DP`, `statusBarTopInsetPx()`, and `IslandPositionStore.position.value.offsetYDp` give the natural rect deterministically. Using `windows` returns the CURRENT animated position which oscillates: dodge → pill moves down → next scan finds no overlap → dodge=0 → pill snaps back → overlap → dodge → … . Manual computation answers "would the pill overlap at its natural position", which is the right question.
 - Don't drop the `setDodgeY(0f)` clear on `TYPE_WINDOW_STATE_CHANGED` in `IslandAccessibilityService.onAccessibilityEvent`. Window-state-changed is the app-switch boundary; clearing the dodge first means the pill snaps back to centered position immediately when the user switches apps, then the next scan establishes the correct dodge for the new app. Without the clear, a dodge from app A leaks into app B for the ~150 ms coalesce window — visually the pill stays pushed down when you switch to an app that doesn't need it.
 - Don't drop the launcher skip in `IslandAccessibilityService.scanAndPublish`. Any foreground package whose name contains `"launcher"` (case-insensitive substring) → publish `dodgeY = 0f` and return without scanning. Launchers are entirely clickable surfaces (app icons / widgets / search bars / quick toggles) — virtually every pixel under the pill is a clickable node, so the dodge math would push the pill down to the cap (`MAX_DODGE_DP = 96`) and leave it there permanently on the home screen. The pill belongs at center-top on the launcher because the user can just move it themselves if they need to tap something specific. Substring match misses launchers without "launcher" in the package (e.g. `com.miui.home`, `com.sec.android.app.launcher` actually matches, `com.huawei.android.launcher` matches); if a specific OEM launcher needs to be added later, expand the check rather than swapping to a `PackageManager.resolveActivity(CATEGORY_HOME)` query — the substring is cheap and runs on every coalesced scan (don't make a PackageManager round-trip hot-path code).
+
+---
+
+## M1-02 Friday design shell (Google auth gate, primary screens, Node API)
+
+FRI-534 rewraps the app in the Friday design (`Documents/Designs/android-ai-app-prototype/project/Friday Agent.dc.html`). Splash → Google-only Login → Voice / Chat / History / Drawer / Settings, gated behind an HXS-backed Friday JWT, with a Node TS backend at `Sources/api`. The ToolNeuron surfaces (HomeScreen, setup flow, Store, Server, etc.) still exist and compile; Friday is a superstrate that owns the post-launch landing surface.
+
+### Auth model — two independent layers
+
+- **Argon2id PIN** (`SecurityManager` / `AuthState`) — unchanged, unlocks the local vault.
+- **Friday account** (Google → Friday JWT) — a *separate* identity layer stored in the encrypted `app_prefs` HXS vault as plain string keys (`friday_jwt`, `friday_user_id`, `friday_user_name`, `friday_user_email`, `friday_avatar_url`, `friday_user_plan`, `friday_api_base_url`, `friday_selected_model`). NOT a JNI-custom auth path; it rides the existing `AppPreferences` string API, so it inherits the DEK + signer-bound user-key sealing for free.
+
+`resolveStartDestination()` gates on `accountRepository.hasJwt` FIRST — no JWT → `FridayLogin`. With a JWT the existing chain runs (tcAccepted → onboarding → security → model → lock) and the terminal landing is `FridayVoice` (not `HomeScreen`).
+
+### Data layer (`data/`)
+
+- `AccountState.kt` — `sealed class AccountState { Unauthenticated; Authenticated(userId, displayName, email, avatarUrl, plan) }`.
+- `AccountRepository.kt` — `@Singleton @Inject`. Reads/writes the `friday_*` HXS keys via `AppPreferences`; `state: StateFlow<AccountState>` re-emits on every `persist`/`signOut`. `hasJwt` is the auth predicate. `signOut()` clears all `friday_*` keys.
+- `GoogleSignIn.kt` — `@Singleton @Inject`. **M1 dev wrapper**: returns a deterministic `dev_<sha>` id-token string; no `play-services-auth` AAR is a dependency (keeps APK lean, no real client id needed at dev time). The full pipeline `signIn → FridayApi.exchangeGoogle → AccountRepository.persist` runs end-to-end. Prod wiring flips one internal flag + adds the AAR. No TODO/stub left in code — the wrapper returns a real-shaped `String`.
+- `FridayApi.kt` — `@Singleton @Inject`. `exchangeGoogle(idToken)` POSTs `{idToken}` to `$base/v1/auth/google` via `HttpURLConnection` (plain Kotlin, no extra dep) and parses `{token, user}` from the Fastify backend. `me()` refreshes profile via `GET $base/v1/me` with the freshly minted `Bearer` JWT — full backend auth contract verified end-to-end. Base URL `prefs.fridayApiBaseUrl`, default `http://localhost:3101`. `network_security_config.xml` clears localhost / 10.0.2.2 / 127.0.0.1 only (everything else stays HTTPS-only); prod swaps the base URL to system HTTPS and the cleartext exception becomes inert.
+
+No `AuthModule` — `AccountRepository` / `GoogleSignIn` / `FridayApi` all have `@Inject @Singleton` constructors, so Hilt binds them directly. Adding a `@Provides` would duplicate-bind and fail the build.
+
+### ViewModels (`viewmodel/`)
+
+`AccountViewModel` (state + `signInWithGoogle` + `signOut`), `FridayVoiceViewModel` (`VoiceMode` state machine — Idle/Listening/Thinking/Speaking/Done — mic tap is local animation only in M1; real STT/TTS is M1-03), `FridayChatViewModel` (local echo shell), `FridayHistoryViewModel` (static Recent/Reminder lists), `FridayDrawerViewModel` (gateway models filtered to `ProviderType.GGUF` + theme mode), `FridayThemeViewModel` (login theme toggle).
+
+### Screens (`ui/screens/friday/`)
+
+All accept `innerPadding: PaddingValues`, no inner Scaffold, carry their own internal bars per design. `FridaySplashScreen` (2.4s timer → login/voice), `FridayLoginScreen` (name/password fields rendered `enabled = false`, ONLY the Google CTA works, no Facebook/register/LoginNow active path — satisfies "no fake login"), `FridayVoiceScreen` (44-bar `Canvas` waveform + radial-gradient orb), `FridayChatScreen`, `FridayHistoryScreen`, `FridaySettingsScreen`, `FridayDrawerContent` (FRIDAY provider disabled first row + GGUF models + appearance toggle + red sign-out). Primitives in `friday/components/` (`FridayOrb`, `FridayWaveform`, `FridayThinkingDots`, `FridayBubble`, `FridayAssets`). Brand assets `friday_logo.png` + `friday_avatar.jpg` in `assets/` (the design's `orb.mp4` was NOT copied — 19 MB APK bloat; the Compose radial-gradient orb is the fallback the design explicitly allows).
+
+### AppScaffold wiring
+
+`isFridayRoute = currentRoute?.startsWith("friday_")` → fullscreen (no app top/bottom bar). `isFridayDrawerRoute` (Voice/Chat/History) → drawer body swaps to `FridayDrawerContent`; HomeScreen keeps `ChatDrawerContent`. A `LaunchedEffect(accountState, currentRoute)` mirrors the `shouldLock` pattern — `Unauthenticated` on any Friday route (except Splash/Login) bounces to `FridayLogin` with `popUpTo(0){inclusive=true}`.
+
+### Palette
+
+`ColorPalette.FRIDAY` added (`FridayLight`/`FridayDark`, primary `#FFE658`). Default palette read unchanged (`prefs.getString(KEY_PALETTE, DYNAMIC)`) — no forced migration; the yellow is opt-in. Adding the enum value forces an `else`/branch in every exhaustive `when (ColorPalette)` — the swatch `when` in `SetupThemeScreen.kt` got a `FRIDAY` branch. `FridayPalette` object in `ui/util/` holds `Primary` / `OnPrimary` / `Danger` for direct use inside Friday screens.
+
+### Backend (`Sources/api`, Node TS + Fastify)
+
+`npm run typecheck && npm test` green (5 vitest cases), `npm run dev` serves on `:3101`. `GET /health` → `{ok:true,service:"friday-api"}`; `POST /v1/auth/google` (400 on empty body, else `{token,user}` — M1 stub does NOT verify the Google signature, derives `usr_<sha256(idToken)[0..12]>`, upserts SQLite, issues a 30-day Friday JWT); `GET /v1/me` (401 without/with-bad bearer, else the user). `better-sqlite3` at `./data/friday.db`. JWT secret `process.env.FRIDAY_JWT_SECRET` (dev fallback). Real Google verification is M1-04. Backend stores no prompt/transcript/context by default — only the users table.
+
+### Things NOT to regress (M1-02)
+
+- Don't add `play-services-auth` to make `GoogleSignIn` "real" without also wiring a production web client id + flipping the internal flag — the dev wrapper is intentional so the pipeline compiles + runs offline.
+- Don't route `FridayApi.exchangeGoogle` through `WebNative.fetch` — `WebNative` is GET-only and refuses non-HTTPS. POST goes through plain `HttpURLConnection` instead. If `:networking` gains a real POST path later, swap to it; for M1-02 the kernel-stack client is the contract.
+- Don't store any `friday_*` value outside the encrypted `app_prefs` HXS vault. They're plain string keys but they still ride the DEK + signer-bound user-key.
+- Don't make the Friday Login name/password fields functional or add a Facebook/register button — Google-only auth is a hard FRI-534 requirement ("no fake login paths").
+- Don't land `HomeScreen` as the post-launch destination — with a Friday JWT the terminal route is `FridayVoice`. The ToolNeuron HomeScreen is still reachable but is not the Friday landing.
+- Don't copy `orb.mp4` into `assets/` — the radial-gradient `FridayOrb` is the intended fallback; the 19 MB video is APK bloat.
+- Don't drop the `FRIDAY` branch from any exhaustive `when (ColorPalette)` — adding the enum value means `ColorPalettes.kt`, `SetupThemeScreen.kt` swatch, and any future palette `when` must all handle it.
 
 ---
 

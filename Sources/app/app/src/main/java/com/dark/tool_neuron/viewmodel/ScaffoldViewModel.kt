@@ -7,6 +7,7 @@ import com.dark.download_manager.HxdStatus
 import com.dark.hxs_encryptor.BootIntegrity
 import com.dark.tool_neuron.TNApplication
 import com.dark.tool_neuron.data.AccessibilityGuard
+import com.dark.tool_neuron.data.AccountRepository
 import com.dark.tool_neuron.data.AppPreferences
 import com.dark.tool_neuron.data.RootGuard
 import com.dark.tool_neuron.data.SecurityManager
@@ -32,6 +33,7 @@ class ScaffoldViewModel @Inject constructor(
     private val security: SecurityManager,
     private val rootGuard: RootGuard,
     private val accessibilityGuard: AccessibilityGuard,
+    private val accountRepository: AccountRepository,
     session: SessionHolder,
     serverController: ServerController,
     installProgress: InstallProgressTracker,
@@ -111,6 +113,7 @@ class ScaffoldViewModel @Inject constructor(
     }
 
     fun resolveStartDestination(): String {
+        if (!accountRepository.hasJwt) return NavScreens.FridayLogin.route
         val tcAccepted = prefs.tcAccepted
         val onboarded = prefs.onboardingComplete
         val secDone = prefs.securitySetupDone
@@ -120,7 +123,7 @@ class ScaffoldViewModel @Inject constructor(
         if (!secDone) return NavScreens.SetupScreen.route
         if (!modelDone) return NavScreens.ModelSetup.route
         if (security.isLockEnabled) return NavScreens.PasswordScreen.route
-        return NavScreens.HomeScreen.route
+        return NavScreens.FridayVoice.route
     }
 
     fun markOnboardingComplete() {

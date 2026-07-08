@@ -204,6 +204,51 @@ class AppPreferences @Inject constructor(
         get() = getString(KEY_PLUGIN_ONNX_EP, DEFAULT_PLUGIN_ONNX_EP)
         set(value) = putString(KEY_PLUGIN_ONNX_EP, value)
 
+    var fridayJwt: String
+        get() = getString(KEY_FRIDAY_JWT)
+        set(value) = putString(KEY_FRIDAY_JWT, value)
+
+    var fridayUserId: String
+        get() = getString(KEY_FRIDAY_USER_ID)
+        set(value) = putString(KEY_FRIDAY_USER_ID, value)
+
+    var fridayUserName: String
+        get() = getString(KEY_FRIDAY_USER_NAME)
+        set(value) = putString(KEY_FRIDAY_USER_NAME, value)
+
+    var fridayUserEmail: String
+        get() = getString(KEY_FRIDAY_USER_EMAIL)
+        set(value) = putString(KEY_FRIDAY_USER_EMAIL, value)
+
+    var fridayAvatarUrl: String
+        get() = getString(KEY_FRIDAY_AVATAR_URL)
+        set(value) = putString(KEY_FRIDAY_AVATAR_URL, value)
+
+    var fridayUserPlan: String
+        get() = getString(KEY_FRIDAY_USER_PLAN)
+        set(value) = putString(KEY_FRIDAY_USER_PLAN, value)
+
+    var fridayApiBaseUrl: String
+        get() = getString(KEY_FRIDAY_API_BASE_URL, DEFAULT_FRIDAY_API_BASE_URL)
+        set(value) = putString(KEY_FRIDAY_API_BASE_URL, value)
+
+    var fridaySelectedModelId: String
+        get() = getString(KEY_FRIDAY_SELECTED_MODEL)
+        set(value) = putString(KEY_FRIDAY_SELECTED_MODEL, value)
+
+    var backendMode: BackendMode
+        get() = BackendMode.fromId(getString(KEY_BACKEND_MODE, BackendMode.DEFAULT.id))
+        set(value) = putString(KEY_BACKEND_MODE, value.id)
+
+    fun clearFridayAccount() {
+        deleteKey(KEY_FRIDAY_JWT)
+        deleteKey(KEY_FRIDAY_USER_ID)
+        deleteKey(KEY_FRIDAY_USER_NAME)
+        deleteKey(KEY_FRIDAY_USER_EMAIL)
+        deleteKey(KEY_FRIDAY_AVATAR_URL)
+        deleteKey(KEY_FRIDAY_USER_PLAN)
+    }
+
     fun readAuthState(): AuthState {
         val sealed = getBytes(KEY_AUTH_STATE) ?: return AuthState.DEFAULT
         val plaintext = try {
@@ -288,6 +333,17 @@ class AppPreferences @Inject constructor(
         const val PLUGIN_ONNX_EP_NNAPI = "nnapi"
         const val PLUGIN_ONNX_EP_XNNPACK = "xnnpack"
         const val DEFAULT_PLUGIN_ONNX_EP = PLUGIN_ONNX_EP_CPU
+
+        const val KEY_FRIDAY_JWT = "friday_jwt"
+        const val KEY_FRIDAY_USER_ID = "friday_user_id"
+        const val KEY_FRIDAY_USER_NAME = "friday_user_name"
+        const val KEY_FRIDAY_USER_EMAIL = "friday_user_email"
+        const val KEY_FRIDAY_AVATAR_URL = "friday_avatar_url"
+        const val KEY_FRIDAY_USER_PLAN = "friday_user_plan"
+        const val KEY_FRIDAY_API_BASE_URL = "friday_api_base_url"
+        const val KEY_FRIDAY_SELECTED_MODEL = "friday_selected_model"
+        const val KEY_BACKEND_MODE = "backend_mode"
+        const val DEFAULT_FRIDAY_API_BASE_URL = "http://localhost:3101"
         const val DEFAULT_SERVER_PORT = 11434
         const val DEFAULT_BIND_MODE = "ALL_INTERFACES"
         private const val KEY_AUTH_STATE = "auth_state_v1"

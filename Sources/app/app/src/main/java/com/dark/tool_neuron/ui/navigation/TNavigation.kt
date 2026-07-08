@@ -58,6 +58,14 @@ import com.dark.tool_neuron.ui.screens.setup_screen.SetupPasswordScreen
 import com.dark.tool_neuron.ui.screens.setup_screen.SetupRagScreen
 import com.dark.tool_neuron.ui.screens.setup_screen.SetupScreen
 import com.dark.tool_neuron.ui.screens.setup_screen.SetupThemeScreen
+import com.dark.tool_neuron.ui.screens.friday.FridaySplashScreen
+import com.dark.tool_neuron.ui.screens.friday.FridayLoginScreen
+import com.dark.tool_neuron.ui.screens.friday.FridayVoiceScreen
+import com.dark.tool_neuron.ui.screens.friday.FridayChatScreen
+import com.dark.tool_neuron.ui.screens.friday.FridayHistoryScreen
+import com.dark.tool_neuron.ui.screens.friday.FridaySettingsScreen
+import com.dark.tool_neuron.data.AccountState
+import com.dark.tool_neuron.viewmodel.AccountViewModel
 import com.dark.tool_neuron.ui.screens.terms_conditions.TermsConditionsScreen
 import com.dark.tool_neuron.ui.theme.rememberNavTransitions
 import com.dark.tool_neuron.viewmodel.HomeViewModel
@@ -449,6 +457,63 @@ fun TNavigation(
                 onDelete = viewModel::deleteLast,
                 onClear = viewModel::clearAll,
                 onSubmit = viewModel::submit,
+            )
+        }
+        composable(NavScreens.FridaySplash.route) {
+            FridaySplashScreen(
+                innerPadding = innerPadding,
+                onResolved = {
+                    navController.navigate(NavScreens.FridayLogin.route) {
+                        popUpTo(NavScreens.FridaySplash.route) { inclusive = true }
+                    }
+                },
+            )
+        }
+        composable(NavScreens.FridayLogin.route) {
+            val accountViewModel: AccountViewModel = hiltViewModel()
+            val accountState by accountViewModel.state.collectAsStateWithLifecycle()
+            LaunchedEffect(accountState) {
+                if (accountState is AccountState.Authenticated) {
+                    navController.navigate(NavScreens.FridayVoice.route) {
+                        popUpTo(NavScreens.FridayLogin.route) { inclusive = true }
+                    }
+                }
+            }
+            FridayLoginScreen(
+                innerPadding = innerPadding,
+                accountViewModel = accountViewModel,
+            )
+        }
+        composable(NavScreens.FridayVoice.route) {
+            FridayVoiceScreen(
+                innerPadding = innerPadding,
+                onOpenMenu = { navController.navigate(NavScreens.FridayHistory.route) },
+                onOpenHistory = { navController.navigate(NavScreens.FridayHistory.route) },
+            )
+        }
+        composable(NavScreens.FridayChat.route) {
+            FridayChatScreen(
+                innerPadding = innerPadding,
+                onOpenMenu = { navController.navigate(NavScreens.FridayHistory.route) },
+                onToVoice = { navController.navigate(NavScreens.FridayVoice.route) },
+            )
+        }
+        composable(NavScreens.FridayHistory.route) {
+            FridayHistoryScreen(
+                innerPadding = innerPadding,
+                onBack = { navController.popBackStack() },
+                onOpenReminder = { _ ->
+                    navController.navigate(NavScreens.FridayChat.route)
+                },
+                onOpenSettings = {
+                    navController.navigate(NavScreens.FridaySettings.route)
+                },
+            )
+        }
+        composable(NavScreens.FridaySettings.route) {
+            FridaySettingsScreen(
+                innerPadding = innerPadding,
+                onBack = { navController.popBackStack() },
             )
         }
     }

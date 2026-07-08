@@ -53,4 +53,11 @@ sealed class NavScreens(val route: String) {
         const val ARG_MODEL_ID = "modelId"
         fun routeFor(modelId: String) = "model_config/$modelId"
     }
+
+    object FridaySplash : NavScreens("friday_splash")
+    object FridayLogin : NavScreens("friday_login")
+    object FridayVoice : NavScreens("friday_voice")
+    object FridayChat : NavScreens("friday_chat")
+    object FridayHistory : NavScreens("friday_history")
+    object FridaySettings : NavScreens("friday_settings")
 }

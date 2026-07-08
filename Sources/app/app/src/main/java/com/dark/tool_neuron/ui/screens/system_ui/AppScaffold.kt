@@ -25,7 +25,10 @@ import androidx.navigation.compose.rememberNavController
 import com.dark.tool_neuron.model.NavScreens
 import com.dark.tool_neuron.ui.components.RootWarningDialog
 import com.dark.tool_neuron.ui.navigation.TNavigation
+import com.dark.tool_neuron.data.AccountState
+import com.dark.tool_neuron.ui.screens.friday.FridayDrawerContent
 import com.dark.tool_neuron.ui.screens.home_screen.ChatDrawerContent
+import com.dark.tool_neuron.viewmodel.AccountViewModel
 import com.dark.tool_neuron.viewmodel.HomeViewModel
 import com.dark.tool_neuron.viewmodel.ScaffoldViewModel
 import kotlinx.coroutines.launch
@@ -50,11 +53,32 @@ private fun AppScaffoldInner() {
     val chats by homeViewModel.chats.collectAsStateWithLifecycle()
     val currentChatId by homeViewModel.currentChatId.collectAsStateWithLifecycle()
 
+    val accountViewModel: AccountViewModel = hiltViewModel()
+    val accountState by accountViewModel.state.collectAsStateWithLifecycle()
+
     val nextDestination = remember { scaffoldViewModel.resolveStartDestination() }
     val shouldLock by scaffoldViewModel.shouldLock.collectAsStateWithLifecycle()
     val rootWarning by scaffoldViewModel.rootWarning.collectAsStateWithLifecycle()
     val serverRunning by scaffoldViewModel.serverRunning.collectAsStateWithLifecycle()
     val downloadProgress by scaffoldViewModel.downloadProgress.collectAsStateWithLifecycle()
+
+    // Friday screens carry their own internal top/bottom bars per design.
+    val isFridayRoute = currentRoute?.startsWith("friday_") == true
+    val isFridayDrawerRoute = currentRoute == NavScreens.FridayVoice.route ||
+        currentRoute == NavScreens.FridayChat.route ||
+        currentRoute == NavScreens.FridayHistory.route
+
+    // Unauthenticated traffic on any Friday surface bounces to Login.
+    LaunchedEffect(accountState, currentRoute) {
+        if (accountState is AccountState.Unauthenticated && isFridayRoute &&
+            currentRoute != NavScreens.FridayLogin.route &&
+            currentRoute != NavScreens.FridaySplash.route
+        ) {
+            navController.navigate(NavScreens.FridayLogin.route) {
+                popUpTo(0) { inclusive = true }
+            }
+        }
+    }
 
     LaunchedEffect(serverRunning, currentRoute) {
         if (serverRunning && currentRoute != null && currentRoute != NavScreens.ServerScreen.route) {
@@ -88,13 +112,39 @@ private fun AppScaffoldInner() {
     val isFullscreen = currentRoute == NavScreens.IntroScreen.route
             || currentRoute == NavScreens.PasswordScreen.route
             || currentRoute == NavScreens.Credits.route
+            || isFridayRoute
 
-    val showDrawer = currentRoute == NavScreens.HomeScreen.route && !serverRunning
+    val showDrawer = (currentRoute == NavScreens.HomeScreen.route && !serverRunning) ||
+        isFridayDrawerRoute
     val drawerState = rememberDrawerState(DrawerValue.Closed)
     val scope = rememberCoroutineScope()
     val isExpanded = LocalIsExpandedLayout.current
 
-    val drawerBody: @Composable () -> Unit = {
+    val fridayDrawerBody: @Composable () -> Unit = {
+        FridayDrawerContent(
+            currentRoute = currentRoute,
+            onNavigateVoice = {
+                scope.launch { drawerState.close() }
+                navController.navigate(NavScreens.FridayVoice.route)
+            },
+            onNavigateChat = {
+                scope.launch { drawerState.close() }
+                navController.navigate(NavScreens.FridayChat.route)
+            },
+            onNavigateHistory = {
+                scope.launch { drawerState.close() }
+                navController.navigate(NavScreens.FridayHistory.route)
+            },
+            onSignedOut = {
+                scope.launch { drawerState.close() }
+                navController.navigate(NavScreens.FridayLogin.route) {
+                    popUpTo(0) { inclusive = true }
+                }
+            },
+        )
+    }
+
+    val chatDrawerBody: @Composable () -> Unit = {
         ChatDrawerContent(
                     chats = chats,
                     currentChatId = currentChatId,
@@ -142,6 +192,10 @@ private fun AppScaffoldInner() {
                 navController.navigate(NavScreens.PluginInstall.route)
             },
         )
+    }
+
+    val drawerBody: @Composable () -> Unit = {
+        if (isFridayDrawerRoute) fridayDrawerBody() else chatDrawerBody()
     }
 
     val mainScaffold: @Composable () -> Unit = {

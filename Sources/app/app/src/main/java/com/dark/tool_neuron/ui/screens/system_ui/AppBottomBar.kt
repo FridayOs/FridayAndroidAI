@@ -30,6 +30,11 @@ fun AppBottomBar(
         NavScreens.SetupTheme.route -> SetupThemeBottomBar(onContinue = onThemeSetupComplete)
         NavScreens.SetupRag.route -> SetupRagBottomBar(onContinue = onRagSetupComplete)
         NavScreens.ModelSetup.route -> Unit
+        NavScreens.FridaySplash.route -> Unit
+        NavScreens.FridayLogin.route -> Unit
+        NavScreens.FridayVoice.route -> Unit
+        NavScreens.FridayChat.route -> Unit
+        NavScreens.FridayHistory.route -> Unit
         else -> Unit
     }
 }

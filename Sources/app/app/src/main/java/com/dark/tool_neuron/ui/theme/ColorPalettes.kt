@@ -11,6 +11,7 @@ import androidx.compose.ui.graphics.Color
 
 enum class ColorPalette(val displayName: String) {
     DYNAMIC("Dynamic (Material You)"),
+    FRIDAY("Friday Yellow"),
     NEON_LIME("Neon Lime"),
     OCEAN_CYAN("Ocean Cyan"),
     VIOLET_DUSK("Violet Dusk"),
@@ -28,6 +29,7 @@ fun colorSchemeFor(palette: ColorPalette, dark: Boolean, context: Context): Colo
         }
     }
     return when (palette) {
+        ColorPalette.FRIDAY -> if (dark) FridayDark else FridayLight
         ColorPalette.DYNAMIC,
         ColorPalette.NEON_LIME -> if (dark) NeonLimeDark else NeonLimeLight
         ColorPalette.OCEAN_CYAN -> if (dark) OceanCyanDark else OceanCyanLight
@@ -312,4 +314,59 @@ private val MonoSlateDark = darkColorScheme(
     onSurfaceVariant = Color(0xFFC1C7CE),
     outline = Color(0xFF8B9198),
     outlineVariant = Color(0xFF41474D),
+)
+
+// Friday design tokens (Friday Agent.dc.html): yellow #FFE658, dark #1A1A1A on yellow for WCAG AA.
+private val FridayLight = lightColorScheme(
+    primary = Color(0xFFFFE658),
+    onPrimary = Color(0xFF1A1A1A),
+    primaryContainer = Color(0xFFFFF4B8),
+    onPrimaryContainer = Color(0xFF2A2600),
+    secondary = Color(0xFF6A6A72),
+    onSecondary = Color(0xFFFFFFFF),
+    secondaryContainer = Color(0xFFF5F5F6),
+    onSecondaryContainer = Color(0xFF1A1A1A),
+    tertiary = Color(0xFF8B5CF6),
+    onTertiary = Color(0xFFFFFFFF),
+    tertiaryContainer = Color(0xFFEADDFF),
+    onTertiaryContainer = Color(0xFF23103F),
+    background = Color(0xFFFFFFFF),
+    onBackground = Color(0xFF1A1A1A),
+    surface = Color(0xFFFFFFFF),
+    onSurface = Color(0xFF1A1A1A),
+    surfaceVariant = Color(0xFFF5F5F6),
+    onSurfaceVariant = Color(0xFF9A9AA2),
+    surfaceContainer = Color(0xFFF5F5F6),
+    surfaceContainerHigh = Color(0xFFEFEFF1),
+    outline = Color(0xFFE6E6E9),
+    outlineVariant = Color(0xFFEFEFF1),
+    error = Color(0xFFE5484D),
+    onError = Color(0xFFFFFFFF),
+)
+
+private val FridayDark = darkColorScheme(
+    primary = Color(0xFFFFE658),
+    onPrimary = Color(0xFF1A1A1A),
+    primaryContainer = Color(0xFF4A4400),
+    onPrimaryContainer = Color(0xFFFFF4B8),
+    secondary = Color(0xFF9A9AA2),
+    onSecondary = Color(0xFF141416),
+    secondaryContainer = Color(0xFF1E1E23),
+    onSecondaryContainer = Color(0xFFF4F4F6),
+    tertiary = Color(0xFFB9A3F5),
+    onTertiary = Color(0xFF2A1B4D),
+    tertiaryContainer = Color(0xFF3F2E63),
+    onTertiaryContainer = Color(0xFFEADDFF),
+    background = Color(0xFF141416),
+    onBackground = Color(0xFFF4F4F6),
+    surface = Color(0xFF141416),
+    onSurface = Color(0xFFF4F4F6),
+    surfaceVariant = Color(0xFF1E1E23),
+    onSurfaceVariant = Color(0xFF86868E),
+    surfaceContainer = Color(0xFF1E1E23),
+    surfaceContainerHigh = Color(0xFF26262B),
+    outline = Color(0xFF2E2E34),
+    outlineVariant = Color(0xFF26262B),
+    error = Color(0xFFE5484D),
+    onError = Color(0xFFFFFFFF),
 )

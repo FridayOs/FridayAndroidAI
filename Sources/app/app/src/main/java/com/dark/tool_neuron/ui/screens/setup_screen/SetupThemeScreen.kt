@@ -304,4 +304,5 @@ private fun paletteSwatchColors(palette: ColorPalette): List<Color> = when (pale
     ColorPalette.AMBER_RUST -> listOf(Color(0xFF8A5400), Color(0xFFFFD898), Color(0xFFFFE0B6))
     ColorPalette.ROSE_PINK -> listOf(Color(0xFF8F4953), Color(0xFFFFD9DE), Color(0xFFFFECEF))
     ColorPalette.MONO_SLATE -> listOf(Color(0xFF5F6063), Color(0xFFB9C6DA), Color(0xFFE2E6EC))
+    ColorPalette.FRIDAY -> listOf(Color(0xFFFFE658), Color(0xFFF2D63B), Color(0xFF1A1A1A))
 }
