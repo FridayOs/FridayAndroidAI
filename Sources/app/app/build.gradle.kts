@@ -8,6 +8,17 @@ plugins {
     alias(libs.plugins.google.dagger.hilt)
 }
 
+// google-services processes app/google-services.json into the Firebase config
+// resources. The file is local-only + gitignored, so the plugin is applied only
+// when it exists; without it the app still compiles and runs on the friday_api
+// backend. BuildConfig.FIREBASE_CONFIGURED mirrors this so runtime code can gate
+// every Firebase call and surface a clear setup error instead of crashing.
+val googleServicesJson = file("google-services.json")
+val firebaseConfigured = googleServicesJson.exists()
+if (firebaseConfigured) {
+    apply(plugin = libs.plugins.google.services.get().pluginId)
+}
+
 val localProps = Properties().apply {
     val f = rootProject.file("local.properties")
     if (f.exists()) f.inputStream().use { load(it) }
@@ -39,6 +50,8 @@ android {
             abiFilters += listOf("arm64-v8a", "x86_64")
         }
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+
+        buildConfigField("boolean", "FIREBASE_CONFIGURED", firebaseConfigured.toString())
     }
 
     if (hasReleaseSigning) {
@@ -126,6 +139,20 @@ dependencies {
     implementation(files("../libs/ai_sd-release.aar"))
     implementation(libs.kotlinx.coroutines.android)
     implementation(libs.kotlinx.serialization.json)
+
+    // Firebase — cloud metadata backend (auth/profile/device/push/policy only).
+    // Always on the classpath so FirebaseAccountGateway compiles; runtime calls
+    // are gated on BuildConfig.FIREBASE_CONFIGURED. FirebaseApp auto-init is a
+    // no-op without google-services.json, so no crash on a config-less build.
+    implementation(platform(libs.firebase.bom))
+    implementation(libs.firebase.auth)
+    implementation(libs.firebase.firestore)
+    implementation(libs.firebase.messaging)
+    implementation(libs.firebase.config)
+    implementation(libs.kotlinx.coroutines.play.services)
+    implementation(libs.androidx.credentials)
+    implementation(libs.androidx.credentials.play.services.auth)
+    implementation(libs.google.identity.googleid)
 
     // DI
     implementation(libs.hilt.android)

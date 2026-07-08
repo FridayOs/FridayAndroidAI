@@ -58,6 +58,17 @@
             android:foregroundServiceType="dataSync"
             android:stopWithTask="true" />
 
+        <!-- FCM push routing. Only active when Firebase is configured
+             (google-services.json present); otherwise FCM never provisions
+             and this service is never invoked. Carries no assistant content. -->
+        <service
+            android:name=".data.firebase.FridayMessagingService"
+            android:exported="false">
+            <intent-filter>
+                <action android:name="com.google.firebase.MESSAGING_EVENT" />
+            </intent-filter>
+        </service>
+
         <service
             android:name=".service.inference.InferenceService"
             android:process=":inference"

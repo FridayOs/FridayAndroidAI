@@ -133,3 +133,13 @@
 # (including the plugin runtime contract) stay where they are.
 -repackageclasses ''
 -allowaccessmodification
+
+# Firebase (cloud metadata backend: Auth + Firestore + FCM + Remote Config).
+# Runtime paths are gated on BuildConfig.FIREBASE_CONFIGURED; when config is
+# present these keeps let R8 leave the SDK's reflection/JNI surface intact.
+-keep class com.google.firebase.** { *; }
+-keep class com.google.android.gms.** { *; }
+-dontwarn com.google.firebase.**
+-dontwarn com.google.android.gms.**
+# FCM service is instantiated by the framework via manifest name.
+-keep class com.dark.tool_neuron.data.firebase.FridayMessagingService { *; }

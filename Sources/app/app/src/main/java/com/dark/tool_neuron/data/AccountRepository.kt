@@ -1,5 +1,6 @@
 package com.dark.tool_neuron.data
 
+import com.dark.tool_neuron.data.firebase.FirebaseGoogleAuth
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -9,6 +10,7 @@ import javax.inject.Singleton
 @Singleton
 class AccountRepository @Inject constructor(
     private val prefs: AppPreferences,
+    private val firebaseAuth: FirebaseGoogleAuth,
 ) {
     private val _state = MutableStateFlow(AccountState.from(prefs))
     val state: StateFlow<AccountState> = _state.asStateFlow()
@@ -30,6 +32,9 @@ class AccountRepository @Inject constructor(
     }
 
     fun signOut() {
+        // Config-less / friday_api mode: FirebaseGoogleAuth.signOut() self-gates
+        // on FirebaseCloud.ready(), so this is a no-op there and never throws.
+        firebaseAuth.signOut()
         prefs.clearFridayAccount()
         _state.value = AccountState.Unauthenticated
     }

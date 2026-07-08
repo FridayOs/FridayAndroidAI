@@ -240,6 +240,21 @@ class AppPreferences @Inject constructor(
         get() = BackendMode.fromId(getString(KEY_BACKEND_MODE, BackendMode.DEFAULT.id))
         set(value) = putString(KEY_BACKEND_MODE, value.id)
 
+    var fridayFcmToken: String
+        get() = getString(KEY_FRIDAY_FCM_TOKEN)
+        set(value) = putString(KEY_FRIDAY_FCM_TOKEN, value)
+
+    // Random per-install device id for the Firestore device registry. NOT
+    // Settings.Secure.ANDROID_ID — the repo forbids OS-attested/global ids for
+    // any persisted identity. Lives sealed in the encrypted app_prefs vault.
+    fun deviceRegistryId(): String {
+        val existing = getString(KEY_FRIDAY_DEVICE_ID)
+        if (existing.isNotBlank()) return existing
+        val fresh = "dev_" + java.util.UUID.randomUUID().toString().replace("-", "")
+        putString(KEY_FRIDAY_DEVICE_ID, fresh)
+        return fresh
+    }
+
     fun clearFridayAccount() {
         deleteKey(KEY_FRIDAY_JWT)
         deleteKey(KEY_FRIDAY_USER_ID)
@@ -342,6 +357,8 @@ class AppPreferences @Inject constructor(
         const val KEY_FRIDAY_USER_PLAN = "friday_user_plan"
         const val KEY_FRIDAY_API_BASE_URL = "friday_api_base_url"
         const val KEY_FRIDAY_SELECTED_MODEL = "friday_selected_model"
+        const val KEY_FRIDAY_FCM_TOKEN = "friday_fcm_token"
+        const val KEY_FRIDAY_DEVICE_ID = "friday_device_id"
         const val KEY_BACKEND_MODE = "backend_mode"
         const val DEFAULT_FRIDAY_API_BASE_URL = "http://localhost:3101"
         const val DEFAULT_SERVER_PORT = 11434

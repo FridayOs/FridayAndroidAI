@@ -7,6 +7,13 @@ kotlin = "2.3.21"
 ksp = "2.3.6"
 dagger-hilt = "2.59.2"
 
+# Firebase (cloud metadata backend: Auth + Firestore + FCM + Remote Config)
+google-services = "4.4.2"
+firebase-bom = "33.7.0"
+credentials = "1.3.0"
+googleid = "1.1.1"
+coroutines-play-services = "1.11.0"
+
 # AndroidX core
 coreKtx = "1.18.0"
 lifecycleRuntimeKtx = "2.10.0"
@@ -50,6 +57,19 @@ kotlinx-serialization-json = { group = "org.jetbrains.kotlinx", name = "kotlinx-
 # ONNX runtime
 onnxruntime-android = { group = "com.microsoft.onnxruntime", name = "onnxruntime-android", version.ref = "onnxruntime" }
 
+# Firebase — cloud metadata backend (Auth, Firestore, FCM, Remote Config).
+# Runtime paths are gated on BuildConfig.FIREBASE_CONFIGURED so the app compiles
+# and runs without google-services.json (falls back to the friday_api backend).
+firebase-bom = { group = "com.google.firebase", name = "firebase-bom", version.ref = "firebase-bom" }
+firebase-auth = { group = "com.google.firebase", name = "firebase-auth" }
+firebase-firestore = { group = "com.google.firebase", name = "firebase-firestore" }
+firebase-messaging = { group = "com.google.firebase", name = "firebase-messaging" }
+firebase-config = { group = "com.google.firebase", name = "firebase-config" }
+androidx-credentials = { group = "androidx.credentials", name = "credentials", version.ref = "credentials" }
+androidx-credentials-play-services-auth = { group = "androidx.credentials", name = "credentials-play-services-auth", version.ref = "credentials" }
+google-identity-googleid = { group = "com.google.android.libraries.identity.googleid", name = "googleid", version.ref = "googleid" }
+kotlinx-coroutines-play-services = { group = "org.jetbrains.kotlinx", name = "kotlinx-coroutines-play-services", version.ref = "coroutines-play-services" }
+
 # Compose
 androidx-compose-bom = { group = "androidx.compose", name = "compose-bom", version.ref = "composeBom" }
 androidx-compose-ui = { group = "androidx.compose.ui", name = "ui" }
@@ -80,3 +100,4 @@ kotlin-ksp = { id = "com.google.devtools.ksp", version.ref = "ksp" }
 kotlin-serialization = { id = "org.jetbrains.kotlin.plugin.serialization", version.ref = "kotlin" }
 google-dagger-hilt = { id = "com.google.dagger.hilt.android", version.ref = "dagger-hilt" }
 android-library = { id = "com.android.library", version.ref = "agp" }
+google-services = { id = "com.google.gms.google-services", version.ref = "google-services" }

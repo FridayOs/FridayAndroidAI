@@ -1179,6 +1179,57 @@ All accept `innerPadding: PaddingValues`, no inner Scaffold, carry their own int
 
 ---
 
+## M1-04 Firebase backend mode (cloud auth / profile / device / push / policy)
+
+FRI-571 makes `firebase` the default cloud-metadata backend. `friday_api` (the `Sources/api` Node stub) is now legacy/reference fallback only. `BackendMode.DEFAULT = FIREBASE`; `CloudAccountGatewayProvider.current()` picks the gateway by `prefs.backendMode`. The whole surface stays **cloud-metadata-only** — Firebase never stores prompt, transcript, assistant response, context, memory, gateway config/key/token/base URL, selected model, provider health, or audio. Those all remain in HXS. User-owned AI gateways still connect direct from Android; there is no FRIDAY API provider proxy.
+
+### Config gating — compiles + runs without `google-services.json`
+
+`app/google-services.json` is local-only and gitignored. It is **not** in the repo. The whole Firebase stack is gated so the app compiles and runs without it:
+
+- `app/build.gradle.kts` applies the `com.google.gms.google-services` plugin **only when `file("google-services.json").exists()`** (`apply(plugin = libs.plugins.google.services.get().pluginId)`), and emits `buildConfigField boolean FIREBASE_CONFIGURED = <exists>`.
+- `google-services` plugin is declared `apply false` in the root `build.gradle.kts` and lives in `libs.versions.toml` (`google-services` plugin + `firebase-bom`/`firebase-auth`/`firebase-firestore`/`firebase-messaging`/`firebase-config` libs + `androidx-credentials` + `google-identity-googleid` + `kotlinx-coroutines-play-services`). The Firebase deps are always on the compile classpath (so code compiles); only the plugin (which needs the JSON) is conditional.
+- `data/firebase/FirebaseCloud.kt` is the single runtime gate: `ready(context)` returns false when `!BuildConfig.FIREBASE_CONFIGURED` or no `FirebaseApp` provisions; `setupError()` throws the clear "Add app/google-services.json …" message. Every Firebase touch must go through `ready()` first. `webClientId()` resolves `default_web_client_id` by resource name (so it compiles with no config resource present).
+
+`app/google-services.json.template` is a committed placeholder documenting the expected shape; copy → `google-services.json` and fill real values (see `FIREBASE_BACKEND_MODE.md`).
+
+### Auth path (real Firebase, no play-services-auth AAR)
+
+`data/firebase/FirebaseGoogleAuth.kt` — Google → Firebase via the modern `androidx.credentials` Credential Manager + `googleid` (`GetGoogleIdOption` scoped to `FirebaseCloud.webClientId`), then `FirebaseAuth.signInWithCredential(GoogleAuthProvider.getCredential(idToken))`. Returns a `FirebaseUser`. This replaces the M1 `GoogleSignIn` dev-stub for the firebase mode (the stub is still used by `friday_api` mode).
+
+`FirebaseAccountGateway` (in `data/CloudAccountGateway.kt`) implements the backend-agnostic `CloudAccountGateway`: sign-in → `FirebaseProfileStore.upsertProfile` → `FirebasePolicy.refreshPolicyVersion` → `FirebaseProfileStore.registerDevice` → puts the Firebase **ID token** into `FridaySession.jwt` so `AccountRepository` / `ScaffoldViewModel.resolveStartDestination` gates stay unchanged. `refresh()` re-mints the ID token (`getIdToken(true)`) + re-reads profile, falling back to the current session when offline. All three gateways (`FridayApiAccountGateway`, `FirebaseAccountGateway`, `CloudAccountGatewayProvider`) have `@Inject @Singleton` ctors — no `@Provides`, Hilt binds directly.
+
+### Firestore scope (strict)
+
+`data/firebase/FirebaseProfileStore.kt` writes exactly two paths:
+- `/users/{uid}` — `displayName, email, avatarUrl, plan, createdAt (once), updatedAt` (server timestamps).
+- `/users/{uid}/devices/{deviceId}` — `platform, appVersion, sdkInt, model, fcmToken, lastSeenAt, policyVersion`.
+
+`deviceId` is a **random per-install UUID** sealed in the encrypted `app_prefs` vault via `AppPreferences.deviceRegistryId()` (key `friday_device_id`) — **NOT** `Settings.Secure.ANDROID_ID` (the repo forbids OS-attested/global ids for any persisted identity). No conversations/messages/memories/gateways collections are created.
+
+### FCM + Remote Config
+
+`data/firebase/FridayMessagingService.kt` (`@AndroidEntryPoint FirebaseMessagingService`, registered in the manifest with the `MESSAGING_EVENT` intent-filter) — `onNewToken` persists to `prefs.fridayFcmToken` (key `friday_fcm_token`) and pushes into the device registry via `FirebaseProfileStore.updateFcmToken`. `onMessageReceived` is push-routing only; payloads carry no assistant content.
+
+`data/firebase/FirebasePolicy.kt` — Remote Config read (`policy_version`, `web_search_enabled`, `image_gen_enabled`, `server_mode_enabled`) with sane defaults; **never** gates the local vault/auth/security (those stay native in `PolicyEngine`). Missing config → defaults, never a crash.
+
+### New HXS keys (all in encrypted `app_prefs`)
+
+`friday_fcm_token` (String), `friday_device_id` (String, random UUID). Both sealed under the existing DEK + signer-bound user-key. `clearFridayAccount()` intentionally does NOT clear `friday_device_id` (registry continuity across sign-out); it clears the account identity keys only.
+
+### Things NOT to regress (M1-04)
+
+- Don't make the `com.google.gms.google-services` plugin unconditional. It requires `google-services.json`, which is not in the repo — an unconditional apply breaks every clean checkout's build. Keep the `file("google-services.json").exists()` gate + `BuildConfig.FIREBASE_CONFIGURED`.
+- Don't touch Firebase Auth/Firestore/FCM/RemoteConfig without going through `FirebaseCloud.ready()`. `FirebaseApp.getInstance()` throws when unconfigured; the gate turns that into a clear `setupError()` or a silent no-op (policy/FCM) instead of a crash.
+- Don't use `Settings.Secure.ANDROID_ID` (or any OS/global id) for the Firestore `deviceId`. It's `AppPreferences.deviceRegistryId()` — a random UUID sealed in HXS.
+- Don't store anything beyond the allowed cloud-metadata set in Firestore. No prompt/transcript/assistant/context/memory/gateway secret/base URL/selected model/health/audio — those are HXS-local, full stop.
+- Don't add a FRIDAY API provider proxy. User-owned gateways connect direct from Android.
+- Don't commit a real `google-services.json`. It stays gitignored; only `google-services.json.template` is committed.
+- Don't route Firebase profile/device writes through `Sources/api`. `Sources/api` is legacy/reference; the firebase backend talks to Firestore directly from Android.
+- Don't add `friday_api`-style HTTP fallback into `FirebaseAccountGateway`. Backend selection is one level up in `CloudAccountGatewayProvider`; the two gateways stay independent.
+
+---
+
 ## Housekeeping
 
 Whenever you change anything on the list below, update **this file** as part of the same change:
