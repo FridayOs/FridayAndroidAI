@@ -20,11 +20,11 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,19 +48,16 @@ import com.dark.tool_neuron.viewmodel.FridayHistoryViewModel
 fun FridayHistoryScreen(
     innerPadding: PaddingValues,
     onBack: () -> Unit,
-    onOpenReminder: (String) -> Unit,
+    onOpenConversation: (String) -> Unit,
     onOpenSettings: () -> Unit,
     viewModel: FridayHistoryViewModel = hiltViewModel(),
     accountViewModel: AccountViewModel = hiltViewModel(),
 ) {
-    val reminders by viewModel.reminders.collectAsStateWithLifecycle()
+    val conversations by viewModel.conversations.collectAsStateWithLifecycle()
     val account by accountViewModel.state.collectAsStateWithLifecycle()
     val avatar = rememberAssetBitmap(FRIDAY_AVATAR_ASSET)
-    val quick = listOf(
-        Triple(TnIcons.Code, stringResource(R.string.friday_recent_quick_command), "quick"),
-        Triple(TnIcons.CircleCheck, stringResource(R.string.friday_recent_open_care), "care"),
-        Triple(TnIcons.InfoCircle, stringResource(R.string.friday_recent_how_to_use), "how"),
-    )
+
+    LaunchedEffect(Unit) { viewModel.refresh() }
 
     Column(
         modifier = Modifier
@@ -101,15 +98,22 @@ fun FridayHistoryScreen(
             item {
                 SectionLabel(stringResource(R.string.friday_history_section_recent))
             }
-            items(quick, key = { it.third }) { (icon, label, _) ->
-                QuickRow(icon = icon, label = label, onClick = { onOpenReminder(label) })
+            if (conversations.isEmpty()) {
+                item {
+                    Text(
+                        text = stringResource(R.string.friday_history_empty),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        modifier = Modifier.padding(vertical = 18.dp),
+                    )
+                }
             }
-            item {
-                Spacer(Modifier.height(20.dp))
-                SectionLabel(stringResource(R.string.friday_history_section_reminder))
-            }
-            items(reminders, key = { it }) { text ->
-                ReminderRow(text = text, onClick = { onOpenReminder(text) })
+            items(conversations, key = { it.id }) { convo ->
+                ConversationRow(
+                    title = convo.title,
+                    onClick = { onOpenConversation(convo.id) },
+                    onDelete = { viewModel.delete(convo.id) },
+                )
             }
         }
 
@@ -169,38 +173,42 @@ private fun SectionLabel(text: String) {
 }
 
 @Composable
-private fun QuickRow(icon: ImageVector, label: String, onClick: () -> Unit) {
-    Column {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clickable(onClick = onClick)
-                .padding(vertical = 13.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(icon, contentDescription = null, modifier = Modifier.size(22.dp))
-            Spacer(Modifier.size(14.dp))
-            Text(text = label, style = MaterialTheme.typography.bodyLarge, fontWeight = FontWeight.Medium)
-        }
-        HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant)
-    }
-}
-
-@Composable
-private fun ReminderRow(text: String, onClick: () -> Unit) {
-    Box(
+private fun ConversationRow(title: String, onClick: () -> Unit, onDelete: () -> Unit) {
+    Row(
         modifier = Modifier
             .fillMaxWidth()
             .padding(vertical = 2.dp)
             .clip(RoundedCornerShape(14.dp))
             .clickable(onClick = onClick)
             .padding(horizontal = 14.dp, vertical = 13.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
+        Icon(
+            TnIcons.MessageCircle,
+            contentDescription = null,
+            modifier = Modifier.size(20.dp),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Spacer(Modifier.size(12.dp))
         Text(
-            text = text,
+            text = title,
             style = MaterialTheme.typography.bodyMedium,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
+            modifier = Modifier.weight(1f),
         )
+        Box(
+            modifier = Modifier
+                .size(34.dp)
+                .clickable(onClick = onDelete),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                TnIcons.Trash,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }

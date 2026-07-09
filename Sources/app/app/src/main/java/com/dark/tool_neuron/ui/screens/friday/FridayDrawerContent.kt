@@ -18,19 +18,27 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -38,7 +46,8 @@ import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dark.tool_neuron.data.AccountState
 import com.dark.tool_neuron.data.ThemeController
-import com.dark.tool_neuron.model.ModelInfo
+import com.dark.tool_neuron.model.gateway.GatewayConfig
+import com.dark.tool_neuron.model.gateway.GatewayProvider
 import com.dark.tool_neuron.ui.icons.TnIcons
 import com.dark.tool_neuron.ui.screens.friday.components.FRIDAY_AVATAR_ASSET
 import com.dark.tool_neuron.ui.screens.friday.components.rememberAssetBitmap
@@ -57,10 +66,23 @@ fun FridayDrawerContent(
     accountViewModel: AccountViewModel = hiltViewModel(),
 ) {
     val account by accountViewModel.state.collectAsStateWithLifecycle()
-    val models by drawerViewModel.gatewayModels.collectAsStateWithLifecycle()
-    val selectedModelId by drawerViewModel.selectedModelId.collectAsStateWithLifecycle()
+    val gateways by drawerViewModel.gateways.collectAsStateWithLifecycle()
+    val selectedId by drawerViewModel.selectedId.collectAsStateWithLifecycle()
     val themeMode by drawerViewModel.themeMode.collectAsStateWithLifecycle()
     val avatar = rememberAssetBitmap(FRIDAY_AVATAR_ASSET)
+
+    var showAddDialog by remember { mutableStateOf(false) }
+
+    if (showAddDialog) {
+        AddGatewayDialog(
+            providers = drawerViewModel.providers,
+            onDismiss = { showAddDialog = false },
+            onConfirm = { provider, label, baseUrl, apiKey, model ->
+                drawerViewModel.addGateway(provider, label, baseUrl, apiKey, model)
+                showAddDialog = false
+            },
+        )
+    }
 
     Column(
         modifier = Modifier
@@ -117,15 +139,39 @@ fun FridayDrawerContent(
         )
 
         Spacer(Modifier.height(24.dp))
-        SectionLabel(stringResource(R.string.friday_model_section))
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            SectionLabel(stringResource(R.string.friday_gateways_title))
+            Box(
+                modifier = Modifier
+                    .size(28.dp)
+                    .clip(CircleShape)
+                    .clickable { showAddDialog = true },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(TnIcons.Plus, contentDescription = stringResource(R.string.friday_gateways_add), modifier = Modifier.size(18.dp), tint = FridayPalette.Primary)
+            }
+        }
         Spacer(Modifier.height(10.dp))
         FridayProviderRow()
-        models.forEach { model ->
+        gateways.forEach { gateway ->
             Spacer(Modifier.height(8.dp))
-            GatewayModelRow(
-                model = model,
-                selected = model.id == selectedModelId,
-                onClick = { drawerViewModel.selectModel(model.id) },
+            GatewayRow(
+                gateway = gateway,
+                selected = gateway.id == selectedId,
+                onClick = { drawerViewModel.selectGateway(gateway.id) },
+                onDelete = { drawerViewModel.deleteGateway(gateway.id) },
+            )
+        }
+        if (gateways.isEmpty()) {
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = stringResource(R.string.friday_gateways_empty),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
 
@@ -229,7 +275,7 @@ private fun FridayProviderRow() {
 }
 
 @Composable
-private fun GatewayModelRow(model: ModelInfo, selected: Boolean, onClick: () -> Unit) {
+private fun GatewayRow(gateway: GatewayConfig, selected: Boolean, onClick: () -> Unit, onDelete: () -> Unit) {
     val border = if (selected) FridayPalette.Primary else MaterialTheme.colorScheme.outlineVariant
     Row(
         modifier = Modifier
@@ -240,19 +286,20 @@ private fun GatewayModelRow(model: ModelInfo, selected: Boolean, onClick: () -> 
             .padding(horizontal = 12.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        InitialTile(text = model.name.take(2).uppercase())
+        InitialTile(text = gateway.label.take(2).uppercase())
         Spacer(Modifier.size(11.dp))
         Column(modifier = Modifier.weight(1f)) {
             Text(
-                text = model.name,
+                text = gateway.label,
                 style = MaterialTheme.typography.bodyMedium,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
             )
             Text(
-                text = model.providerType.name,
+                text = "${gateway.provider.displayName} · ${gateway.displayModel}",
                 style = MaterialTheme.typography.bodySmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 1,
             )
         }
         if (selected) {
@@ -270,6 +317,20 @@ private fun GatewayModelRow(model: ModelInfo, selected: Boolean, onClick: () -> 
                 )
             }
         }
+        Spacer(Modifier.size(6.dp))
+        Box(
+            modifier = Modifier
+                .size(28.dp)
+                .clickable(onClick = onDelete),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                TnIcons.Trash,
+                contentDescription = stringResource(R.string.friday_gateway_delete),
+                modifier = Modifier.size(16.dp),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
     }
 }
 
@@ -286,6 +347,123 @@ private fun InitialTile(text: String) {
             color = FridayPalette.OnPrimary,
             style = MaterialTheme.typography.labelLarge,
             fontWeight = FontWeight.Bold,
+        )
+    }
+}
+
+@Composable
+private fun AddGatewayDialog(
+    providers: List<GatewayProvider>,
+    onDismiss: () -> Unit,
+    onConfirm: (GatewayProvider, String, String, String, String) -> Unit,
+) {
+    var provider by remember { mutableStateOf(providers.firstOrNull() ?: GatewayProvider.OPENAI) }
+    var label by remember { mutableStateOf("") }
+    var baseUrl by remember { mutableStateOf("") }
+    var apiKey by remember { mutableStateOf("") }
+    var model by remember { mutableStateOf("") }
+
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        confirmButton = {
+            TextButton(
+                enabled = apiKey.isNotBlank() || provider.defaultBaseUrl.isBlank(),
+                onClick = { onConfirm(provider, label, baseUrl, apiKey, model) },
+            ) { Text(stringResource(R.string.friday_gateway_save)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.friday_gateway_cancel)) }
+        },
+        title = { Text(stringResource(R.string.friday_gateways_add)) },
+        text = {
+            Column(modifier = Modifier.verticalScroll(rememberScrollState())) {
+                Text(
+                    text = stringResource(R.string.friday_gateway_provider_label),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Spacer(Modifier.height(6.dp))
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    providers.chunked(2).forEach { rowItems ->
+                        Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            rowItems.forEach { p ->
+                                ProviderChip(
+                                    label = p.displayName,
+                                    selected = p == provider,
+                                    modifier = Modifier.weight(1f),
+                                    onClick = { provider = p },
+                                )
+                            }
+                            if (rowItems.size == 1) Spacer(Modifier.weight(1f))
+                        }
+                    }
+                }
+                Spacer(Modifier.height(12.dp))
+                DialogField(stringResource(R.string.friday_gateway_label_hint), label, provider.displayName) { label = it }
+                Spacer(Modifier.height(10.dp))
+                DialogField(stringResource(R.string.friday_gateway_api_key_hint), apiKey, "", secret = true) { apiKey = it }
+                Spacer(Modifier.height(10.dp))
+                DialogField(stringResource(R.string.friday_gateway_model_hint), model, provider.defaultModel) { model = it }
+                Spacer(Modifier.height(10.dp))
+                DialogField(stringResource(R.string.friday_gateway_base_url_hint), baseUrl, provider.defaultBaseUrl.ifBlank { "https://…" }) { baseUrl = it }
+            }
+        },
+    )
+}
+
+@Composable
+private fun ProviderChip(label: String, selected: Boolean, modifier: Modifier, onClick: () -> Unit) {
+    val bg = if (selected) FridayPalette.Primary else Color.Transparent
+    val fg = if (selected) FridayPalette.OnPrimary else MaterialTheme.colorScheme.onSurface
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(10.dp))
+            .border(1.dp, if (selected) FridayPalette.Primary else MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(10.dp))
+            .background(bg)
+            .clickable(onClick = onClick)
+            .padding(vertical = 8.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(text = label, style = MaterialTheme.typography.labelMedium, fontWeight = FontWeight.SemiBold, color = fg)
+    }
+}
+
+@Composable
+private fun DialogField(
+    label: String,
+    value: String,
+    placeholder: String,
+    secret: Boolean = false,
+    onValueChange: (String) -> Unit,
+) {
+    Text(
+        text = label,
+        style = MaterialTheme.typography.labelMedium,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+    Spacer(Modifier.height(4.dp))
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(10.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .padding(horizontal = 12.dp, vertical = 12.dp),
+    ) {
+        if (value.isEmpty() && placeholder.isNotEmpty()) {
+            Text(
+                text = placeholder,
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        BasicTextField(
+            value = value,
+            onValueChange = onValueChange,
+            singleLine = true,
+            textStyle = TextStyle(color = MaterialTheme.colorScheme.onSurface),
+            cursorBrush = SolidColor(FridayPalette.Primary),
+            visualTransformation = if (secret) androidx.compose.ui.text.input.PasswordVisualTransformation() else androidx.compose.ui.text.input.VisualTransformation.None,
+            modifier = Modifier.fillMaxWidth(),
         )
     }
 }

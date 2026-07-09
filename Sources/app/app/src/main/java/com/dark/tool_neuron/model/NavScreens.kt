@@ -57,7 +57,11 @@ sealed class NavScreens(val route: String) {
     object FridaySplash : NavScreens("friday_splash")
     object FridayLogin : NavScreens("friday_login")
     object FridayVoice : NavScreens("friday_voice")
-    object FridayChat : NavScreens("friday_chat")
+    object FridayChat : NavScreens("friday_chat?cid={cid}") {
+        const val ARG_CID = "cid"
+        const val BASE = "friday_chat"
+        fun routeFor(conversationId: String) = "friday_chat?cid=$conversationId"
+    }
     object FridayHistory : NavScreens("friday_history")
     object FridaySettings : NavScreens("friday_settings")
 }

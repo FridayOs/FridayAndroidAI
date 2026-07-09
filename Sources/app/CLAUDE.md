@@ -1230,6 +1230,65 @@ FRI-571 makes `firebase` the default cloud-metadata backend. `friday_api` (the `
 
 ---
 
+## M1-03 Local chat, HXS history, push-to-talk, direct gateway client
+
+FRI-537 makes the Friday chat/voice/history surfaces real. The M1-02 shells (`FridayChatViewModel` echo, `FridayVoiceViewModel` canned state machine, `FridayHistoryViewModel` static list) are replaced by live gateway streaming, HXS-persisted conversations, and a real push-to-talk voice loop. User-owned AI gateways connect **directly from Android** — no FRIDAY API proxy, no Firebase touch on any transcript/context/key.
+
+### Data boundary (this is the whole point of the task)
+
+Everything sensitive stays HXS-local. Nothing here ever reaches Firebase / FRIDAY API: session transcript, gateway API key/token, gateway base URL, selected provider/model, prompt, assistant response, audio. Firestore surface is unchanged (still only `/users/{uid}` + `/users/{uid}/devices/{deviceId}`; no `conversations`/`messages`/`memories`/`gateways` collections). The direct gateway client opens sockets **only** to `GatewayConfig.effectiveBaseUrl` (the user's own provider host).
+
+### Gateway model + config vault
+
+- `model/gateway/GatewayProvider.kt` — `GatewayWireFormat { OPENAI, ANTHROPIC, GEMINI }` + `GatewayProvider` enum. GEMINI/OPENAI/ANTHROPIC/DEEPSEEK/OPENCLAW/HERMES/CUSTOM are `enabled=true`; **FRIDAY is `enabled=false`** — the disabled placeholder for the managed-provider phase, carries no wire format and can't be configured or called. `GatewayProvider.configurable` filters to enabled. DeepSeek/OpenClaw/Hermes/Custom all ride the OpenAI wire format.
+- `model/gateway/GatewayConfig.kt` — `(id, provider, label, baseUrl, apiKey, model, createdAt, updatedAt)`. `effectiveBaseUrl` falls back to `provider.defaultBaseUrl`; `displayModel` to `provider.defaultModel`.
+- `repo/GatewayConfigRepository.kt` — `@Singleton @Inject`. Dedicated signer-bound HXS vault `gateway_store_v1`, `USER_KEY_INFO = "tn.gateways.user_key.v2"`, same `openOrRebuild` pattern as `ChatRepository`. Collections `gateways` + `gateway_meta` (the `selected_gateway_id` pointer rides `gateway_meta` so the whole gateway state is one vault). `gateways: StateFlow`, `selectedId: StateFlow`, `selected()`, `create/upsert/delete/select`. **API keys live here and nowhere else** — never in `app_prefs`, never uploaded.
+
+### Direct gateway client
+
+- `repo/gateway/DirectGatewayClient.kt` — `@Singleton @Inject`. `stream(config, history): Flow<GatewayEvent>` (`Delta`/`Done`/`Error`), `flowOn(Dispatchers.IO)`. Three wire encoders: OpenAI-compatible → `POST {base}/v1/chat/completions` (Bearer auth); Anthropic → `POST {base}/v1/messages` (`x-api-key` + `anthropic-version: 2023-06-01`, system turns hoisted to top-level `system`); Gemini → `POST {base}/v1beta/models/{model}:streamGenerateContent?alt=sse&key=…` (roles mapped user/model, systemInstruction hoisted). Streaming is manual SSE over `HttpURLConnection` — accumulate `data:` lines, dispatch on blank line, `[DONE]`/`message_stop` terminate. `WebNative` is GET-only so it can't be used here (same precedent as `FridayApi` POST). Non-2xx surfaces the provider error body verbatim (capped 500 chars). `ensureActive()` per line so cancellation (new send / screen leave) stops the read.
+- Why `HttpURLConnection` and not `:networking`: the curl-impersonate pipe has no POST/streaming JNI entry point. Extending it was out of scope; the gateway client follows the existing `FridayApi` non-WebNative POST precedent. Gateway hosts are HTTPS (system trust anchors) — **no `network_security_config.xml` change**; the cleartext exception stays scoped to localhost/emulator for the legacy `friday_api` dev backend only.
+
+### Friday conversation vault (HXS history)
+
+- `model/friday/FridayConversation.kt` — `FridayConversation(id, title, gatewayId, createdAt, updatedAt, messageCount)` + `FridayTurn(id, conversationId, role, content, timestamp, viaVoice)`.
+- `repo/FridayConversationRepository.kt` — `@Singleton @Inject`. Dedicated signer-bound HXS vault `friday_store_v1`, `USER_KEY_INFO = "tn.friday_convos.user_key.v2"`. Collections `friday_conversations` + `friday_turns`. Separate from ToolNeuron's `chat_store_v2` because Friday conversations are gateway-backed (a different chat surface). `createConversation/getConversation/getTurns/addTurn/updateTurn/deleteConversation`; title auto-derived from the first user turn. **Survives process restart** — the repo re-reads the encrypted vault on construction, which is what makes the History screen show prior conversations (an acceptance criterion).
+
+### ViewModels (all now real, `@Inject` gateway/convo/client/voice)
+
+- `FridayChatViewModel` — injects `GatewayConfigRepository`, `FridayConversationRepository`, `DirectGatewayClient`. `send(text)` persists the user turn, streams the reply from the selected gateway, persists the assistant turn on `Done`. `open(conversationId)` loads a stored conversation. `hasGateway` gates the empty-state hint; `error` surfaces gateway failures. No gateway selected → error, no send.
+- `FridayVoiceViewModel` — injects the same three plus `VoiceModelManager`. Push-to-talk: `startListening()` (on press) → `VoiceModelManager.startRecording()`; `stopListening()` (on release) → `stopRecordingAndRecognize()` (local STT) → stream gateway reply → `VoiceModelManager.speak()` (local TTS). `cancel()` aborts. `VoiceMode { IDLE, LISTENING, THINKING, SPEAKING, DONE }` drives the orb/waveform. Both transcript and reply persist to the same `friday_store_v1` vault with `viaVoice=true`.
+- `FridayHistoryViewModel` — injects `FridayConversationRepository`; exposes `conversations: StateFlow` straight from the vault, `refresh()`, `delete(id)`.
+- `FridayDrawerViewModel` — injects `GatewayConfigRepository` + `ThemeController`. Was GGUF-model list; now lists gateway configs, `selectGateway/addGateway/deleteGateway`, `providers = GatewayProvider.configurable`.
+
+### Screens
+
+- `FridayVoiceScreen` — **real push-to-talk**: the mic is a `detectTapGestures { onPress → startListening; tryAwaitRelease → stopListening }` hold gesture (replaces the old tap-toggle mock). Requests `RECORD_AUDIO` on first press via `ActivityResultContracts.RequestPermission`; on grant, immediately starts. Error banner + `friday_voice_hold_hint`. Waveform/orb bind to `mode`.
+- `FridayChatScreen` — takes optional `conversationId`; `open()`s it on launch. Streams into bubbles, error banner, gateway-empty hint.
+- `FridayHistoryScreen` — renders live `conversations` from the vault (empty state `friday_history_empty`), tap opens the conversation in chat, trash deletes.
+- `FridayDrawerContent` — gateway section: `+` opens `AddGatewayDialog` (provider chips, label/api-key/model/base-url fields, API key masked), lists configured gateways with select + delete, keeps the **disabled `FridayProviderRow` placeholder**. Appearance + sign-out unchanged.
+
+### Navigation
+
+`NavScreens.FridayChat` is now `friday_chat?cid={cid}` (optional nullable arg). `FridayChat.BASE = "friday_chat"` for plain navigation (drawer), `FridayChat.routeFor(id)` for opening a specific conversation from History. The drawer's chat nav uses `BASE`; History uses `routeFor`. `currentRoute` equality checks against `FridayChat.route` still match the registered pattern.
+
+### New HXS vaults (both signer-bound under the DEK)
+
+`gateway_store_v1` (`tn.gateways.user_key.v2`) and `friday_store_v1` (`tn.friday_convos.user_key.v2`). Both follow the `openOrRebuild` wipe-on-open-failure contract; a v1→v2 signer-key change is a documented one-time loss like every other vault.
+
+### Things NOT to regress (M1-03)
+
+- Don't add a FRIDAY API / Firebase path for any Friday transcript, gateway key, base URL, selected model, prompt, response, or audio. Gateways connect direct from Android; the entire Friday chat/voice/history state is HXS-local. Firestore stays profile+device metadata only.
+- Don't store gateway API keys in `app_prefs` or anywhere but `gateway_store_v1`. The key is the most sensitive value in the app after the DEK.
+- Don't route `DirectGatewayClient` through `WebNative` (GET-only) or add outbound POST to `:networking`. The `HttpURLConnection` streaming client is the contract, mirroring `FridayApi`.
+- Don't open a socket to anything but `GatewayConfig.effectiveBaseUrl` from the gateway client. No proxy host, no telemetry.
+- Don't make the FRIDAY provider configurable — `GatewayProvider.FRIDAY.enabled = false`, filtered out of `configurable`, disabled placeholder row only.
+- Don't change the mic to tap-toggle. Push-to-talk hold gesture is the FRI-537 requirement: press to record, release to send.
+- Don't relax `network_security_config.xml` for gateway hosts. They're HTTPS via system trust anchors; the localhost/emulator cleartext exception is for the legacy `friday_api` dev backend only.
+- Don't merge `friday_store_v1` into `chat_store_v2`. Friday gateway conversations and ToolNeuron local-model chats are separate surfaces with separate vaults.
+
+---
+
 ## Housekeeping
 
 Whenever you change anything on the list below, update **this file** as part of the same change:

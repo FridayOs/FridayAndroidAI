@@ -129,7 +129,7 @@ private fun AppScaffoldInner() {
             },
             onNavigateChat = {
                 scope.launch { drawerState.close() }
-                navController.navigate(NavScreens.FridayChat.route)
+                navController.navigate(NavScreens.FridayChat.BASE)
             },
             onNavigateHistory = {
                 scope.launch { drawerState.close() }

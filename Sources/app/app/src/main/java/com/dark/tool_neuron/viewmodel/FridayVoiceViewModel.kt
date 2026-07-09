@@ -2,23 +2,30 @@ package com.dark.tool_neuron.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.dark.tool_neuron.data.AppPreferences
-import com.dark.tool_neuron.repo.ModelRepository
+import com.dark.tool_neuron.model.friday.FridayTurn
+import com.dark.tool_neuron.repo.FridayConversationRepository
+import com.dark.tool_neuron.repo.GatewayConfigRepository
+import com.dark.tool_neuron.repo.gateway.DirectGatewayClient
+import com.dark.tool_neuron.repo.gateway.GatewayEvent
+import com.dark.tool_neuron.repo.gateway.GatewayTurn
+import com.dark.tool_neuron.voice.VoiceModelManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
+import java.util.UUID
 import javax.inject.Inject
 
 enum class VoiceMode { IDLE, LISTENING, THINKING, SPEAKING, DONE }
 
 @HiltViewModel
 class FridayVoiceViewModel @Inject constructor(
-    private val modelRepository: ModelRepository,
-    private val prefs: AppPreferences,
+    private val gatewayRepo: GatewayConfigRepository,
+    private val convoRepo: FridayConversationRepository,
+    private val client: DirectGatewayClient,
+    private val voiceManager: VoiceModelManager,
 ) : ViewModel() {
 
     private val _mode = MutableStateFlow(VoiceMode.IDLE)
@@ -30,81 +37,117 @@ class FridayVoiceViewModel @Inject constructor(
     private val _answer = MutableStateFlow("")
     val answer: StateFlow<String> = _answer.asStateFlow()
 
-    private var sampleIdx = 0
+    private val _error = MutableStateFlow<String?>(null)
+    val error: StateFlow<String?> = _error.asStateFlow()
+
+    val amplitude: StateFlow<Float> = voiceManager.recordingAmplitude
+
+    private var conversationId: String? = null
     private var flowJob: Job? = null
 
-    fun tapMic() {
-        when (_mode.value) {
-            VoiceMode.IDLE, VoiceMode.DONE -> startListening()
-            VoiceMode.LISTENING -> stopListening()
-            VoiceMode.SPEAKING -> endSpeaking()
-            VoiceMode.THINKING -> Unit
+    fun clearError() { _error.value = null }
+
+    // Push-to-talk press: begin capturing mic audio. Requires the RECORD_AUDIO
+    // grant (requested by the screen) plus an installed STT model.
+    fun startListening() {
+        if (_mode.value == VoiceMode.THINKING || _mode.value == VoiceMode.LISTENING) return
+        voiceManager.stopSpeaking()
+        flowJob?.cancel()
+        _error.value = null
+        _question.value = ""
+        _answer.value = ""
+        val started = voiceManager.startRecording()
+        if (!started) {
+            _error.value = voiceManager.error.value ?: "Could not start recording"
+            _mode.value = VoiceMode.IDLE
+            return
+        }
+        _mode.value = VoiceMode.LISTENING
+    }
+
+    // Push-to-talk release: transcribe locally, then stream a gateway reply and
+    // speak it. All on-device or direct-to-gateway; nothing hits Firebase.
+    fun stopListening() {
+        if (_mode.value != VoiceMode.LISTENING) return
+        _mode.value = VoiceMode.THINKING
+        flowJob = viewModelScope.launch {
+            val transcript = voiceManager.stopRecordingAndRecognize()
+            if (transcript.isNullOrBlank()) {
+                _error.value = voiceManager.error.value ?: "No speech detected"
+                _mode.value = VoiceMode.IDLE
+                return@launch
+            }
+            _question.value = transcript
+            respond(transcript)
         }
     }
 
-    fun reset() {
+    fun cancel() {
         flowJob?.cancel()
+        voiceManager.cancelRecording()
+        voiceManager.stopSpeaking()
         _mode.value = VoiceMode.IDLE
         _question.value = ""
         _answer.value = ""
+        _error.value = null
     }
 
-    private fun startListening() {
-        flowJob?.cancel()
-        _answer.value = ""
-        _question.value = ""
-        _mode.value = VoiceMode.LISTENING
-        val full = SAMPLES[sampleIdx]
-        flowJob = viewModelScope.launch {
-            for (i in 1..full.length) {
-                _question.value = full.take(i)
-                delay(42)
-            }
-            delay(600)
-            if (_mode.value == VoiceMode.LISTENING) stopListening()
+    private suspend fun respond(transcript: String) {
+        val gateway = gatewayRepo.selected()
+        if (gateway == null) {
+            _error.value = "Add a gateway in the menu to use voice."
+            _mode.value = VoiceMode.IDLE
+            return
         }
-    }
-
-    private fun stopListening() {
-        flowJob?.cancel()
-        _question.value = SAMPLES[sampleIdx] + "?"
-        _mode.value = VoiceMode.THINKING
-        flowJob = viewModelScope.launch {
-            delay(1400)
-            speak()
-        }
-    }
-
-    private fun speak() {
-        val full = ANSWERS[sampleIdx]
-        _mode.value = VoiceMode.SPEAKING
-        _answer.value = ""
-        flowJob = viewModelScope.launch {
-            for (i in 1..full.length) {
-                _answer.value = full.take(i)
-                delay(24)
-            }
-            endSpeaking()
-        }
-    }
-
-    private fun endSpeaking() {
-        flowJob?.cancel()
-        _answer.value = ANSWERS[sampleIdx]
-        _mode.value = VoiceMode.DONE
-        sampleIdx = (sampleIdx + 1) % SAMPLES.size
-    }
-
-    companion object {
-        private val SAMPLES = listOf(
-            "What are the advantages of online education",
-            "Give me three quick ideas for a healthy weeknight dinner",
-            "Explain how voice recognition works in simple terms",
+        val convoId = conversationId ?: convoRepo.createConversation(gateway.id).id.also { conversationId = it }
+        val now = System.currentTimeMillis()
+        convoRepo.addTurn(
+            FridayTurn(
+                id = UUID.randomUUID().toString(),
+                conversationId = convoId,
+                role = "user",
+                content = transcript,
+                timestamp = now,
+                viaVoice = true,
+            )
         )
-        private val ANSWERS = listOf(
-            "Online learning gives you flexibility to study anywhere and at your own pace, often at a lower cost than a traditional classroom.",
-            "Try a sheet-pan salmon with broccoli and lemon, a chickpea and spinach curry over rice, or a quick veg stir-fry — each ready in about 25 minutes.",
-            "Your phone turns your voice into a wave, slices it into tiny pieces, and matches the patterns to words it has learned from millions of examples.",
-        )
+        val history = convoRepo.getTurns(convoId).map { GatewayTurn(it.role, it.content) }
+        client.stream(gateway, history).collect { event ->
+            when (event) {
+                is GatewayEvent.Delta -> {
+                    if (_mode.value != VoiceMode.SPEAKING) _mode.value = VoiceMode.SPEAKING
+                    _answer.value += event.text
+                }
+                is GatewayEvent.Done -> {
+                    val finalText = event.fullText
+                    _answer.value = finalText
+                    _mode.value = VoiceMode.SPEAKING
+                    if (finalText.isNotBlank()) {
+                        convoRepo.addTurn(
+                            FridayTurn(
+                                id = UUID.randomUUID().toString(),
+                                conversationId = convoId,
+                                role = "assistant",
+                                content = finalText,
+                                timestamp = System.currentTimeMillis(),
+                                viaVoice = true,
+                            )
+                        )
+                        val spoken = voiceManager.speak(UUID.randomUUID().toString(), finalText)
+                        if (!spoken) _error.value = voiceManager.error.value
+                    }
+                    _mode.value = VoiceMode.DONE
+                }
+                is GatewayEvent.Error -> {
+                    _error.value = event.message
+                    _mode.value = VoiceMode.IDLE
+                }
+            }
+        }
+    }
+
+    override fun onCleared() {
+        voiceManager.stopSpeaking()
+        flowJob?.cancel()
     }
 }

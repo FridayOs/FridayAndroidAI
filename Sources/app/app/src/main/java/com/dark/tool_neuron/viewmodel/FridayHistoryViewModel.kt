@@ -1,26 +1,22 @@
 package com.dark.tool_neuron.viewmodel
 
 import androidx.lifecycle.ViewModel
+import com.dark.tool_neuron.model.friday.FridayConversation
+import com.dark.tool_neuron.repo.FridayConversationRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
-import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
 import javax.inject.Inject
 
 @HiltViewModel
-class FridayHistoryViewModel @Inject constructor() : ViewModel() {
+class FridayHistoryViewModel @Inject constructor(
+    private val convoRepo: FridayConversationRepository,
+) : ViewModel() {
 
-    private val _reminders = MutableStateFlow(DEFAULT_REMINDERS)
-    val reminders: StateFlow<List<String>> = _reminders.asStateFlow()
+    // HXS-backed Friday conversations. Survives process restart because the
+    // repository re-reads the encrypted vault on construction.
+    val conversations: StateFlow<List<FridayConversation>> = convoRepo.conversations
 
-    companion object {
-        private val DEFAULT_REMINDERS = listOf(
-            "How do I improve my productivity at work?",
-            "What are the advantages of online education?",
-            "Suggest a 7-day workout plan for beginners",
-            "Write a polite email to reschedule a meeting",
-            "Explain quantum computing in simple words",
-            "Best places to visit in Da Nang this summer",
-        )
-    }
+    fun refresh() = convoRepo.refresh()
+
+    fun delete(id: String) = convoRepo.deleteConversation(id)
 }

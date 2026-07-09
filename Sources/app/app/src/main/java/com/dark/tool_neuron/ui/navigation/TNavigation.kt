@@ -491,9 +491,18 @@ fun TNavigation(
                 onOpenHistory = { navController.navigate(NavScreens.FridayHistory.route) },
             )
         }
-        composable(NavScreens.FridayChat.route) {
+        composable(
+            route = NavScreens.FridayChat.route,
+            arguments = listOf(navArgument(NavScreens.FridayChat.ARG_CID) {
+                type = NavType.StringType
+                nullable = true
+                defaultValue = null
+            }),
+        ) { backStack ->
+            val cid = backStack.arguments?.getString(NavScreens.FridayChat.ARG_CID)
             FridayChatScreen(
                 innerPadding = innerPadding,
+                conversationId = cid,
                 onOpenMenu = { navController.navigate(NavScreens.FridayHistory.route) },
                 onToVoice = { navController.navigate(NavScreens.FridayVoice.route) },
             )
@@ -502,8 +511,8 @@ fun TNavigation(
             FridayHistoryScreen(
                 innerPadding = innerPadding,
                 onBack = { navController.popBackStack() },
-                onOpenReminder = { _ ->
-                    navController.navigate(NavScreens.FridayChat.route)
+                onOpenConversation = { conversationId ->
+                    navController.navigate(NavScreens.FridayChat.routeFor(conversationId))
                 },
                 onOpenSettings = {
                     navController.navigate(NavScreens.FridaySettings.route)

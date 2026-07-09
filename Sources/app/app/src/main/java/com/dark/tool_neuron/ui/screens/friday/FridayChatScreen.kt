@@ -31,6 +31,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.vector.ImageVector
@@ -51,12 +52,18 @@ fun FridayChatScreen(
     innerPadding: PaddingValues,
     onOpenMenu: () -> Unit,
     onToVoice: () -> Unit,
+    conversationId: String? = null,
     viewModel: FridayChatViewModel = hiltViewModel(),
 ) {
     val messages by viewModel.messages.collectAsStateWithLifecycle()
     val thinking by viewModel.thinking.collectAsStateWithLifecycle()
+    val error by viewModel.error.collectAsStateWithLifecycle()
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
+
+    LaunchedEffect(conversationId) {
+        if (conversationId != null) viewModel.open(conversationId)
+    }
 
     LaunchedEffect(messages.size, thinking) {
         val count = messages.size + if (thinking) 1 else 0
@@ -95,6 +102,25 @@ fun FridayChatScreen(
             }
             if (thinking) {
                 item { FridayThinkingDots() }
+            }
+        }
+
+        error?.let { message ->
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 18.dp, vertical = 6.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .background(MaterialTheme.colorScheme.errorContainer)
+                    .clickable { viewModel.clearError() }
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    text = message,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onErrorContainer,
+                )
             }
         }
 

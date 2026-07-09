@@ -37,5 +37,19 @@
     <string name="friday_version_footer">Friday · v1.0.0</string>
     <string name="friday_chat_input_hint">Type message here</string>
     <string name="friday_voice_idle_hint">Tap the mic and ask me anything — I\'ll listen and reply out loud.</string>
+    <string name="friday_history_empty">No conversations yet. Start one from Chat or Voice.</string>
+    <string name="friday_voice_hold_hint">Hold the mic and speak — release to send. I\'ll reply out loud.</string>
+    <string name="friday_gateways_title">Gateways</string>
+    <string name="friday_gateways_add">Add gateway</string>
+    <string name="friday_gateways_empty">No gateways yet. Add one to connect a provider directly from this device.</string>
+    <string name="friday_gateway_provider_label">Provider</string>
+    <string name="friday_gateway_label_hint">Label (optional)</string>
+    <string name="friday_gateway_base_url_hint">Base URL (optional — uses provider default)</string>
+    <string name="friday_gateway_api_key_hint">API key</string>
+    <string name="friday_gateway_model_hint">Model (optional — uses provider default)</string>
+    <string name="friday_gateway_save">Save gateway</string>
+    <string name="friday_gateway_cancel">Cancel</string>
+    <string name="friday_gateway_delete">Delete</string>
+    <string name="friday_gateway_local_only">Keys and endpoints stay on this device. Never uploaded.</string>
     <string name="google_default_web_client_id">REPLACE_IN_PROD</string>
 </resources>
