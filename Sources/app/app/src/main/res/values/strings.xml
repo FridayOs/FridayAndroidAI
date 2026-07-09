@@ -52,4 +52,17 @@
     <string name="friday_gateway_delete">Delete</string>
     <string name="friday_gateway_local_only">Keys and endpoints stay on this device. Never uploaded.</string>
     <string name="google_default_web_client_id">REPLACE_IN_PROD</string>
+
+    <!-- Sign-in error surface -->
+    <string name="friday_login_error_no_credential">Chưa có tài khoản Google</string>
+    <string name="friday_login_error_no_credential_body">Thiết bị chưa có tài khoản Google phù hợp. Vui lòng đăng nhập Google trong Cài đặt rồi thử lại.</string>
+    <string name="friday_login_action_open_settings">Mở cài đặt Google</string>
+    <string name="friday_login_action_close">Đóng</string>
+    <string name="friday_login_error_cancelled">Đã hủy đăng nhập.</string>
+    <string name="friday_login_error_generic">Đăng nhập thất bại. Vui lòng thử lại.</string>
+    <string name="friday_login_action_dismiss">Đóng</string>
+    <string name="friday_login_terms_prefix">Bằng việc tiếp tục, bạn đồng ý với</string>
+    <string name="friday_login_terms_link">Điều khoản dịch vụ</string>
+    <string name="friday_login_terms_and">và</string>
+    <string name="friday_login_privacy_link">Chính sách bảo mật</string>
 </resources>

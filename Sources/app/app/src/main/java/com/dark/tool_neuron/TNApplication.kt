@@ -6,6 +6,7 @@ import android.os.Build
 import android.os.Process
 import android.util.Log
 import com.dark.hxs_encryptor.BootIntegrity
+import com.friday.ai.BuildConfig
 import com.dark.tn_security.LogcatSink
 import com.dark.tn_security.TnModule
 import com.dark.tn_security.TnSecurity
@@ -86,11 +87,23 @@ class TNApplication : Application() {
         val accessibilityGuard = accessibilityGuardLazy.get()
 
         val envReasons = integrity.scanProcessEnvironment()
-        val hardEnvReasons = envReasons and (BootIntegrity.FAIL_DEBUGGER or BootIntegrity.FAIL_FRIDA)
+        val hardEnvMask = if (BuildConfig.DEBUG) {
+            // Debug APKs are installed and exercised through adb; some Samsung
+            // builds report a Frida-like environment signal during adb launches.
+            // Keep the warning visible but avoid killing dev/test builds before
+            // MainActivity can render. Release builds still hard-fail.
+            BootIntegrity.FAIL_DEBUGGER
+        } else {
+            BootIntegrity.FAIL_DEBUGGER or BootIntegrity.FAIL_FRIDA
+        }
+        val hardEnvReasons = envReasons and hardEnvMask
         if (hardEnvReasons != BootIntegrity.FAIL_NONE) {
             Log.w(TAG, "env reasons=$envReasons (hard=$hardEnvReasons)")
             BootIntegrity.hardFail(hardEnvReasons)
             return
+        }
+        if (BuildConfig.DEBUG && envReasons and BootIntegrity.FAIL_FRIDA != 0) {
+            Log.w(TAG, "frida-like signal detected in debug build; continuing for device QA")
         }
         if (envReasons and BootIntegrity.FAIL_XPOSED != 0) {
             Log.w(TAG, "xposed/lspd-like signal detected; deferring to user warning")

@@ -9,7 +9,7 @@
 <!--    <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />-->
 
     <application
-        android:name=".TNApplication"
+        android:name="com.dark.tool_neuron.TNApplication"
         android:allowBackup="false"
         android:largeHeap="true"
         android:dataExtractionRules="@xml/data_extraction_rules"
@@ -21,7 +21,7 @@
         android:networkSecurityConfig="@xml/network_security_config"
         android:theme="@style/Theme.FridayAI">
         <activity
-            android:name=".activity.MainActivity"
+            android:name="com.dark.tool_neuron.activity.MainActivity"
             android:exported="true"
             android:windowSoftInputMode="adjustResize"
             android:theme="@style/Theme.FridayAI">
@@ -34,19 +34,19 @@
 
 
         <activity
-            android:name=".activity.TempActivity"
+            android:name="com.dark.tool_neuron.activity.TempActivity"
             android:exported="true"
             android:theme="@style/Theme.FridayAI">
         </activity>
 
         <activity
-            android:name=".activity.ColorShowcaseActivity"
+            android:name="com.dark.tool_neuron.activity.ColorShowcaseActivity"
             android:exported="false"
             android:theme="@style/Theme.FridayAI">
         </activity>
 
         <activity
-            android:name=".ui.screens.crash_report.CrashReportActivity"
+            android:name="com.dark.tool_neuron.ui.screens.crash_report.CrashReportActivity"
             android:exported="false"
             android:label="Crash report"
             android:theme="@style/Theme.FridayAI">
@@ -62,7 +62,7 @@
              (google-services.json present); otherwise FCM never provisions
              and this service is never invoked. Carries no assistant content. -->
         <service
-            android:name=".data.firebase.FridayMessagingService"
+            android:name="com.dark.tool_neuron.data.firebase.FridayMessagingService"
             android:exported="false">
             <intent-filter>
                 <action android:name="com.google.firebase.MESSAGING_EVENT" />
@@ -70,14 +70,14 @@
         </service>
 
         <service
-            android:name=".service.inference.InferenceService"
+            android:name="com.dark.tool_neuron.service.inference.InferenceService"
             android:process=":inference"
             android:exported="false"
             android:foregroundServiceType="dataSync"
             android:stopWithTask="true" />
 
         <service
-            android:name=".service.server.RemoteServerService"
+            android:name="com.dark.tool_neuron.service.server.RemoteServerService"
             android:process=":server"
             android:exported="false"
             android:foregroundServiceType="dataSync"
@@ -103,7 +103,7 @@
 <!--        </service>-->
 
         <receiver
-            android:name=".service.inference.InferenceStopReceiver"
+            android:name="com.dark.tool_neuron.service.inference.InferenceStopReceiver"
             android:exported="false" />
 
         <provider

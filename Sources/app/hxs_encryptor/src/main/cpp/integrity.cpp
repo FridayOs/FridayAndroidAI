@@ -14,6 +14,24 @@
 
 namespace hxs {
 
+// "frida" collides with the com.friday.ai package path in /proc/self/maps.
+// Real artifacts (frida-agent, frida-gadget, libfrida.so, re.frida.server) are
+// followed by a delimiter; only "friday" continues with a letter. Match the
+// pattern only when the trailing char is not alphanumeric.
+static bool contains_token(const char* line, const char* pat) {
+    size_t plen = strlen(pat);
+    const char* p = line;
+    while ((p = strstr(p, pat)) != nullptr) {
+        char next = p[plen];
+        if (!((next >= 'a' && next <= 'z') || (next >= 'A' && next <= 'Z') ||
+              (next >= '0' && next <= '9'))) {
+            return true;
+        }
+        p += plen;
+    }
+    return false;
+}
+
 bool IntegrityGuard::is_debugger_attached() {
     HXS_OBF(status_path, "/proc/self/status");
     HXS_OBF(tracer_pid, "TracerPid:");
@@ -54,7 +72,7 @@ bool IntegrityGuard::is_frida_present() {
         char line[512];
         bool found = false;
         while (fgets(line, sizeof(line), f)) {
-            if (strstr(line, pat_frida) ||
+            if (contains_token(line, pat_frida) ||
                 strstr(line, pat_gadget) ||
                 strstr(line, pat_linjector)) {
                 found = true;
@@ -91,7 +109,7 @@ bool IntegrityGuard::is_frida_present() {
         ssize_t len = readlink(fd_path, link_target, sizeof(link_target) - 1);
         if (len > 0) {
             link_target[len] = '\0';
-            if (strstr(link_target, pat_frida) || strstr(link_target, pat_linjector)) {
+            if (contains_token(link_target, pat_frida) || strstr(link_target, pat_linjector)) {
                 found = true;
                 break;
             }

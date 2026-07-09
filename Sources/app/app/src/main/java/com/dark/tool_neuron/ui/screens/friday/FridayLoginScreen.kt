@@ -13,30 +13,35 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.layout.statusBars
+import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.KeyboardOptions
-import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -57,107 +62,204 @@ fun FridayLoginScreen(
 ) {
     val context = LocalContext.current
     val signingIn by accountViewModel.signingIn.collectAsStateWithLifecycle()
-    val error by accountViewModel.error.collectAsStateWithLifecycle()
+    val noGoogleAccount by accountViewModel.noGoogleAccount.collectAsStateWithLifecycle()
     val mode by themeViewModel.mode.collectAsStateWithLifecycle()
     val logo = rememberAssetBitmap(FRIDAY_LOGO_ASSET)
 
-    Column(
+    val snackbarHostState = remember { SnackbarHostState() }
+    val cancelledMsg = stringResource(R.string.friday_login_error_cancelled)
+    val genericMsg = stringResource(R.string.friday_login_error_generic)
+    LaunchedEffect(accountViewModel) {
+        accountViewModel.snackbar.collect { kind ->
+            val msg = when (kind) {
+                "cancelled" -> cancelledMsg
+                else -> genericMsg
+            }
+            snackbarHostState.showSnackbar(msg)
+        }
+    }
+
+    Box(
         modifier = Modifier
             .fillMaxSize()
+            .background(MaterialTheme.colorScheme.background)
             .padding(innerPadding)
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = 28.dp, vertical = 8.dp),
+            .windowInsetsPadding(WindowInsets.statusBars),
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            if (logo != null) {
-                Image(bitmap = logo, contentDescription = null, modifier = Modifier.size(34.dp))
-            }
-            Spacer(Modifier.size(9.dp))
-            Text(
-                text = stringResource(R.string.friday_brand_name),
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Spacer(Modifier.weight(1f))
-            Box(
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(horizontal = 28.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Row(
                 modifier = Modifier
-                    .size(38.dp)
-                    .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
-                    .clickable { themeViewModel.toggle() },
-                contentAlignment = Alignment.Center,
+                    .fillMaxWidth()
+                    .padding(top = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
             ) {
-                Icon(
-                    imageVector = if (mode == ThemeController.Mode.DARK) TnIcons.Sun else TnIcons.Moon,
-                    contentDescription = null,
-                    modifier = Modifier.size(18.dp),
-                    tint = MaterialTheme.colorScheme.onSurface,
+                if (logo != null) {
+                    Image(bitmap = logo, contentDescription = null, modifier = Modifier.size(34.dp))
+                }
+                Spacer(Modifier.size(9.dp))
+                Text(
+                    text = stringResource(R.string.friday_brand_name),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Spacer(Modifier.weight(1f))
+                Box(
+                    modifier = Modifier
+                        .size(38.dp)
+                        .background(MaterialTheme.colorScheme.surfaceVariant, CircleShape)
+                        .clickable { themeViewModel.toggle() },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        imageVector = if (mode == ThemeController.Mode.DARK) TnIcons.Sun else TnIcons.Moon,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp),
+                        tint = MaterialTheme.colorScheme.onSurface,
+                    )
+                }
+            }
+
+            Spacer(Modifier.weight(1f))
+
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                Text(
+                    text = stringResource(R.string.friday_login_heading),
+                    style = MaterialTheme.typography.headlineMedium,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = stringResource(R.string.friday_or_use_account_help),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                )
+                Spacer(Modifier.height(32.dp))
+                GoogleButton(
+                    loading = signingIn,
+                    onClick = { accountViewModel.signInWithGoogle(context as ComponentActivity) },
                 )
             }
+
+            Spacer(Modifier.weight(1f))
+
+            TermsAndPrivacyFooter()
+
+            Spacer(Modifier.height(20.dp))
         }
 
-        Spacer(Modifier.height(34.dp))
-        Text(
-            text = stringResource(R.string.friday_login_heading),
-            style = MaterialTheme.typography.headlineMedium,
-            fontWeight = FontWeight.Bold,
+        SnackbarHost(
+            hostState = snackbarHostState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 24.dp),
         )
-        Spacer(Modifier.height(8.dp))
-        Text(
-            text = stringResource(R.string.friday_or_use_account_help),
-            style = MaterialTheme.typography.bodyMedium,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-
-        Spacer(Modifier.height(28.dp))
-        Text(
-            text = stringResource(R.string.friday_name_label),
-            style = MaterialTheme.typography.labelLarge,
-        )
-        Spacer(Modifier.height(9.dp))
-        OutlinedTextField(
-            value = "",
-            onValueChange = {},
-            enabled = false,
-            singleLine = true,
-            modifier = Modifier.fillMaxWidth(),
-            leadingIcon = { Icon(TnIcons.Person, contentDescription = null, modifier = Modifier.size(19.dp)) },
-            shape = RoundedCornerShape(15.dp),
-        )
-
-        Spacer(Modifier.height(18.dp))
-        Text(
-            text = stringResource(R.string.friday_password_label),
-            style = MaterialTheme.typography.labelLarge,
-        )
-        Spacer(Modifier.height(9.dp))
-        OutlinedTextField(
-            value = "",
-            onValueChange = {},
-            enabled = false,
-            singleLine = true,
-            visualTransformation = PasswordVisualTransformation(),
-            keyboardOptions = KeyboardOptions(),
-            modifier = Modifier.fillMaxWidth(),
-            leadingIcon = { Icon(TnIcons.Lock, contentDescription = null, modifier = Modifier.size(19.dp)) },
-            shape = RoundedCornerShape(15.dp),
-        )
-
-        Spacer(Modifier.height(26.dp))
-        GoogleButton(
-            loading = signingIn,
-            onClick = { accountViewModel.signInWithGoogle(context as ComponentActivity) },
-        )
-
-        if (error != null) {
-            Spacer(Modifier.height(12.dp))
-            Text(
-                text = error.orEmpty(),
-                style = MaterialTheme.typography.bodySmall,
-                color = MaterialTheme.colorScheme.error,
-            )
-        }
-        Spacer(Modifier.height(28.dp))
     }
+
+    if (noGoogleAccount) {
+        NoGoogleAccountDialog(
+            onConfirm = {
+                accountViewModel.dismissNoGoogleAccount()
+                openSystemAddAccount(context)
+            },
+            onDismiss = { accountViewModel.dismissNoGoogleAccount() },
+        )
+    }
+}
+
+@Composable
+private fun NoGoogleAccountDialog(
+    onConfirm: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = {
+            Text(
+                text = stringResource(R.string.friday_login_error_no_credential),
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold,
+            )
+        },
+        text = {
+            Text(
+                text = stringResource(R.string.friday_login_error_no_credential_body),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        },
+        confirmButton = {
+            Box(
+                modifier = Modifier
+                    .background(FridayPalette.Primary, RoundedCornerShape(12.dp))
+                    .clickable(onClick = onConfirm)
+                    .padding(horizontal = 18.dp, vertical = 10.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Text(
+                    text = stringResource(R.string.friday_login_action_open_settings),
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold,
+                    color = FridayPalette.OnPrimary,
+                )
+            }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) {
+                Text(
+                    text = stringResource(R.string.friday_login_action_close),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
+        shape = RoundedCornerShape(20.dp),
+        containerColor = MaterialTheme.colorScheme.surface,
+    )
+}
+
+@Composable
+private fun TermsAndPrivacyFooter() {
+    val prefix = stringResource(R.string.friday_login_terms_prefix)
+    val terms = stringResource(R.string.friday_login_terms_link)
+    val and = stringResource(R.string.friday_login_terms_and)
+    val privacy = stringResource(R.string.friday_login_privacy_link)
+    Text(
+        text = "$prefix $terms $and $privacy",
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        textAlign = TextAlign.Center,
+        modifier = Modifier.fillMaxWidth(),
+    )
+}
+
+/**
+ * Launch the system flow that lets the user add a Google account. We never
+ * auto-open Settings on a sign-in error — the dialog asks the user to tap
+ * the primary button first. Falls back through less-specific intents if the
+ * add-account intent isn't available on this device.
+ */
+private fun openSystemAddAccount(context: android.content.Context) {
+    val addAccount = android.content.Intent(android.provider.Settings.ACTION_ADD_ACCOUNT).apply {
+        putExtra(android.provider.Settings.EXTRA_ACCOUNT_TYPES, arrayOf("com.google"))
+    }
+    runCatching { context.startActivity(addAccount) }
+        .recoverCatching {
+            val syncSettings = android.content.Intent(android.provider.Settings.ACTION_SYNC_SETTINGS)
+            runCatching { context.startActivity(syncSettings) }
+                .recoverCatching {
+                    context.startActivity(android.content.Intent(android.provider.Settings.ACTION_SETTINGS))
+                }
+        }
 }
 
 @Composable

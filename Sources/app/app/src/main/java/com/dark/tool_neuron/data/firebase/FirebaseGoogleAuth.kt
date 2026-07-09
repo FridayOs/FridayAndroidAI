@@ -4,12 +4,14 @@ import android.content.Context
 import androidx.activity.ComponentActivity
 import androidx.credentials.CredentialManager
 import androidx.credentials.GetCredentialRequest
+import androidx.credentials.exceptions.GetCredentialException
 import com.google.android.libraries.identity.googleid.GetGoogleIdOption
 import com.google.android.libraries.identity.googleid.GoogleIdTokenCredential
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.GoogleAuthProvider
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.tasks.await
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -34,7 +36,17 @@ class FirebaseGoogleAuth @Inject constructor(
             .addCredentialOption(option)
             .build()
 
-        val result = CredentialManager.create(context).getCredential(activity, request)
+        val result = runCatching {
+            CredentialManager.create(context).getCredential(activity, request)
+        }.getOrElse { t ->
+            // Credential Manager throws GetCredentialException subclasses for
+            // "no account signed in" / "user cancelled". Translate to a typed
+            // SignInException so the UI can render a localized, actionable
+            // message instead of leaking "[28433]" to the user.
+            if (t is CancellationException) throw t
+            if (t is GetCredentialException) throw SignInException(SignInErrorMapper.fromGetCredential(t))
+            throw SignInException(SignInError.Other(t))
+        }
         val credential = result.credential
         require(credential.type == GoogleIdTokenCredential.TYPE_GOOGLE_ID_TOKEN_CREDENTIAL) {
             "Unexpected credential type: ${credential.type}"
