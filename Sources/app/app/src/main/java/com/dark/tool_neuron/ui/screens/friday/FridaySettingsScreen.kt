@@ -39,6 +39,7 @@ import com.dark.tool_neuron.viewmodel.AccountViewModel
 fun FridaySettingsScreen(
     innerPadding: PaddingValues,
     onBack: () -> Unit,
+    onLanguageClick: () -> Unit = {},
     accountViewModel: AccountViewModel = hiltViewModel(),
 ) {
     val account by accountViewModel.state.collectAsStateWithLifecycle()
@@ -79,21 +80,28 @@ fun FridaySettingsScreen(
         )
         Spacer(Modifier.height(10.dp))
         SectionCard(
-            title = "Gateway",
-            subtitle = "Default · direct from Android",
+            title = stringResource(R.string.friday_settings_section_gateway_title),
+            subtitle = stringResource(R.string.friday_settings_section_gateway_subtitle),
             icon = TnIcons.Server,
         )
         Spacer(Modifier.height(10.dp))
         SectionCard(
-            title = "Voice",
-            subtitle = "Default · system",
+            title = stringResource(R.string.friday_settings_section_voice_title),
+            subtitle = stringResource(R.string.friday_settings_section_voice_subtitle),
             icon = TnIcons.Mic,
         )
         Spacer(Modifier.height(10.dp))
         SectionCard(
-            title = "Theme",
-            subtitle = "System · follows device",
+            title = stringResource(R.string.friday_settings_section_theme_title),
+            subtitle = stringResource(R.string.friday_settings_section_theme_subtitle),
             icon = TnIcons.Sparkles,
+        )
+        Spacer(Modifier.height(10.dp))
+        SectionCard(
+            title = stringResource(R.string.friday_settings_section_language_title),
+            subtitle = stringResource(R.string.friday_settings_section_language_subtitle),
+            icon = TnIcons.Globe,
+            onClick = onLanguageClick,
         )
 
         Spacer(Modifier.height(20.dp))
@@ -119,12 +127,12 @@ fun FridaySettingsScreen(
 }
 
 @Composable
-private fun SectionCard(title: String, subtitle: String, icon: ImageVector) {
+private fun SectionCard(title: String, subtitle: String, icon: ImageVector, onClick: () -> Unit = {}) {
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.4f), RoundedCornerShape(16.dp))
-            .clickable { }
+            .clickable(onClick = onClick)
             .padding(horizontal = 16.dp, vertical = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {

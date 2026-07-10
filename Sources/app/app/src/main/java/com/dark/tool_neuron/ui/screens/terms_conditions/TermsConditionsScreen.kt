@@ -1,5 +1,7 @@
 package com.dark.tool_neuron.ui.screens.terms_conditions
 
+import com.friday.ai.R
+
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -23,6 +25,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.dark.tool_neuron.ui.icons.TnIcons
@@ -73,13 +76,13 @@ fun TermsConditionsScreen(
                 )
                 Spacer(Modifier.height(dimens.spacingLg))
                 Text(
-                    text = "A few things to read first",
+                    text = stringResource(R.string.friday_tc_title),
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.SemiBold,
                 )
                 Spacer(Modifier.height(dimens.spacingXs))
                 Text(
-                    text = "Plain English. Not lawyer English.",
+                    text = stringResource(R.string.friday_tc_subtitle),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )

@@ -1,0 +1,112 @@
+<resources>
+    <string name="app_name">FRIDAY AI</string>
+    <string name="island_accessibility_label">FRIDAY AI Island</string>
+    <string name="island_accessibility_description">Cho phép viên thuốc FRIDAY AI tránh các nút và điểm có thể nhấn trong ứng dụng đang mở. FRIDAY AI chỉ đọc nội dung trên màn hình để tính toán vị trí viên thuốc — không gửi dữ liệu đi đâu.</string>
+
+    <string name="friday_brand_name">Friday</string>
+    <string name="friday_splash_title">Friday</string>
+    <string name="friday_login_heading">Xin chào, đăng nhập nhé</string>
+    <string name="friday_continue_with_google">Tiếp tục với Google</string>
+    <string name="friday_or_use_account_help">Friday chỉ dùng Google để đăng nhập. Nhấn nút bên dưới để tiếp tục.</string>
+    <string name="friday_name_label">Tên của bạn</string>
+    <string name="friday_password_label">Mật khẩu</string>
+    <string name="friday_sign_out">Đăng xuất</string>
+    <string name="friday_settings_title">Cài đặt</string>
+    <string name="friday_drawer_free_plan">Gói miễn phí</string>
+    <string name="friday_voice_idle_title">Chạm mic để gửi tin nhắn thoại</string>
+    <string name="friday_voice_listening_title">Đang nghe…</string>
+    <string name="friday_voice_thinking_title">Đang suy nghĩ…</string>
+    <string name="friday_voice_speaking_title">Đang nói…</string>
+    <string name="friday_voice_done_title">Chạm để hỏi lại</string>
+    <string name="friday_recent_quick_command">Lệnh nhanh</string>
+    <string name="friday_recent_open_care">Mở Care</string>
+    <string name="friday_recent_how_to_use">Cách dùng</string>
+    <string name="friday_history_section_recent">Gần đây</string>
+    <string name="friday_history_section_reminder">Nhắc nhở</string>
+    <string name="friday_model_section">Mô hình</string>
+    <string name="friday_provider_friday">Friday</string>
+    <string name="friday_provider_friday_maker">Mặc định</string>
+    <string name="friday_provider_coming_soon">Sắp ra mắt</string>
+    <string name="friday_appearance_section">Giao diện</string>
+    <string name="friday_appearance_system">Theo hệ thống</string>
+    <string name="friday_appearance_light">Sáng</string>
+    <string name="friday_appearance_dark">Tối</string>
+    <string name="friday_nav_voice">Trợ lý thoại</string>
+    <string name="friday_nav_chat">Trò chuyện</string>
+    <string name="friday_nav_history">Lịch sử</string>
+    <string name="friday_version_footer">Friday · v1.0.0</string>
+    <string name="friday_chat_input_hint">Nhập tin nhắn ở đây</string>
+    <string name="friday_voice_idle_hint">Chạm mic và hỏi bất cứ điều gì — mình nghe và trả lời bằng giọng nói.</string>
+    <string name="friday_history_empty">Chưa có cuộc trò chuyện. Bắt đầu từ Trò chuyện hoặc Thoại.</string>
+    <string name="friday_voice_hold_hint">Nhấn giữ mic và nói — thả ra để gửi. Mình sẽ trả lời bằng giọng nói.</string>
+    <string name="friday_gateways_title">Cổng kết nối</string>
+    <string name="friday_gateways_add">Thêm cổng</string>
+    <string name="friday_gateways_empty">Chưa có cổng nào. Thêm một cổng để kết nối trực tiếp từ thiết bị.</string>
+    <string name="friday_gateway_provider_label">Nhà cung cấp</string>
+    <string name="friday_gateway_label_hint">Nhãn (tùy chọn)</string>
+    <string name="friday_gateway_base_url_hint">Base URL (tùy chọn — dùng mặc định của nhà cung cấp)</string>
+    <string name="friday_gateway_api_key_hint">API key</string>
+    <string name="friday_gateway_model_hint">Mô hình (tùy chọn — dùng mặc định)</string>
+    <string name="friday_gateway_save">Lưu cổng</string>
+    <string name="friday_gateway_cancel">Hủy</string>
+    <string name="friday_gateway_delete">Xóa</string>
+    <string name="friday_gateway_local_only">Khóa và endpoint chỉ lưu trên thiết bị này. Không bao giờ gửi đi.</string>
+    <string name="google_default_web_client_id">REPLACE_IN_PROD</string>
+
+    <!-- Sign-in error surface (initial Friday bilingual pass) -->
+    <string name="friday_login_error_no_credential">Chưa có tài khoản Google</string>
+    <string name="friday_login_error_no_credential_body">Thiết bị chưa có tài khoản Google phù hợp. Vui lòng đăng nhập Google trong Cài đặt rồi thử lại.</string>
+    <string name="friday_login_action_open_settings">Mở cài đặt Google</string>
+    <string name="friday_login_action_close">Đóng</string>
+    <string name="friday_login_error_cancelled">Đã hủy đăng nhập.</string>
+    <string name="friday_login_error_generic">Đăng nhập thất bại. Vui lòng thử lại.</string>
+    <string name="friday_login_action_dismiss">Đóng</string>
+    <string name="friday_login_terms_prefix">Bằng việc tiếp tục, bạn đồng ý với</string>
+    <string name="friday_login_terms_link">Điều khoản dịch vụ</string>
+    <string name="friday_login_terms_and">và</string>
+    <string name="friday_login_privacy_link">Chính sách bảo mật</string>
+
+    <!-- Language selection (M2-00 bilingual foundation) -->
+    <string name="friday_language_title">Chọn ngôn ngữ</string>
+    <string name="friday_language_subtitle">Friday ra mắt song ngữ. Chọn ngôn ngữ bạn muốn dùng — bạn có thể đổi sau trong Cài đặt.</string>
+    <string name="friday_language_subtitle_row">Mã: %1$s</string>
+    <string name="friday_language_system">Theo hệ thống</string>
+    <string name="friday_language_english">English</string>
+    <string name="friday_language_vietnamese">Tiếng Việt</string>
+    <string name="friday_language_continue">Tiếp tục</string>
+
+    <!-- Friday settings sections -->
+    <string name="friday_settings_section_gateway_title">Cổng kết nối</string>
+    <string name="friday_settings_section_gateway_subtitle">Mặc định · trực tiếp từ thiết bị</string>
+    <string name="friday_settings_section_voice_title">Giọng nói</string>
+    <string name="friday_settings_section_voice_subtitle">Mặc định · hệ thống</string>
+    <string name="friday_settings_section_theme_title">Giao diện</string>
+    <string name="friday_settings_section_theme_subtitle">Theo hệ thống</string>
+    <string name="friday_settings_section_language_title">Ngôn ngữ</string>
+    <string name="friday_settings_section_language_subtitle">Đổi ngôn ngữ ứng dụng</string>
+
+    <!-- Setup labels (M2-00 first-launch) -->
+    <string name="friday_setup_protect_title">Bảo vệ dữ liệu của bạn</string>
+    <string name="friday_setup_protect_subtitle">Chọn cách khóa ứng dụng. Điều này giữ cuộc trò chuyện và dữ liệu ở chế độ riêng tư.</string>
+    <string name="friday_setup_app_password_title">Mật khẩu ứng dụng</string>
+    <string name="friday_setup_app_password_subtitle">Đặt mật khẩu riêng cho ứng dụng</string>
+    <string name="friday_setup_no_lock_title">Không khóa</string>
+    <string name="friday_setup_no_lock_subtitle">Bất kỳ ai cầm máy đều có thể mở ứng dụng</string>
+
+    <!-- Theme selection (M2-00 first-launch) -->
+    <string name="friday_setup_theme_title">Cá nhân hóa</string>
+    <string name="friday_setup_theme_subtitle">Chọn chế độ giao diện và bảng màu. Bạn có thể đổi sau trong Cài đặt.</string>
+    <string name="friday_setup_theme_mode_label">Chế độ giao diện</string>
+    <string name="friday_setup_theme_mode_system_title">Theo hệ thống</string>
+    <string name="friday_setup_theme_mode_system_subtitle">Khớp với cài đặt sáng/tối của máy</string>
+    <string name="friday_setup_theme_mode_light_title">Sáng</string>
+    <string name="friday_setup_theme_mode_light_subtitle">Luôn dùng màu sáng</string>
+    <string name="friday_setup_theme_mode_dark_title">Tối</string>
+    <string name="friday_setup_theme_mode_dark_subtitle">Luôn dùng màu tối</string>
+    <string name="friday_setup_theme_palette_label">Bảng màu</string>
+
+    <!-- T&C (M2-00 first-launch) -->
+    <string name="friday_tc_title">Vài điều cần đọc trước</string>
+    <string name="friday_tc_subtitle">Văn phong đời thường. Không phải ngôn ngữ luật sư.</string>
+    <string name="friday_tc_continue">Đồng ý và tiếp tục</string>
+</resources>

@@ -64,12 +64,14 @@ import com.dark.tool_neuron.ui.screens.friday.FridayVoiceScreen
 import com.dark.tool_neuron.ui.screens.friday.FridayChatScreen
 import com.dark.tool_neuron.ui.screens.friday.FridayHistoryScreen
 import com.dark.tool_neuron.ui.screens.friday.FridaySettingsScreen
+import com.dark.tool_neuron.ui.screens.language_selection.LanguageSelectionScreen
 import com.dark.tool_neuron.data.AccountState
 import com.dark.tool_neuron.viewmodel.AccountViewModel
 import com.dark.tool_neuron.ui.screens.terms_conditions.TermsConditionsScreen
 import com.dark.tool_neuron.ui.theme.rememberNavTransitions
 import com.dark.tool_neuron.viewmodel.HomeViewModel
 import com.dark.tool_neuron.viewmodel.ImageTaskViewModel
+import com.dark.tool_neuron.viewmodel.LanguageViewModel
 import com.dark.tool_neuron.viewmodel.ModelStoreViewModel
 import com.dark.tool_neuron.viewmodel.PasswordViewModel
 import com.dark.tool_neuron.viewmodel.RagDebugViewModel
@@ -89,7 +91,7 @@ fun TNavigation(
     onUnlocked: () -> Unit = {},
     onSetupComplete: () -> Unit = {},
     onModelSetupComplete: () -> Unit = {},
-    onRagSetupComplete: () -> Unit = {},
+    resolveNext: () -> String = { nextDestination },
 ) {
     val transitions = rememberNavTransitions()
 
@@ -108,7 +110,7 @@ fun TNavigation(
             IntroScreen(
                 innerPadding = innerPadding,
                 onFinish = {
-                    navController.navigate(nextDestination) {
+                    navController.navigate(resolveNext()) {
                         popUpTo(NavScreens.IntroScreen.route) { inclusive = true }
                     }
                 },
@@ -474,7 +476,8 @@ fun TNavigation(
             val accountState by accountViewModel.state.collectAsStateWithLifecycle()
             LaunchedEffect(accountState) {
                 if (accountState is AccountState.Authenticated) {
-                    navController.navigate(NavScreens.FridayVoice.route) {
+                    // Resolve fresh so a no-language/no-onboarding install routes through the gate chain, not straight to FridayVoice.
+                    navController.navigate(resolveNext()) {
                         popUpTo(NavScreens.FridayLogin.route) { inclusive = true }
                     }
                 }
@@ -523,6 +526,17 @@ fun TNavigation(
             FridaySettingsScreen(
                 innerPadding = innerPadding,
                 onBack = { navController.popBackStack() },
+                onLanguageClick = { navController.navigate(NavScreens.LanguageSelection.route) },
+            )
+        }
+        composable(NavScreens.LanguageSelection.route) {
+            val viewModel: LanguageViewModel = hiltViewModel()
+            LanguageSelectionScreen(
+                innerPadding = innerPadding,
+                viewModel = viewModel,
+                onContinue = { navController.navigate(resolveNext()) {
+                    popUpTo(NavScreens.LanguageSelection.route) { inclusive = true }
+                } },
             )
         }
     }

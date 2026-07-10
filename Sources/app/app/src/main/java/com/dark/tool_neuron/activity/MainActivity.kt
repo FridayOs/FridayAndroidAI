@@ -1,5 +1,6 @@
 package com.dark.tool_neuron.activity
 
+import android.content.Context
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -7,16 +8,35 @@ import androidx.activity.enableEdgeToEdge
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.dark.tool_neuron.data.AppCompatLocaleWrapper
 import com.dark.tool_neuron.data.ThemeController
 import com.dark.tool_neuron.ui.screens.system_ui.AppScaffold
 import com.dark.tool_neuron.ui.theme.ToolNeuronTheme
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
 import dagger.hilt.android.AndroidEntryPoint
+import dagger.hilt.android.EntryPointAccessors
+import dagger.hilt.components.SingletonComponent
 import javax.inject.Inject
 
 @AndroidEntryPoint
 class MainActivity : ComponentActivity() {
 
     @Inject lateinit var themeController: ThemeController
+
+    @EntryPoint
+    @InstallIn(SingletonComponent::class)
+    interface LocaleEntryPoint {
+        fun localeWrapper(): AppCompatLocaleWrapper
+    }
+
+    override fun attachBaseContext(newBase: Context) {
+        // App-scoped entry point, not Activity @Inject: fields aren't guaranteed injected before attachBaseContext.
+        val wrapper = EntryPointAccessors
+            .fromApplication(newBase.applicationContext, LocaleEntryPoint::class.java)
+            .localeWrapper()
+        super.attachBaseContext(wrapper.wrap(newBase))
+    }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)

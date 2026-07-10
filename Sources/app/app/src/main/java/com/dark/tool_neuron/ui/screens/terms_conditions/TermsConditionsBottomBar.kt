@@ -1,5 +1,6 @@
 package com.dark.tool_neuron.ui.screens.terms_conditions
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -9,13 +10,14 @@ import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.dark.tool_neuron.ui.theme.LocalDimens
 
 @Composable
 fun TermsConditionsBottomBar(
-    buttonLabel: String,
+    @StringRes buttonLabel: Int,
     onAccept: () -> Unit,
 ) {
     val dimens = LocalDimens.current
@@ -36,7 +38,7 @@ fun TermsConditionsBottomBar(
                 ),
         ) {
             Text(
-                text = buttonLabel,
+                text = stringResource(buttonLabel),
                 fontWeight = FontWeight.Medium,
             )
         }

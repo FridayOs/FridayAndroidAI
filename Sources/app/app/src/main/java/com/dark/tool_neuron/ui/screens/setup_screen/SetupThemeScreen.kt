@@ -1,5 +1,7 @@
 package com.dark.tool_neuron.ui.screens.setup_screen
 
+import com.friday.ai.R
+
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.fadeIn
@@ -35,6 +37,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
@@ -82,13 +85,13 @@ fun SetupThemeScreen(
                 )
                 Spacer(Modifier.height(dimens.spacingLg))
                 Text(
-                    text = "Make it yours",
+                    text = stringResource(R.string.friday_setup_theme_title),
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.SemiBold,
                 )
                 Spacer(Modifier.height(dimens.spacingXs))
                 Text(
-                    text = "Pick a theme mode and accent palette. You can change this anytime from Settings.",
+                    text = stringResource(R.string.friday_setup_theme_subtitle),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -102,28 +105,28 @@ fun SetupThemeScreen(
             enter = fadeIn(Motion.entrance()) + slideInVertically(Motion.entrance()) { it / 3 },
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(dimens.spacingSm)) {
-                SectionLabel(text = "Theme mode")
+                SectionLabel(text = stringResource(R.string.friday_setup_theme_mode_label))
                 ThemeModeRow(
                     mode = ThemeController.Mode.SYSTEM,
                     icon = TnIcons.Sparkles,
-                    title = "Follow system",
-                    subtitle = "Match device light/dark setting",
+                    title = stringResource(R.string.friday_setup_theme_mode_system_title),
+                    subtitle = stringResource(R.string.friday_setup_theme_mode_system_subtitle),
                     selected = mode == ThemeController.Mode.SYSTEM,
                     onClick = { viewModel.selectMode(ThemeController.Mode.SYSTEM) },
                 )
                 ThemeModeRow(
                     mode = ThemeController.Mode.LIGHT,
                     icon = TnIcons.StarOutline,
-                    title = "Light",
-                    subtitle = "Always use light colours",
+                    title = stringResource(R.string.friday_setup_theme_mode_light_title),
+                    subtitle = stringResource(R.string.friday_setup_theme_mode_light_subtitle),
                     selected = mode == ThemeController.Mode.LIGHT,
                     onClick = { viewModel.selectMode(ThemeController.Mode.LIGHT) },
                 )
                 ThemeModeRow(
                     mode = ThemeController.Mode.DARK,
                     icon = TnIcons.Star,
-                    title = "Dark",
-                    subtitle = "Always use dark colours",
+                    title = stringResource(R.string.friday_setup_theme_mode_dark_title),
+                    subtitle = stringResource(R.string.friday_setup_theme_mode_dark_subtitle),
                     selected = mode == ThemeController.Mode.DARK,
                     onClick = { viewModel.selectMode(ThemeController.Mode.DARK) },
                 )
@@ -137,7 +140,7 @@ fun SetupThemeScreen(
             enter = fadeIn(Motion.entrance()) + slideInVertically(Motion.entrance()) { it / 3 },
         ) {
             Column(verticalArrangement = Arrangement.spacedBy(dimens.spacingSm)) {
-                SectionLabel(text = "Accent palette")
+                SectionLabel(text = stringResource(R.string.friday_setup_theme_palette_label))
                 ColorPalette.entries.forEach { p ->
                     PaletteRow(
                         palette = p,
@@ -270,7 +273,7 @@ private fun PaletteRow(
             if (selected) {
                 Icon(
                     imageVector = TnIcons.Check,
-                    contentDescription = "Selected",
+                    contentDescription = stringResource(R.string.friday_setup_theme_palette_label),
                     tint = MaterialTheme.colorScheme.primary,
                     modifier = Modifier.size(20.dp),
                 )

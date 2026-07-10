@@ -56,7 +56,9 @@ private fun AppScaffoldInner() {
     val accountViewModel: AccountViewModel = hiltViewModel()
     val accountState by accountViewModel.state.collectAsStateWithLifecycle()
 
-    val nextDestination = remember { scaffoldViewModel.resolveStartDestination() }
+    val initialDestination = remember { scaffoldViewModel.resolveStartDestination() }
+    // Resolve fresh at each gate so mid-session state changes route correctly.
+    val resolveNext: () -> String = { scaffoldViewModel.resolveStartDestination() }
     val shouldLock by scaffoldViewModel.shouldLock.collectAsStateWithLifecycle()
     val rootWarning by scaffoldViewModel.rootWarning.collectAsStateWithLifecycle()
     val serverRunning by scaffoldViewModel.serverRunning.collectAsStateWithLifecycle()
@@ -101,7 +103,8 @@ private fun AppScaffoldInner() {
         if (shouldLock && currentRoute != null &&
             currentRoute != NavScreens.PasswordScreen.route &&
             currentRoute != NavScreens.SetupScreen.route &&
-            currentRoute != NavScreens.IntroScreen.route
+            currentRoute != NavScreens.IntroScreen.route &&
+            currentRoute != NavScreens.LanguageSelection.route
         ) {
             navController.navigate(NavScreens.PasswordScreen.route) {
                 popUpTo(0) { inclusive = true }
@@ -112,6 +115,7 @@ private fun AppScaffoldInner() {
     val isFullscreen = currentRoute == NavScreens.IntroScreen.route
             || currentRoute == NavScreens.PasswordScreen.route
             || currentRoute == NavScreens.Credits.route
+            || currentRoute == NavScreens.LanguageSelection.route
             || isFridayRoute
 
     val showDrawer = (currentRoute == NavScreens.HomeScreen.route && !serverRunning) ||
@@ -225,12 +229,6 @@ private fun AppScaffoldInner() {
                             popUpTo(NavScreens.SetupTheme.route) { inclusive = true }
                         }
                     },
-                    onRagSetupComplete = {
-                        scaffoldViewModel.markModelSetupDone()
-                        navController.navigate(NavScreens.HomeScreen.route) {
-                            popUpTo(NavScreens.SetupRag.route) { inclusive = true }
-                        }
-                    },
                     onTermsAccepted = {
                         val cameFromOnboarding = navController.previousBackStackEntry == null
                         scaffoldViewModel.markTermsAccepted()
@@ -249,7 +247,7 @@ private fun AppScaffoldInner() {
                 navController = navController,
                 innerPadding = innerPadding,
                 startDestination = NavScreens.IntroScreen.route,
-                nextDestination = nextDestination,
+                nextDestination = initialDestination,
                 actionWindowExpanded = actionWindowExpanded,
                 onActionWindowDismiss = homeViewModel::collapseActionWindow,
                 onUnlocked = {
@@ -263,16 +261,13 @@ private fun AppScaffoldInner() {
                     }
                 },
                 onModelSetupComplete = {
-                    navController.navigate(NavScreens.SetupRag.route) {
-                        popUpTo(NavScreens.ModelSetup.route) { inclusive = true }
+                    // SetupRag is optional, not mandatory first-run; land on Friday voice.
+                    scaffoldViewModel.markModelSetupDone()
+                    navController.navigate(NavScreens.FridayVoice.route) {
+                        popUpTo(0) { inclusive = true }
                     }
                 },
-                onRagSetupComplete = {
-                    scaffoldViewModel.markModelSetupDone()
-                    navController.navigate(NavScreens.HomeScreen.route) {
-                        popUpTo(NavScreens.SetupRag.route) { inclusive = true }
-                    }
-                }
+                resolveNext = resolveNext,
             )
         }
     }

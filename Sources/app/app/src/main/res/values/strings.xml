@@ -53,16 +53,60 @@
     <string name="friday_gateway_local_only">Keys and endpoints stay on this device. Never uploaded.</string>
     <string name="google_default_web_client_id">REPLACE_IN_PROD</string>
 
-    <!-- Sign-in error surface -->
-    <string name="friday_login_error_no_credential">Chưa có tài khoản Google</string>
-    <string name="friday_login_error_no_credential_body">Thiết bị chưa có tài khoản Google phù hợp. Vui lòng đăng nhập Google trong Cài đặt rồi thử lại.</string>
-    <string name="friday_login_action_open_settings">Mở cài đặt Google</string>
-    <string name="friday_login_action_close">Đóng</string>
-    <string name="friday_login_error_cancelled">Đã hủy đăng nhập.</string>
-    <string name="friday_login_error_generic">Đăng nhập thất bại. Vui lòng thử lại.</string>
-    <string name="friday_login_action_dismiss">Đóng</string>
-    <string name="friday_login_terms_prefix">Bằng việc tiếp tục, bạn đồng ý với</string>
-    <string name="friday_login_terms_link">Điều khoản dịch vụ</string>
-    <string name="friday_login_terms_and">và</string>
-    <string name="friday_login_privacy_link">Chính sách bảo mật</string>
+    <!-- Sign-in error surface (initial Friday bilingual pass) -->
+    <string name="friday_login_error_no_credential">No Google account on this device</string>
+    <string name="friday_login_error_no_credential_body">There is no Google account that Friday can sign in with. Add a Google account in Settings, then try again.</string>
+    <string name="friday_login_action_open_settings">Open Google settings</string>
+    <string name="friday_login_action_close">Close</string>
+    <string name="friday_login_error_cancelled">Sign-in cancelled.</string>
+    <string name="friday_login_error_generic">Sign-in failed. Please try again.</string>
+    <string name="friday_login_action_dismiss">Close</string>
+    <string name="friday_login_terms_prefix">By continuing, you agree to the</string>
+    <string name="friday_login_terms_link">Terms of Service</string>
+    <string name="friday_login_terms_and">and</string>
+    <string name="friday_login_privacy_link">Privacy Policy</string>
+
+    <!-- Language selection (M2-00 bilingual foundation) -->
+    <string name="friday_language_title">Choose your language</string>
+    <string name="friday_language_subtitle">Friday is launching bilingual. Pick the language you want to use — you can change this later in Settings.</string>
+    <string name="friday_language_subtitle_row">Tag: %1$s</string>
+    <string name="friday_language_system">System default</string>
+    <string name="friday_language_english">English</string>
+    <string name="friday_language_vietnamese">Tiếng Việt</string>
+    <string name="friday_language_continue">Continue</string>
+
+    <!-- Friday settings sections -->
+    <string name="friday_settings_section_gateway_title">Gateway</string>
+    <string name="friday_settings_section_gateway_subtitle">Default · direct from Android</string>
+    <string name="friday_settings_section_voice_title">Voice</string>
+    <string name="friday_settings_section_voice_subtitle">Default · system</string>
+    <string name="friday_settings_section_theme_title">Theme</string>
+    <string name="friday_settings_section_theme_subtitle">System · follows device</string>
+    <string name="friday_settings_section_language_title">Language</string>
+    <string name="friday_settings_section_language_subtitle">Change app language</string>
+
+    <!-- Setup labels (M2-00 first-launch) -->
+    <string name="friday_setup_protect_title">Protect your data</string>
+    <string name="friday_setup_protect_subtitle">Choose how you want to lock the app. This keeps your conversations and data private.</string>
+    <string name="friday_setup_app_password_title">App password</string>
+    <string name="friday_setup_app_password_subtitle">Set a separate password for this app</string>
+    <string name="friday_setup_no_lock_title">No lock</string>
+    <string name="friday_setup_no_lock_subtitle">Anyone with access to your phone can open the app</string>
+
+    <!-- Theme selection (M2-00 first-launch) -->
+    <string name="friday_setup_theme_title">Make it yours</string>
+    <string name="friday_setup_theme_subtitle">Pick a theme mode and accent palette. You can change this anytime from Settings.</string>
+    <string name="friday_setup_theme_mode_label">Theme mode</string>
+    <string name="friday_setup_theme_mode_system_title">Follow system</string>
+    <string name="friday_setup_theme_mode_system_subtitle">Match device light/dark setting</string>
+    <string name="friday_setup_theme_mode_light_title">Light</string>
+    <string name="friday_setup_theme_mode_light_subtitle">Always use light colours</string>
+    <string name="friday_setup_theme_mode_dark_title">Dark</string>
+    <string name="friday_setup_theme_mode_dark_subtitle">Always use dark colours</string>
+    <string name="friday_setup_theme_palette_label">Accent palette</string>
+
+    <!-- T&C (M2-00 first-launch) -->
+    <string name="friday_tc_title">A few things to read first</string>
+    <string name="friday_tc_subtitle">Plain English. Not lawyer English.</string>
+    <string name="friday_tc_continue">Agree and continue</string>
 </resources>

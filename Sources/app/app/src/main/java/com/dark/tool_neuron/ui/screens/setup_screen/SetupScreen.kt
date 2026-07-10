@@ -1,5 +1,7 @@
 package com.dark.tool_neuron.ui.screens.setup_screen
 
+import com.friday.ai.R
+
 import android.Manifest
 import android.os.Build
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -35,6 +37,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import com.dark.tool_neuron.ui.icons.TnIcons
@@ -87,7 +90,7 @@ fun SetupScreen(
                 Spacer(Modifier.height(dimens.spacingLg))
 
                 Text(
-                    text = "Protect your data",
+                    text = stringResource(R.string.friday_setup_protect_title),
                     style = MaterialTheme.typography.headlineSmall,
                     fontWeight = FontWeight.SemiBold
                 )
@@ -95,7 +98,7 @@ fun SetupScreen(
                 Spacer(Modifier.height(dimens.spacingXs))
 
                 Text(
-                    text = "Choose how you want to lock the app. This keeps your conversations and data private.",
+                    text = stringResource(R.string.friday_setup_protect_subtitle),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -111,8 +114,8 @@ fun SetupScreen(
             Column {
                 SecurityOption(
                     icon = TnIcons.Lock,
-                    title = "App password",
-                    subtitle = "Set a separate password for this app",
+                    title = stringResource(R.string.friday_setup_app_password_title),
+                    subtitle = stringResource(R.string.friday_setup_app_password_subtitle),
                     selected = selectedMode == "app_password",
                     onClick = { onModeSelected("app_password") }
                 )
@@ -121,8 +124,8 @@ fun SetupScreen(
 
                 SecurityOption(
                     icon = TnIcons.Eye,
-                    title = "No lock",
-                    subtitle = "Anyone with access to your phone can open the app",
+                    title = stringResource(R.string.friday_setup_no_lock_title),
+                    subtitle = stringResource(R.string.friday_setup_no_lock_subtitle),
                     selected = selectedMode == "none",
                     onClick = { onModeSelected("none") }
                 )

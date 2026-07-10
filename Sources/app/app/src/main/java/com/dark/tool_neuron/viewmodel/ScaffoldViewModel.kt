@@ -9,6 +9,7 @@ import com.dark.tool_neuron.TNApplication
 import com.dark.tool_neuron.data.AccessibilityGuard
 import com.dark.tool_neuron.data.AccountRepository
 import com.dark.tool_neuron.data.AppPreferences
+import com.dark.tool_neuron.data.LanguageController
 import com.dark.tool_neuron.data.RootGuard
 import com.dark.tool_neuron.data.SecurityManager
 import com.dark.tool_neuron.data.SessionHolder
@@ -34,6 +35,7 @@ class ScaffoldViewModel @Inject constructor(
     private val rootGuard: RootGuard,
     private val accessibilityGuard: AccessibilityGuard,
     private val accountRepository: AccountRepository,
+    private val languageController: LanguageController,
     session: SessionHolder,
     serverController: ServerController,
     installProgress: InstallProgressTracker,
@@ -114,6 +116,7 @@ class ScaffoldViewModel @Inject constructor(
 
     fun resolveStartDestination(): String {
         if (!accountRepository.hasJwt) return NavScreens.FridayLogin.route
+        if (!languageController.isFirstSelectionDone()) return NavScreens.LanguageSelection.route
         val tcAccepted = prefs.tcAccepted
         val onboarded = prefs.onboardingComplete
         val secDone = prefs.securitySetupDone

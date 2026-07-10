@@ -64,4 +64,5 @@ sealed class NavScreens(val route: String) {
     }
     object FridayHistory : NavScreens("friday_history")
     object FridaySettings : NavScreens("friday_settings")
+    object LanguageSelection : NavScreens("language_selection")
 }
