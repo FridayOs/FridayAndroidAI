@@ -1293,6 +1293,55 @@ Everything sensitive stays HXS-local. Nothing here ever reaches Firebase / FRIDA
 
 ---
 
+## M2-02 Gateway local vault + model role router
+
+FRI-553 turns the M1-03 gateway layer into the single source of truth for Brain/Voice routing. It owns the data model, the HXS vault, validation, the direct health test, and the role router. The provider list/add/select UI is scoped to FRI-582 / FRI-574 / FRI-583 — this task exposes the hooks those screens call, and keeps the existing drawer working against them. Everything stays HXS-local; no FRIDAY API proxy, no fake state, no secret in logs/diagnostics.
+
+### Model (`model/gateway/`)
+
+- `GatewayRole { BRAIN, VOICE }` — the two independent roles a gateway can be selected into.
+- `GatewayStatus { NOT_TESTED, READY, FAILED }` — result of a direct connection probe. Default is `NOT_TESTED`; only a real 2xx flips it to `READY`.
+- `VoiceRoute { CLOUD, LOCAL }` — how a Voice Gateway handles audio. Reasoning still bridges to the Brain Gateway either way.
+- `GatewayProvider` gained `needsKey`, `urlRequired`, `isLocal`, and `roles: Set<GatewayRole>`, plus a new `LOCAL` provider (keyless/urlless, on-device, both roles). `FRIDAY` stays `enabled=false` with `roles = emptySet()`. Defaults track the design: Gemini `gemini-2.0-flash`, OpenAI `gpt-4o-mini`, Anthropic `claude-sonnet-4-5`, DeepSeek `deepseek-chat`. `urlRequired` is exactly `{OPENCLAW, HERMES, CUSTOM}`. Voice-capable = `{GEMINI, OPENAI, LOCAL}`; everything else enabled is brain-only. `forRole(role)` filters enabled providers by capability.
+- `GatewayConfig` gained `status`, `lastTestedAt`, `statusError` (sanitized, secret-free), and `voiceRoute`. `supportsRole(role)` delegates to the provider.
+- `GatewayValidation` — pure, Android-free validator (unit-tested off-device). Key required when `needsKey`; model required for cloud only (`LOCAL` picks an installed model separately); base URL must be `http(s)://` and is mandatory when `urlRequired`.
+
+### Repository (`repo/GatewayConfigRepository.kt`)
+
+Same signer-bound `gateway_store_v1` vault (`tn.gateways.user_key.v2`). New record tags 9–12 (`status`, `lastTestedAt`, `statusError`, `voiceRoute`) — additive, so existing records decode with defaults. **Independent role pointers**: `brain_gateway_id` and `voice_gateway_id` in the `gateway_meta` collection. The legacy `selected_gateway_id` pointer is migrated into `brain_gateway_id` once on first open. `brainGateway()` / `voiceGateway()` resolve the active config with a role-capable fallback; a brain-only provider never auto-fills the voice slot. `recordStatus(id, status, error)` persists a probe outcome (FAILED keeps the sanitized error, READY clears it). Deleting the active brain/voice falls back to the next role-capable record or the empty pointer. `selected()` / `selectedId` remain as brain aliases for pre-role callers.
+
+### Direct health test (`repo/gateway/`)
+
+- `DirectGatewayClient.testConnection(config): GatewayTestResult` — a tiny direct request (max_tokens=1) per wire format, `PROBE_READ_TIMEOUT_MS=20s`, cancellable, on `Dispatchers.IO`. Returns `Ready` **only** on a real 2xx (never faked); anything else → `Failed(sanitized)`. Local providers short-circuit to `Ready` (no cloud endpoint). Cancellation (leaving the screen) aborts via coroutine cancel.
+- `GatewayErrorSanitizer` — pure, unit-tested. Redacts bearer tokens, `x-api-key`, Gemini `?key=`, `api_key` JSON, `sk-/xai-/gsk-/hf-` tokens, and the literal key; caps at 200 chars. `forHttpStatus` maps 401/403/404/429/5xx to stable copy. **No probe error path ever stores or logs the raw key.**
+
+### Role router (`repo/gateway/GatewayRoleRouter.kt`, `@Singleton`)
+
+The single decision point for where a turn goes; brain and voice stay independent. `resolveBrain()` returns `Cloud` / `Local(model)` / `Unavailable(reason)` — resolved **per turn**, so a mid-turn provider/model switch never disturbs an in-flight stream. Cloud brains stream through `DirectGatewayClient`; Local brains stream through the on-device `InferenceClient` + first GGUF model, normalized to `GatewayEvent`. Brain bridge: `brainTurn` (chat send + voice-after-transcript), `brainContinue` (fresh turn over the same history), `brainCancel` (→ `modelSession.stopGeneration()`), `brainConfirm` (no-op hook; tool/action execution is a later phase). No Brain Gateway → `brainTurn` emits an `Error` the screen surfaces (the provider/model selector UI is FRI-582/574/583).
+
+### VM wiring
+
+- `FridayChatViewModel` routes `send` through `router.brainTurn(history)`; a missing brain surfaces `router.brainUnavailableMessage()`.
+- `FridayVoiceViewModel` handles audio via `VoiceModelManager` (local STT/TTS) then bridges the transcript through `router.brainTurn` — audio and reasoning are split; a brain is required even when voice handled the audio.
+- `FridayDrawerViewModel` exposes `brainId`/`voiceId`, `selectBrain`/`selectVoice`, `validate`, `addGateway` (validates before create), and `testGateway` (real probe + `recordStatus`, `testingId` for a per-row spinner). `selectedId`/`selectGateway`/`addGateway` stay brain-scoped so the existing drawer keeps working.
+
+### Tests
+
+Unit (JVM, off-device): `GatewayValidationTest`, `GatewayErrorSanitizerTest` (proves no secret leaks), `GatewayProviderRoleTest`. Instrumented: `GatewayConfigRepositoryTest` (CRUD, restart persistence, multi-instance same provider, status persistence, sanitized-error-not-key, independent brain/voice, brain-only-never-voice, active-delete fallback, no-provider state).
+
+### Things NOT to regress (M2-02)
+
+- Don't store gateway status/key/base URL/model outside `gateway_store_v1`. Firebase/FRIDAY never see them. Cloud inspection + repo scan see nothing private outside the encrypted vault.
+- Don't fake a `READY` status. `GatewayStatus.READY` only comes from a real 2xx in `DirectGatewayClient.testConnection`. `NOT_TESTED` is the honest default.
+- Don't let any probe/stream error path emit a raw key. Everything goes through `GatewayErrorSanitizer` before it reaches `statusError`, logs, or diagnostics.
+- Don't couple brain and voice selection. They are separate `gateway_meta` pointers (`brain_gateway_id` / `voice_gateway_id`); switching one must not move the other. A brain-only provider must never auto-fill the voice slot.
+- Don't route Friday chat/voice around `GatewayRoleRouter`. Chat uses `brainTurn`; voice bridges audio→`brainTurn`. No provider request goes through the FRIDAY API. The FRIDAY provider stays `enabled=false`, roleless, non-selectable.
+- Don't resolve the brain route once and cache it across a turn boundary. `resolveBrain()` is per-turn so a selector change applies from the next turn without breaking the running one.
+- Don't require a model string for a `LOCAL` gateway in validation — the on-device model is chosen separately. Cloud providers still require key (when `needsKey`) + model + valid `http(s)` URL (mandatory for OpenClaw/Hermes/Custom).
+- Don't renumber `GatewayConfig` HXS tags. 1–8 are the M1-03 fields; 9–12 are `status`/`lastTestedAt`/`statusError`/`voiceRoute`. New fields use tag ≥ 13.
+
+---
+
 ## Housekeeping
 
 Whenever you change anything on the list below, update **this file** as part of the same change:

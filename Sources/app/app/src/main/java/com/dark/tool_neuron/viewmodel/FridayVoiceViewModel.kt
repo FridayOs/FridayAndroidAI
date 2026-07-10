@@ -4,9 +4,8 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.dark.tool_neuron.model.friday.FridayTurn
 import com.dark.tool_neuron.repo.FridayConversationRepository
-import com.dark.tool_neuron.repo.GatewayConfigRepository
-import com.dark.tool_neuron.repo.gateway.DirectGatewayClient
 import com.dark.tool_neuron.repo.gateway.GatewayEvent
+import com.dark.tool_neuron.repo.gateway.GatewayRoleRouter
 import com.dark.tool_neuron.repo.gateway.GatewayTurn
 import com.dark.tool_neuron.voice.VoiceModelManager
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -22,9 +21,8 @@ enum class VoiceMode { IDLE, LISTENING, THINKING, SPEAKING, DONE }
 
 @HiltViewModel
 class FridayVoiceViewModel @Inject constructor(
-    private val gatewayRepo: GatewayConfigRepository,
+    private val router: GatewayRoleRouter,
     private val convoRepo: FridayConversationRepository,
-    private val client: DirectGatewayClient,
     private val voiceManager: VoiceModelManager,
 ) : ViewModel() {
 
@@ -93,13 +91,16 @@ class FridayVoiceViewModel @Inject constructor(
     }
 
     private suspend fun respond(transcript: String) {
-        val gateway = gatewayRepo.selected()
-        if (gateway == null) {
-            _error.value = "Add a gateway in the menu to use voice."
+        // Audio was handled by the Voice Gateway (local STT here); reasoning
+        // bridges to the active Brain Gateway via brain_turn. A brain is required
+        // even when voice handled the audio — the split is intentional.
+        val brain = router.brainGateway()
+        if (brain == null) {
+            _error.value = router.brainUnavailableMessage()
             _mode.value = VoiceMode.IDLE
             return
         }
-        val convoId = conversationId ?: convoRepo.createConversation(gateway.id).id.also { conversationId = it }
+        val convoId = conversationId ?: convoRepo.createConversation(brain.id).id.also { conversationId = it }
         val now = System.currentTimeMillis()
         convoRepo.addTurn(
             FridayTurn(
@@ -112,7 +113,7 @@ class FridayVoiceViewModel @Inject constructor(
             )
         )
         val history = convoRepo.getTurns(convoId).map { GatewayTurn(it.role, it.content) }
-        client.stream(gateway, history).collect { event ->
+        router.brainTurn(history).collect { event ->
             when (event) {
                 is GatewayEvent.Delta -> {
                     if (_mode.value != VoiceMode.SPEAKING) _mode.value = VoiceMode.SPEAKING

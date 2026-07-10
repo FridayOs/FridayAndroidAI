@@ -5,8 +5,8 @@ import androidx.lifecycle.viewModelScope
 import com.dark.tool_neuron.model.friday.FridayTurn
 import com.dark.tool_neuron.repo.FridayConversationRepository
 import com.dark.tool_neuron.repo.GatewayConfigRepository
-import com.dark.tool_neuron.repo.gateway.DirectGatewayClient
 import com.dark.tool_neuron.repo.gateway.GatewayEvent
+import com.dark.tool_neuron.repo.gateway.GatewayRoleRouter
 import com.dark.tool_neuron.repo.gateway.GatewayTurn
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
@@ -31,7 +31,7 @@ data class FridayChatMessage(
 class FridayChatViewModel @Inject constructor(
     private val gatewayRepo: GatewayConfigRepository,
     private val convoRepo: FridayConversationRepository,
-    private val client: DirectGatewayClient,
+    private val router: GatewayRoleRouter,
 ) : ViewModel() {
 
     private val _messages = MutableStateFlow<List<FridayChatMessage>>(emptyList())
@@ -77,13 +77,16 @@ class FridayChatViewModel @Inject constructor(
     fun send(text: String, viaVoice: Boolean = false) {
         val trimmed = text.trim()
         if (trimmed.isEmpty() || _thinking.value) return
-        val gateway = gatewayRepo.selected()
-        if (gateway == null) {
-            _error.value = "Add a gateway in the menu to start chatting."
+        // Resolve the active Brain Gateway up front. No brain (or a Local brain
+        // with no installed model) surfaces an error the screen turns into the
+        // provider/model selector, instead of failing silently.
+        val brain = router.brainGateway()
+        if (brain == null) {
+            _error.value = router.brainUnavailableMessage()
             return
         }
 
-        val convoId = conversationId ?: convoRepo.createConversation(gateway.id).id.also { conversationId = it }
+        val convoId = conversationId ?: convoRepo.createConversation(brain.id).id.also { conversationId = it }
         val now = System.currentTimeMillis()
         val userTurn = FridayTurn(
             id = UUID.randomUUID().toString(),
@@ -100,8 +103,9 @@ class FridayChatViewModel @Inject constructor(
         val history = convoRepo.getTurns(convoId).map { GatewayTurn(it.role, it.content) }
         val aiId = UUID.randomUUID().toString()
 
+        // brain_turn: chat always routes through the active Brain Gateway.
         replyJob = viewModelScope.launch {
-            client.stream(gateway, history).collect { event ->
+            router.brainTurn(history).collect { event ->
                 when (event) {
                     is GatewayEvent.Delta -> {
                         if (_thinking.value) {

@@ -7,6 +7,9 @@ import com.dark.hxs_encryptor.HxsEncryptor
 import com.dark.tool_neuron.data.AppKeyStore
 import com.dark.tool_neuron.model.gateway.GatewayConfig
 import com.dark.tool_neuron.model.gateway.GatewayProvider
+import com.dark.tool_neuron.model.gateway.GatewayRole
+import com.dark.tool_neuron.model.gateway.GatewayStatus
+import com.dark.tool_neuron.model.gateway.VoiceRoute
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -18,8 +21,9 @@ import javax.inject.Singleton
 
 // Gateway endpoints + API keys are the most sensitive part of the M1 data
 // boundary: they live in a dedicated signer-bound HXS vault and never reach
-// Firebase / FRIDAY API. The selected-gateway pointer rides the same vault so
-// the whole gateway state stays local.
+// Firebase / FRIDAY API. The active Brain and Voice pointers ride the same
+// vault so the whole gateway state stays local. Brain and Voice selection are
+// independent (M2-02, FRI-553).
 @Singleton
 class GatewayConfigRepository @Inject constructor(
     @param:ApplicationContext private val context: Context,
@@ -31,8 +35,14 @@ class GatewayConfigRepository @Inject constructor(
     private val _gateways = MutableStateFlow<List<GatewayConfig>>(emptyList())
     val gateways: StateFlow<List<GatewayConfig>> = _gateways.asStateFlow()
 
-    private val _selectedId = MutableStateFlow("")
-    val selectedId: StateFlow<String> = _selectedId.asStateFlow()
+    private val _brainId = MutableStateFlow("")
+    val brainId: StateFlow<String> = _brainId.asStateFlow()
+
+    private val _voiceId = MutableStateFlow("")
+    val voiceId: StateFlow<String> = _voiceId.asStateFlow()
+
+    // Legacy alias: the drawer selection historically meant "the active brain".
+    val selectedId: StateFlow<String> = _brainId.asStateFlow()
 
     init {
         val dir = File(context.filesDir, SECURE_DIR).apply { mkdirs() }
@@ -50,7 +60,8 @@ class GatewayConfigRepository @Inject constructor(
         storage.addIndex(COL_GATEWAYS, TAG_ID, HexStorage.WIRE_BYTES)
         storage.addIndex(COL_META, TAG_META_KEY, HexStorage.WIRE_BYTES)
         refresh()
-        _selectedId.value = readMeta(META_SELECTED)
+        _brainId.value = migrateBrainPointer()
+        _voiceId.value = readMeta(META_VOICE)
     }
 
     private fun openOrRebuild(base: String, dek: ByteArray, userKey: ByteArray): Boolean {
@@ -62,18 +73,39 @@ class GatewayConfigRepository @Inject constructor(
         return storage.createEncrypted(base, dek, userKey, encryptor)
     }
 
+    // The M1-03 vault stored a single "selected_gateway_id". Read it into the new
+    // brain pointer once so existing installs keep their active brain.
+    private fun migrateBrainPointer(): String {
+        val brain = readMeta(META_BRAIN)
+        if (brain.isNotBlank()) return brain
+        val legacy = readMeta(META_LEGACY_SELECTED)
+        if (legacy.isNotBlank()) writeMeta(META_BRAIN, legacy)
+        return legacy
+    }
+
     private fun refresh() {
         _gateways.value = storage.getAll(COL_GATEWAYS)
             .map { it.toConfig() }
             .sortedBy { it.createdAt }
     }
 
-    fun selected(): GatewayConfig? {
-        val id = _selectedId.value
-        return _gateways.value.firstOrNull { it.id == id } ?: _gateways.value.firstOrNull()
-    }
-
     fun getById(id: String): GatewayConfig? = _gateways.value.firstOrNull { it.id == id }
+
+    // Active Brain Gateway — chat/reasoning/tools/actions route here. Falls back
+    // to the first brain-capable gateway if the pointer is stale/blank.
+    fun brainGateway(): GatewayConfig? =
+        _gateways.value.firstOrNull { it.id == _brainId.value && it.supportsRole(GatewayRole.BRAIN) }
+            ?: _gateways.value.firstOrNull { it.supportsRole(GatewayRole.BRAIN) }
+
+    // Active Voice Gateway — independent of the brain. Falls back to the first
+    // voice-capable gateway. May be null even when a brain exists.
+    fun voiceGateway(): GatewayConfig? =
+        _gateways.value.firstOrNull { it.id == _voiceId.value && it.supportsRole(GatewayRole.VOICE) }
+            ?: _gateways.value.firstOrNull { it.supportsRole(GatewayRole.VOICE) }
+
+    // Backwards-compatible: callers that predate roles asked for "the" selection,
+    // which was always the brain.
+    fun selected(): GatewayConfig? = brainGateway()
 
     fun upsert(config: GatewayConfig): GatewayConfig {
         val now = System.currentTimeMillis()
@@ -84,11 +116,22 @@ class GatewayConfigRepository @Inject constructor(
         storage.put(COL_GATEWAYS, stored.toRecord())
         storage.flush(COL_GATEWAYS)
         refresh()
-        if (_selectedId.value.isBlank()) select(stored.id)
+        // First brain-capable gateway auto-fills the empty brain pointer; same for
+        // voice. Selection is per-role so adding a brain-only provider never
+        // hijacks the voice slot.
+        if (_brainId.value.isBlank() && stored.supportsRole(GatewayRole.BRAIN)) selectBrain(stored.id)
+        if (_voiceId.value.isBlank() && stored.supportsRole(GatewayRole.VOICE)) selectVoice(stored.id)
         return stored
     }
 
-    fun create(provider: GatewayProvider, label: String, baseUrl: String, apiKey: String, model: String): GatewayConfig {
+    fun create(
+        provider: GatewayProvider,
+        label: String,
+        baseUrl: String,
+        apiKey: String,
+        model: String,
+        voiceRoute: VoiceRoute = if (provider.isLocal) VoiceRoute.LOCAL else VoiceRoute.CLOUD,
+    ): GatewayConfig {
         val now = System.currentTimeMillis()
         val config = GatewayConfig(
             id = UUID.randomUUID().toString(),
@@ -99,20 +142,53 @@ class GatewayConfigRepository @Inject constructor(
             model = model.trim(),
             createdAt = now,
             updatedAt = now,
+            voiceRoute = voiceRoute,
         )
         return upsert(config)
+    }
+
+    // Persist the result of a direct connection probe. Never stores the key or a
+    // raw Authorization header — the error is already sanitized by the caller.
+    fun recordStatus(id: String, status: GatewayStatus, error: String) {
+        val current = getById(id) ?: return
+        upsert(
+            current.copy(
+                status = status,
+                lastTestedAt = System.currentTimeMillis(),
+                statusError = if (status == GatewayStatus.FAILED) error else "",
+            )
+        )
     }
 
     fun delete(id: String) {
         storage.queryString(COL_GATEWAYS, TAG_ID, id).forEach { storage.delete(COL_GATEWAYS, it.id) }
         storage.flush(COL_GATEWAYS)
         refresh()
-        if (_selectedId.value == id) select(_gateways.value.firstOrNull()?.id ?: "")
+        // Deleting the active brain/voice falls back to the next role-capable
+        // record, or the no-provider state when none remain.
+        if (_brainId.value == id) {
+            selectBrain(_gateways.value.firstOrNull { it.supportsRole(GatewayRole.BRAIN) }?.id ?: "")
+        }
+        if (_voiceId.value == id) {
+            selectVoice(_gateways.value.firstOrNull { it.supportsRole(GatewayRole.VOICE) }?.id ?: "")
+        }
     }
 
-    fun select(id: String) {
-        writeMeta(META_SELECTED, id)
-        _selectedId.value = id
+    fun selectBrain(id: String) {
+        writeMeta(META_BRAIN, id)
+        _brainId.value = id
+    }
+
+    fun selectVoice(id: String) {
+        writeMeta(META_VOICE, id)
+        _voiceId.value = id
+    }
+
+    fun select(id: String, role: GatewayRole = GatewayRole.BRAIN) {
+        when (role) {
+            GatewayRole.BRAIN -> selectBrain(id)
+            GatewayRole.VOICE -> selectVoice(id)
+        }
     }
 
     private fun readMeta(key: String): String =
@@ -138,19 +214,32 @@ class GatewayConfigRepository @Inject constructor(
             putString(TAG_MODEL, g.model)
             putTimestamp(TAG_CREATED_AT, g.createdAt)
             putTimestamp(TAG_UPDATED_AT, g.updatedAt)
+            putInt(TAG_STATUS, g.status.ordinal.toLong())
+            putTimestamp(TAG_LAST_TESTED_AT, g.lastTestedAt)
+            putString(TAG_STATUS_ERROR, g.statusError)
+            putInt(TAG_VOICE_ROUTE, g.voiceRoute.ordinal.toLong())
         }
     }
 
-    private fun HxsRecord.toConfig(): GatewayConfig = GatewayConfig(
-        id = getString(TAG_ID),
-        provider = GatewayProvider.fromId(getString(TAG_PROVIDER)),
-        label = getString(TAG_LABEL),
-        baseUrl = getString(TAG_BASE_URL),
-        apiKey = getString(TAG_API_KEY),
-        model = getString(TAG_MODEL),
-        createdAt = getTimestamp(TAG_CREATED_AT),
-        updatedAt = getTimestamp(TAG_UPDATED_AT),
-    )
+    private fun HxsRecord.toConfig(): GatewayConfig {
+        val provider = GatewayProvider.fromId(getString(TAG_PROVIDER))
+        return GatewayConfig(
+            id = getString(TAG_ID),
+            provider = provider,
+            label = getString(TAG_LABEL),
+            baseUrl = getString(TAG_BASE_URL),
+            apiKey = getString(TAG_API_KEY),
+            model = getString(TAG_MODEL),
+            createdAt = getTimestamp(TAG_CREATED_AT),
+            updatedAt = getTimestamp(TAG_UPDATED_AT),
+            status = GatewayStatus.entries.getOrElse(getInt(TAG_STATUS).toInt()) { GatewayStatus.NOT_TESTED },
+            lastTestedAt = getTimestamp(TAG_LAST_TESTED_AT),
+            statusError = getString(TAG_STATUS_ERROR),
+            voiceRoute = VoiceRoute.entries.getOrElse(
+                getInt(TAG_VOICE_ROUTE, (if (provider.isLocal) VoiceRoute.LOCAL else VoiceRoute.CLOUD).ordinal.toLong()).toInt()
+            ) { if (provider.isLocal) VoiceRoute.LOCAL else VoiceRoute.CLOUD },
+        )
+    }
 
     companion object {
         private const val SECURE_DIR = "gateway_store_v1"
@@ -167,9 +256,15 @@ class GatewayConfigRepository @Inject constructor(
         private const val TAG_MODEL = 6
         private const val TAG_CREATED_AT = 7
         private const val TAG_UPDATED_AT = 8
+        private const val TAG_STATUS = 9
+        private const val TAG_LAST_TESTED_AT = 10
+        private const val TAG_STATUS_ERROR = 11
+        private const val TAG_VOICE_ROUTE = 12
 
         private const val TAG_META_KEY = 1
         private const val TAG_META_VALUE = 2
-        private const val META_SELECTED = "selected_gateway_id"
+        private const val META_BRAIN = "brain_gateway_id"
+        private const val META_VOICE = "voice_gateway_id"
+        private const val META_LEGACY_SELECTED = "selected_gateway_id"
     }
 }
