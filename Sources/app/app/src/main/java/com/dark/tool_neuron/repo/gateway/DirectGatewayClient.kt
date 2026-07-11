@@ -53,8 +53,16 @@ class DirectGatewayClient @Inject constructor() {
                 GatewayWireFormat.GEMINI -> streamGemini(config, history, builder) { emit(it) }
             }
             emit(GatewayEvent.Done(builder.toString()))
+        } catch (ce: CancellationException) {
+            // Cancellation is a control signal — never converted to an Error or
+            // it would render an error message during in-flight cancellation.
+            // Rethrow to let the collecting Job cancel cleanly.
+            throw ce
         } catch (t: Throwable) {
-            emit(GatewayEvent.Error(t.message ?: "Gateway request failed"))
+            // Provider error bodies may echo the key/Authorization header back to
+            // us; sanitize with the literal key as well before any text reaches
+            // the UI or the persisted conversation turn.
+            emit(GatewayEvent.Error(GatewayErrorSanitizer.sanitize(t.message, config.apiKey)))
         }
     }.flowOn(Dispatchers.IO)
 

@@ -4,9 +4,11 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.dark.tool_neuron.model.friday.FridayTurn
 import com.dark.tool_neuron.repo.FridayConversationRepository
+import com.dark.tool_neuron.repo.gateway.CloudVoiceCapability
 import com.dark.tool_neuron.repo.gateway.GatewayEvent
 import com.dark.tool_neuron.repo.gateway.GatewayRoleRouter
 import com.dark.tool_neuron.repo.gateway.GatewayTurn
+import com.dark.tool_neuron.repo.gateway.VoiceRouter
 import com.dark.tool_neuron.voice.VoiceModelManager
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
@@ -19,9 +21,15 @@ import javax.inject.Inject
 
 enum class VoiceMode { IDLE, LISTENING, THINKING, SPEAKING, DONE }
 
+// The voice VM resolves the active Voice Router route per turn. The router
+// decides whether audio is handled locally (VoiceModelManager STT/TTS + brain
+// bridge) or by a cloud realtime gateway (not implemented in M2-02 — surfaces
+// a clear error instead of pretending). Reasoning still always goes through
+// the active Brain Gateway — never through the FRIDAY API.
 @HiltViewModel
 class FridayVoiceViewModel @Inject constructor(
     private val router: GatewayRoleRouter,
+    private val voiceRouter: VoiceRouter,
     private val convoRepo: FridayConversationRepository,
     private val voiceManager: VoiceModelManager,
 ) : ViewModel() {
@@ -46,9 +54,26 @@ class FridayVoiceViewModel @Inject constructor(
     fun clearError() { _error.value = null }
 
     // Push-to-talk press: begin capturing mic audio. Requires the RECORD_AUDIO
-    // grant (requested by the screen) plus an installed STT model.
+    // grant (requested by the screen) plus an installed STT model when the
+    // active Voice Gateway resolves to a local bridge. CLOUD voice gateways
+    // surface their Unavailable status before the mic is asked for.
     fun startListening() {
         if (_mode.value == VoiceMode.THINKING || _mode.value == VoiceMode.LISTENING) return
+        when (val route = voiceRouter.route()) {
+            is VoiceRouter.Route.CloudUnavailable -> {
+                _error.value = "Cloud voice (${route.voice.label}) requires realtime audio — coming soon. Add or pick a Local voice gateway."
+                return
+            }
+            is VoiceRouter.Route.NoVoice -> {
+                _error.value = "Add a Voice Gateway in the menu to talk to Friday."
+                return
+            }
+            is VoiceRouter.Route.NoBrainForCloud -> {
+                _error.value = "Voice Gateway picked, but no Brain Gateway is selected — pick a brain first."
+                return
+            }
+            is VoiceRouter.Route.LocalBridge -> Unit
+        }
         voiceManager.stopSpeaking()
         flowJob?.cancel()
         _error.value = null
@@ -63,8 +88,9 @@ class FridayVoiceViewModel @Inject constructor(
         _mode.value = VoiceMode.LISTENING
     }
 
-    // Push-to-talk release: transcribe locally, then stream a gateway reply and
-    // speak it. All on-device or direct-to-gateway; nothing hits Firebase.
+    // Push-to-talk release: transcribe locally, then stream a brain reply and
+    // speak it. Audio is always handled here on-device (the only Voice Gateway
+    // route supported in M2-02); reasoning bridges to the active Brain Gateway.
     fun stopListening() {
         if (_mode.value != VoiceMode.LISTENING) return
         _mode.value = VoiceMode.THINKING
@@ -82,6 +108,7 @@ class FridayVoiceViewModel @Inject constructor(
 
     fun cancel() {
         flowJob?.cancel()
+        router.brainCancel()
         voiceManager.cancelRecording()
         voiceManager.stopSpeaking()
         _mode.value = VoiceMode.IDLE
@@ -91,9 +118,6 @@ class FridayVoiceViewModel @Inject constructor(
     }
 
     private suspend fun respond(transcript: String) {
-        // Audio was handled by the Voice Gateway (local STT here); reasoning
-        // bridges to the active Brain Gateway via brain_turn. A brain is required
-        // even when voice handled the audio — the split is intentional.
         val brain = router.brainGateway()
         if (brain == null) {
             _error.value = router.brainUnavailableMessage()

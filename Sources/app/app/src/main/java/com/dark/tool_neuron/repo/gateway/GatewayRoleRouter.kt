@@ -3,6 +3,7 @@ package com.dark.tool_neuron.repo.gateway
 import com.dark.tool_neuron.model.ModelInfo
 import com.dark.tool_neuron.model.enums.ProviderType
 import com.dark.tool_neuron.model.gateway.GatewayConfig
+import com.dark.tool_neuron.model.gateway.GatewayRole
 import com.dark.tool_neuron.model.gateway.VoiceRoute
 import com.dark.tool_neuron.repo.GatewayConfigRepository
 import com.dark.tool_neuron.repo.ModelRepository
@@ -69,16 +70,12 @@ class GatewayRoleRouter @Inject constructor(
 
     // Resolve the active brain once. Callers resolve per turn, so a mid-turn
     // selection change never disturbs an in-flight stream.
-    fun resolveBrain(): BrainRoute {
-        val brain = gatewayRepo.brainGateway() ?: return BrainRoute.Unavailable(BrainRoute.Reason.NO_BRAIN)
-        if (!brain.provider.isLocal) return BrainRoute.Cloud(brain)
-        val model = firstLocalModel() ?: return BrainRoute.Unavailable(BrainRoute.Reason.NO_LOCAL_MODEL)
-        return BrainRoute.Local(brain, model)
-    }
+    fun resolveBrain(): BrainRoute = decideBrain(gatewayRepo.brainGateway(), firstLocalModel())
 
     // brain_turn: run one brain turn for the given history. This is the bridge
     // entry point voice uses after producing a transcript, and what chat uses on
-    // send. Emits Delta*/Done, or a single Error.
+    // send. Emits Delta*/Done, or a single Error. Coroutine cancellation is the
+    // contract for stopping a running turn — see brainCancel.
     fun brainTurn(history: List<GatewayTurn>): Flow<GatewayEvent> = flow {
         when (val route = resolveBrain()) {
             is BrainRoute.Cloud -> emitAll(client.stream(route.config, history))
@@ -93,8 +90,13 @@ class GatewayRoleRouter @Inject constructor(
     // list already carries prior turns, so the semantics match a follow-up turn.
     fun brainContinue(history: List<GatewayTurn>): Flow<GatewayEvent> = brainTurn(history)
 
-    // brain_cancel: stop an in-flight brain turn. Cloud turns cancel by cancelling
-    // the collecting coroutine; local turns also need the engine told to stop.
+    // brain_cancel: stop an in-flight brain turn. The router does not own the
+    // collecting Job — cancellation is the caller's contract (cancel the
+    // collecting Job; the read loop checks currentCoroutineContext().ensureActive()
+    // on every line and throws CancellationException, which stream() rethrows
+    // untouched). Local turns additionally tell the on-device engine to stop so
+    // the in-process generation terminates; cloud turns stop as soon as the Job
+    // is cancelled, which closes the HttpURLConnection inside readSse.
     fun brainCancel() {
         modelSession.stopGeneration()
     }
@@ -155,5 +157,18 @@ class GatewayRoleRouter @Inject constructor(
     companion object {
         const val ERR_NO_BRAIN = "No Brain Gateway selected"
         const val ERR_NO_LOCAL_MODEL = "No local model installed for the Local brain"
+
+        // Pure brain-route decision, extracted so it is unit-testable off-device.
+        // A cloud brain always routes to DirectGatewayClient (direct from Android,
+        // never the FRIDAY API); a local brain needs an installed GGUF model.
+        fun decideBrain(brain: GatewayConfig?, localModel: ModelInfo?): BrainRoute {
+            if (brain == null) return BrainRoute.None
+            // A config that can't fill the brain role (e.g. the roleless FRIDAY
+            // placeholder) is treated as no brain — it must never become a route.
+            if (!brain.supportsRole(GatewayRole.BRAIN)) return BrainRoute.None
+            if (!brain.provider.isLocal) return BrainRoute.Cloud(brain)
+            return localModel?.let { BrainRoute.Local(brain, it) }
+                ?: BrainRoute.Unavailable(BrainRoute.Reason.NO_LOCAL_MODEL)
+        }
     }
 }
