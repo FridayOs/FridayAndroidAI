@@ -132,7 +132,7 @@ class FridayVoiceViewModel @Inject constructor(
             )
         )
         val history = convoRepo.getTurns(convoId).map { GatewayTurn(it.role, it.content) }
-        bridge.brainTurn(history).collect { event ->
+        bridge.runTurn(viewModelScope, history) { event ->
             when (event) {
                 is GatewayEvent.Delta -> {
                     if (_mode.value != VoiceMode.SPEAKING) _mode.value = VoiceMode.SPEAKING

@@ -8,21 +8,18 @@ import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.flow
-import kotlinx.coroutines.flow.toList
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.test.runTest
 import kotlinx.coroutines.withTimeout
 import kotlinx.coroutines.yield
+import kotlinx.coroutines.test.runTest
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-// Proves the voice layer reaches the brain through all four bridge ops and that brain_cancel tears down a live collecting Job.
+// Proves the voice layer reaches the brain through all four bridge ops and that brainCancel tears down the live collecting Job it owns.
 @OptIn(ExperimentalCoroutinesApi::class)
 class VoiceBridgeWiringTest {
 
-    // Records which ops were called and lets tests drive the streams by hand.
     private class FakeBrain : BrainBridge {
         val turns = mutableListOf<List<GatewayTurn>>()
         val continues = mutableListOf<List<GatewayTurn>>()
@@ -30,12 +27,33 @@ class VoiceBridgeWiringTest {
         var confirmed = false
         var cancelledMidStream = false
 
-        override fun brainTurn(history: List<GatewayTurn>): Flow<GatewayEvent> {
-            turns += history
-            return flow {
+        // Swapped to the endless stream by the cancellation test; finite otherwise.
+        var turnFactory: () -> Flow<GatewayEvent> = {
+            flow {
                 emit(GatewayEvent.Delta("hi"))
                 emit(GatewayEvent.Done("hi"))
             }
+        }
+
+        fun useEndlessTurn() {
+            turnFactory = {
+                flow {
+                    try {
+                        emit(GatewayEvent.Delta("streaming"))
+                        while (true) {
+                            yield()
+                            emit(GatewayEvent.Delta("."))
+                        }
+                    } finally {
+                        cancelledMidStream = true
+                    }
+                }
+            }
+        }
+
+        override fun brainTurn(history: List<GatewayTurn>): Flow<GatewayEvent> {
+            turns += history
+            return turnFactory()
         }
 
         override fun brainContinue(history: List<GatewayTurn>): Flow<GatewayEvent> {
@@ -46,30 +64,18 @@ class VoiceBridgeWiringTest {
             }
         }
 
-        // Never completes — proves cancellation tears the stream down.
-        fun endlessTurn(): Flow<GatewayEvent> = flow {
-            try {
-                emit(GatewayEvent.Delta("streaming"))
-                while (true) {
-                    yield()
-                    emit(GatewayEvent.Delta("."))
-                }
-            } finally {
-                cancelledMidStream = true
-            }
-        }
-
         override fun brainCancel() { cancelled = true }
         override fun brainConfirm(): Boolean { confirmed = true; return true }
     }
 
     @Test
-    fun brainTurn_bridgesTranscriptToBrain() = runTest {
+    fun runTurn_bridgesTranscriptToBrain() = runTest {
         val fake = FakeBrain()
         val bridge = VoiceBridge(fake)
         val history = listOf(GatewayTurn("user", "hello"))
+        val events = mutableListOf<GatewayEvent>()
 
-        val events = bridge.brainTurn(history).toList()
+        bridge.runTurn(this, history) { events += it }.join()
 
         assertEquals(listOf(history), fake.turns)
         assertTrue(events.any { it is GatewayEvent.Done })
@@ -80,10 +86,12 @@ class VoiceBridgeWiringTest {
         val fake = FakeBrain()
         val bridge = VoiceBridge(fake)
         val history = listOf(GatewayTurn("user", "again"))
+        val events = mutableListOf<GatewayEvent>()
 
-        bridge.brainContinue(history).toList()
+        bridge.brainContinue(history).collect { events += it }
 
         assertEquals(listOf(history), fake.continues)
+        assertTrue(events.any { it is GatewayEvent.Done })
     }
 
     @Test
@@ -98,21 +106,22 @@ class VoiceBridgeWiringTest {
     }
 
     @Test
-    fun brainCancel_cancelsLiveCollectingJob() = runTest {
-        val fake = FakeBrain()
-        // Collect the endless stream in a child Job, cancel it, and assert its finally ran (Job torn down).
+    fun brainCancel_viaBridge_cancelsLiveCollectingJob() = runTest {
+        val fake = FakeBrain().apply { useEndlessTurn() }
+        val bridge = VoiceBridge(fake)
         val started = CompletableDeferred<Unit>()
-        val job = launch {
-            fake.endlessTurn().collect {
-                if (it is GatewayEvent.Delta && !started.isCompleted) started.complete(Unit)
-            }
+
+        val job = bridge.runTurn(backgroundScope, listOf(GatewayTurn("user", "hi"))) { event ->
+            if (event is GatewayEvent.Delta && !started.isCompleted) started.complete(Unit)
         }
         withTimeout(1_000) { started.await() }
-        assertFalse(fake.cancelledMidStream)
+        assertFalse("stream still live before cancel", fake.cancelledMidStream)
 
-        job.cancel()
+        bridge.brainCancel()
         job.join()
 
-        assertTrue("cancelling the Job must tear down the live stream", fake.cancelledMidStream)
+        assertTrue("brainCancel must reach the delegate", fake.cancelled)
+        assertTrue("brainCancel must tear down the live collecting Job", fake.cancelledMidStream)
+        assertTrue("cancelled Job must be complete", job.isCancelled)
     }
 }

@@ -7,9 +7,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import java.util.concurrent.atomic.AtomicReference
 
-// brain_confirm semantics: a turn arms a gate before a user-gated action; the UI
-// resolves it with confirm (true) or cancel (false). Pure + thread-safe so it is
-// unit-testable off-device and shared by the router's confirm/cancel paths.
+// brain_confirm gate: a turn arms it, the UI resolves confirm(true)/cancel(false); thread-safe + unit-testable off-device.
 class ConfirmationGate {
 
     private val pending = AtomicReference<CompletableDeferred<Boolean>?>(null)
