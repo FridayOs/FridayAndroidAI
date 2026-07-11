@@ -70,8 +70,7 @@ class VoiceRouterTest {
         assertEquals(brain, (route as VoiceRouter.Route.CloudBridge).brain)
     }
 
-    // Every voice mode bridges to the active Brain Gateway, and that brain resolves to a
-    // direct Cloud/Local brain route — never a FRIDAY-API call.
+    // Every voice mode bridges to a direct Cloud/Local brain route — never a FRIDAY-API call.
     @Test
     fun everyVoiceModeBridgesToBrain_neverFridayApi() {
         val brain = config(GatewayProvider.OPENAI)

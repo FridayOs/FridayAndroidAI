@@ -11,8 +11,10 @@ import com.dark.tool_neuron.service.inference.InferenceClient
 import com.dark.tool_neuron.service.inference.InferenceEvent
 import com.dark.tool_neuron.viewmodel.home_vm.ModelLoadState
 import com.dark.tool_neuron.viewmodel.home_vm.ModelSessionManager
+import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.FlowCollector
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.emitAll
 import kotlinx.coroutines.flow.flow
 import org.json.JSONArray
@@ -26,7 +28,7 @@ class GatewayRoleRouter @Inject constructor(
     private val client: DirectGatewayClient,
     private val modelRepo: ModelRepository,
     private val modelSession: ModelSessionManager,
-) {
+) : BrainBridge {
     sealed interface BrainRoute {
         data class Cloud(val config: GatewayConfig) : BrainRoute
         data class Local(val config: GatewayConfig, val model: ModelInfo) : BrainRoute
@@ -35,6 +37,9 @@ class GatewayRoleRouter @Inject constructor(
 
         enum class Reason { NO_BRAIN, NO_LOCAL_MODEL }
     }
+
+    private val confirmationGate = ConfirmationGate()
+    val awaitingConfirmation: StateFlow<Boolean> = confirmationGate.awaiting
 
     fun hasBrain(): Boolean = gatewayRepo.brainGateway() != null
 
@@ -53,7 +58,7 @@ class GatewayRoleRouter @Inject constructor(
     // Resolved per turn so a mid-turn selection change never disturbs a running stream.
     fun resolveBrain(): BrainRoute = decideBrain(gatewayRepo.brainGateway(), firstLocalModel())
 
-    fun brainTurn(history: List<GatewayTurn>): Flow<GatewayEvent> = flow {
+    override fun brainTurn(history: List<GatewayTurn>): Flow<GatewayEvent> = flow {
         when (val route = resolveBrain()) {
             is BrainRoute.Cloud -> emitAll(client.stream(route.config, history))
             is BrainRoute.Local -> emitLocal(route.model, history)
@@ -62,14 +67,19 @@ class GatewayRoleRouter @Inject constructor(
         }
     }
 
-    fun brainContinue(history: List<GatewayTurn>): Flow<GatewayEvent> = brainTurn(history)
+    override fun brainContinue(history: List<GatewayTurn>): Flow<GatewayEvent> = brainTurn(history)
 
-    // Cancel the collecting Job to stop cloud; local also stops the on-device engine.
-    fun brainCancel() {
+    // Cancelling the collecting Job stops cloud; also stop the engine and fail any parked confirmation.
+    override fun brainCancel() {
+        confirmationGate.cancel()
         modelSession.stopGeneration()
     }
 
-    fun brainConfirm() {}
+    // Arm a confirmation gate a turn awaits before an action; brainConfirm/brainCancel resolve the latch.
+    fun requireConfirmation(): Deferred<Boolean> = confirmationGate.arm()
+
+    // Confirm the parked action. Returns false when nothing is awaiting confirmation.
+    override fun brainConfirm(): Boolean = confirmationGate.confirm()
 
     private suspend fun FlowCollector<GatewayEvent>.emitLocal(model: ModelInfo, history: List<GatewayTurn>) {
         val loaded = ensureLocalLoaded(model)

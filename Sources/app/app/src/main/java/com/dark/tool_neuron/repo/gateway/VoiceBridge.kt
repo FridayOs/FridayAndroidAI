@@ -6,10 +6,14 @@ import javax.inject.Singleton
 
 @Singleton
 class VoiceBridge @Inject constructor(
-    private val router: GatewayRoleRouter,
+    private val brain: BrainBridge,
 ) {
     // Both voice routes cross this seam: audio yields a transcript, brain answers it.
-    fun brainTurn(history: List<GatewayTurn>): Flow<GatewayEvent> = router.brainTurn(history)
+    fun brainTurn(history: List<GatewayTurn>): Flow<GatewayEvent> = brain.brainTurn(history)
 
-    fun cancel() = router.brainCancel()
+    fun brainContinue(history: List<GatewayTurn>): Flow<GatewayEvent> = brain.brainContinue(history)
+
+    fun brainCancel() = brain.brainCancel()
+
+    fun brainConfirm(): Boolean = brain.brainConfirm()
 }

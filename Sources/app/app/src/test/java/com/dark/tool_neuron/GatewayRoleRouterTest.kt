@@ -41,9 +41,7 @@ class GatewayRoleRouterTest {
 
     @Test
     fun anthropicBrainDoesNotRouteThroughFridayApi() {
-        // The Anthropic brain must classify as Cloud (direct Android → provider)
-        // — not as None or Local. Friday provider is the only one that would
-        // route through the FRIDAY API, and FRIDAY is intentionally roleless.
+        // Anthropic brain must classify as Cloud (direct Android → provider), never FRIDAY-API.
         val route = GatewayRoleRouter.decideBrain(config(GatewayProvider.ANTHROPIC), null)
         assertTrue(route is GatewayRoleRouter.BrainRoute.Cloud)
         assertFalse(
@@ -92,8 +90,7 @@ class GatewayRoleRouterTest {
     fun fridayProviderIsRolelessAndCannotBecomeBrain() {
         val friday = config(GatewayProvider.FRIDAY)
         assertFalse(friday.supportsRole(com.dark.tool_neuron.model.gateway.GatewayRole.BRAIN))
-        // Even with a model, an FRIDAY config still won't classify — it's
-        // excluded by supportsRole upstream.
+        // Roleless FRIDAY config never classifies — excluded by supportsRole upstream.
         val route = GatewayRoleRouter.decideBrain(friday, null)
         assertEquals(GatewayRoleRouter.BrainRoute.None, route)
     }

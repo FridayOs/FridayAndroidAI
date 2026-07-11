@@ -105,7 +105,7 @@ class FridayVoiceViewModel @Inject constructor(
 
     fun cancel() {
         flowJob?.cancel()
-        bridge.cancel()
+        bridge.brainCancel()
         voiceManager.cancelRecording()
         voiceManager.stopSpeaking()
         _mode.value = VoiceMode.IDLE

@@ -7,9 +7,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-// Proves the cancel-covers-cloud contract: a cancelled cloud request rethrows the
-// CancellationException (so the collecting Job cancels cleanly) instead of turning
-// it into a chat error, and every other failure is sanitized before it surfaces.
+// Cancel-covers-cloud: a cancelled request rethrows CancellationException untouched; other failures are sanitized.
 class DirectGatewayClientErrorTest {
 
     @Test(expected = CancellationException::class)
