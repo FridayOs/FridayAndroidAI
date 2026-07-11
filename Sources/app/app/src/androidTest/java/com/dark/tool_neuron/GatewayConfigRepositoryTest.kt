@@ -148,4 +148,47 @@ class GatewayConfigRepositoryTest {
         assertEquals("", repo.brainId.value)
         assertTrue(repo.gateways.value.isEmpty())
     }
+
+    // create() persists without making the new gateway the active selection (save-only); an
+    // explicit selectBrain()/selectVoice() is the save-and-use step. Auto-fill is a fallback only.
+    @Test
+    fun createIsSaveOnly_whenAnotherBrainIsAlreadySelected() {
+        val repo = newRepo()
+        val first = repo.create(GatewayProvider.OPENAI, "First", "", "sk-a", "gpt-4o-mini")
+        assertEquals(first.id, repo.brainId.value)
+        val second = repo.create(GatewayProvider.OPENAI, "Second", "", "sk-b", "gpt-4o")
+        assertEquals("save-only: previously-selected brain must stay selected", first.id, repo.brainId.value)
+        // Explicit selectBrain() is the save-and-use step.
+        repo.selectBrain(second.id)
+        assertEquals(second.id, repo.brainId.value)
+    }
+
+    @Test
+    fun createIsSaveAndUse_whenNoBrainSelectedYet() {
+        val repo = newRepo()
+        assertEquals("", repo.brainId.value)
+        val g = repo.create(GatewayProvider.OPENAI, "Solo", "", "sk-a", "gpt-4o-mini")
+        assertEquals("first brain-capable gateway auto-fills the empty slot", g.id, repo.brainId.value)
+    }
+
+    @Test
+    fun upsertEditsInPlace_preservingIdAndRoleAutoFill() {
+        val repo = newRepo()
+        val g = repo.create(GatewayProvider.OPENAI, "Work", "", "sk-a", "gpt-4o-mini")
+        val edited = g.copy(label = "Work 2", apiKey = "sk-new", model = "gpt-4o")
+        val stored = repo.upsert(edited)
+        assertEquals(g.id, stored.id)
+        assertEquals("Work 2", repo.getById(g.id)!!.label)
+        assertEquals("sk-new", repo.getById(g.id)!!.apiKey)
+    }
+
+    @Test
+    fun multipleInstancesSameProvider_areDistinguishable() {
+        val repo = newRepo()
+        val a = repo.create(GatewayProvider.OPENAI, "A", "", "sk-a", "gpt-4o-mini")
+        val b = repo.create(GatewayProvider.OPENAI, "B", "", "sk-b", "gpt-4o-mini")
+        repo.selectBrain(a.id)
+        repo.delete(a.id)
+        assertEquals("delete falls back to next role-capable", b.id, repo.brainGateway()!!.id)
+    }
 }

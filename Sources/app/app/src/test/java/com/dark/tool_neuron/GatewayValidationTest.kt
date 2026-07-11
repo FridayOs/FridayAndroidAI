@@ -1,7 +1,5 @@
-package com.dark.tool_neuron
+package com.dark.tool_neuron.model.gateway
 
-import com.dark.tool_neuron.model.gateway.GatewayProvider
-import com.dark.tool_neuron.model.gateway.GatewayValidation
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -17,7 +15,6 @@ class GatewayValidationTest {
 
     @Test
     fun default_model_satisfies_model_requirement() {
-        // Blank model falls back to the provider default, so it is valid.
         assertTrue(GatewayValidation.isValid(GatewayProvider.OPENAI, apiKey = "sk-x", model = "", baseUrl = ""))
     }
 
@@ -43,7 +40,6 @@ class GatewayValidationTest {
 
     @Test
     fun optional_url_when_present_must_be_valid() {
-        // Gemini's URL is optional, but a provided malformed one is still rejected.
         val r = GatewayValidation.validate(GatewayProvider.GEMINI, apiKey = "k", model = "m", baseUrl = "notaurl")
         assertEquals(GatewayValidation.Result.Invalid(GatewayValidation.Reason.BAD_URL), r)
     }
@@ -63,5 +59,47 @@ class GatewayValidationTest {
     fun fully_valid_cloud_provider_passes() {
         assertTrue(GatewayValidation.isValid(GatewayProvider.ANTHROPIC, "sk-ant", "claude-sonnet-4-5", ""))
         assertFalse(GatewayValidation.isValid(GatewayProvider.ANTHROPIC, "", "claude-sonnet-4-5", ""))
+    }
+
+    // URL parser hardening — the old "^https?://.+" regex accepted anything past the scheme.
+    @Test
+    fun urlParser_rejects_schemeOnly() {
+        assertFalse(GatewayValidation.isWellFormedHttpUrl("https://"))
+        assertFalse(GatewayValidation.isWellFormedHttpUrl("http://"))
+    }
+
+    @Test
+    fun urlParser_rejects_missingScheme() {
+        assertFalse(GatewayValidation.isWellFormedHttpUrl("api.openai.com"))
+    }
+
+    @Test
+    fun urlParser_rejects_nonHttpSchemes() {
+        assertFalse(GatewayValidation.isWellFormedHttpUrl("ftp://api.example.test"))
+        assertFalse(GatewayValidation.isWellFormedHttpUrl("file:///etc/passwd"))
+        assertFalse(GatewayValidation.isWellFormedHttpUrl("javascript:alert(1)"))
+    }
+
+    @Test
+    fun urlParser_rejectsBlankAndWhitespace() {
+        assertFalse(GatewayValidation.isWellFormedHttpUrl(""))
+        assertFalse(GatewayValidation.isWellFormedHttpUrl("   "))
+    }
+
+    @Test
+    fun urlParser_acceptsLocalhost() {
+        assertTrue(GatewayValidation.isWellFormedHttpUrl("http://localhost:11434"))
+    }
+
+    @Test
+    fun urlParser_acceptsLiteralIpv4() {
+        assertTrue(GatewayValidation.isWellFormedHttpUrl("http://127.0.0.1:8080"))
+        assertTrue(GatewayValidation.isWellFormedHttpUrl("https://10.0.0.5"))
+    }
+
+    @Test
+    fun urlParser_acceptsDottedHost() {
+        assertTrue(GatewayValidation.isWellFormedHttpUrl("https://api.example.test/v1"))
+        assertTrue(GatewayValidation.isWellFormedHttpUrl("https://generativelanguage.googleapis.com/v1beta"))
     }
 }

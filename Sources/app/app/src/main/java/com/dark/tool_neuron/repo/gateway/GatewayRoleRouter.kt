@@ -67,6 +67,9 @@ class GatewayRoleRouter @Inject constructor(
         }
     }
 
+    // brain_continue produces a fresh turn over the existing history without injecting a new
+    // user message. For the cloud and local paths it's a re-run; an Unavailable brain surfaces
+    // the typed reason rather than silently producing empty output.
     override fun brainContinue(history: List<GatewayTurn>): Flow<GatewayEvent> = brainTurn(history)
 
     // Cancelling the collecting Job stops cloud; also stop the engine and fail any parked confirmation.

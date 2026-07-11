@@ -74,6 +74,50 @@ class FridayChatViewModel @Inject constructor(
 
     fun clearError() { _error.value = null }
 
+    // Re-run the most recent assistant turn with the same history (brain_continue) — used by
+    // an explicit user "regenerate" affordance without injecting a new user message.
+    fun regenerate() {
+        val convoId = conversationId ?: return
+        val turns = convoRepo.getTurns(convoId)
+        if (turns.isEmpty()) return
+        // Drop the most recent assistant turn (if any) so brain_continue produces a fresh answer.
+        val lastAssistant = turns.lastOrNull { it.role == "assistant" }
+        if (lastAssistant != null) convoRepo.updateTurn(lastAssistant.copy(content = ""))
+        val history = turns.map { GatewayTurn(it.role, it.content) }
+        _thinking.value = true
+        val aiId = lastAssistant?.id ?: UUID.randomUUID().toString()
+        replyJob = viewModelScope.launch {
+            router.brainContinue(history).collect { event ->
+                when (event) {
+                    is GatewayEvent.Delta -> {
+                        if (_thinking.value) {
+                            _thinking.value = false
+                            _messages.value = _messages.value + FridayChatMessage(aiId, isUser = false, text = "", done = false)
+                        }
+                        _messages.value = _messages.value.map {
+                            if (it.id == aiId) it.copy(text = it.text + event.text) else it
+                        }
+                    }
+                    is GatewayEvent.Done -> {
+                        _thinking.value = false
+                        val finalText = event.fullText
+                        _messages.value = _messages.value.map {
+                            if (it.id == aiId) it.copy(text = finalText, done = true) else it
+                        }
+                        if (lastAssistant != null && finalText.isNotBlank()) {
+                            convoRepo.updateTurn(lastAssistant.copy(content = finalText))
+                        }
+                    }
+                    is GatewayEvent.Error -> {
+                        _thinking.value = false
+                        _messages.value = _messages.value.filterNot { it.id == aiId }
+                        _error.value = event.message
+                    }
+                }
+            }
+        }
+    }
+
     fun send(text: String, viaVoice: Boolean = false) {
         val trimmed = text.trim()
         if (trimmed.isEmpty() || _thinking.value) return

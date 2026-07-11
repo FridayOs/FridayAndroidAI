@@ -73,10 +73,16 @@ class FridayDrawerViewModel @Inject constructor(
         _testingId.value = id
         testJob = viewModelScope.launch {
             val result = client.testConnection(config)
-            val status = if (result is GatewayTestResult.Ready) GatewayStatus.READY else GatewayStatus.FAILED
-            val error = (result as? GatewayTestResult.Failed)?.error.orEmpty()
-            gatewayRepo.recordStatus(id, status, error)
-            _testingId.value = null
+            when (result) {
+                GatewayTestResult.Ready -> {
+                    gatewayRepo.recordStatus(id, GatewayStatus.READY, "")
+                    _testingId.value = null
+                }
+                is GatewayTestResult.Failure -> {
+                    gatewayRepo.recordStatus(id, GatewayStatus.FAILED, result.message)
+                    _testingId.value = null
+                }
+            }
             onResult(result)
         }
     }

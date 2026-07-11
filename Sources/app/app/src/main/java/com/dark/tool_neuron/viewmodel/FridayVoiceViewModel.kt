@@ -114,6 +114,15 @@ class FridayVoiceViewModel @Inject constructor(
         _error.value = null
     }
 
+    // Confirmation latch: armed by requireConfirmation() during a turn; user actions
+    // resolve it via confirm() / cancel() (brain_confirm / brain_cancel). Surfaced to the UI
+    // through awaitingConfirmation.
+    fun confirm() {
+        bridge.brainConfirm()
+    }
+
+    fun awaitingConfirmation(): Boolean = bridge.brainAwaitingConfirmation()
+
     private suspend fun respond(transcript: String) {
         val brain = brainForTurn ?: run {
             _selectorRequest.value = VoiceSelectorRequest.NeedBrainGateway

@@ -1,6 +1,7 @@
 package com.dark.tool_neuron.repo.gateway
 
 import com.dark.tool_neuron.model.gateway.GatewayConfig
+import com.dark.tool_neuron.model.gateway.GatewayValidation
 import com.dark.tool_neuron.model.gateway.GatewayWireFormat
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
@@ -16,9 +17,13 @@ import java.io.BufferedReader
 import java.io.InputStreamReader
 import java.io.OutputStream
 import java.net.HttpURLConnection
+import java.net.MalformedURLException
+import java.net.SocketTimeoutException
 import java.net.URL
+import java.net.UnknownHostException
 import javax.inject.Inject
 import javax.inject.Singleton
+import javax.net.ssl.SSLException
 
 sealed interface GatewayEvent {
     data class Delta(val text: String) : GatewayEvent
@@ -28,10 +33,43 @@ sealed interface GatewayEvent {
 
 data class GatewayTurn(val role: String, val content: String)
 
-// Success is never faked — Ready only on a real 2xx; Failed carries a sanitized summary.
+// Typed health states: caller distinguishes auth/DNS/TLS/timeout/cancel/bad-input/provider from one failure.
 sealed interface GatewayTestResult {
     data object Ready : GatewayTestResult
-    data class Failed(val error: String) : GatewayTestResult
+    sealed interface Failure : GatewayTestResult {
+        val reason: Reason
+        val message: String
+
+        enum class Reason { AUTH, NOT_FOUND, RATE_LIMITED, INVALID_MODEL, INVALID_URL, TIMEOUT, DNS, TLS, PROVIDER_ERROR }
+
+        data class AuthRejected(override val message: String) : Failure {
+            override val reason = Reason.AUTH
+        }
+        data class NotFound(override val message: String) : Failure {
+            override val reason = Reason.NOT_FOUND
+        }
+        data class RateLimited(override val message: String) : Failure {
+            override val reason = Reason.RATE_LIMITED
+        }
+        data class InvalidModel(override val message: String) : Failure {
+            override val reason = Reason.INVALID_MODEL
+        }
+        data class InvalidUrl(override val message: String) : Failure {
+            override val reason = Reason.INVALID_URL
+        }
+        data class Timeout(override val message: String) : Failure {
+            override val reason = Reason.TIMEOUT
+        }
+        data class DnsFailure(override val message: String) : Failure {
+            override val reason = Reason.DNS
+        }
+        data class TlsFailure(override val message: String) : Failure {
+            override val reason = Reason.TLS
+        }
+        data class ProviderError(val httpStatus: Int, override val message: String) : Failure {
+            override val reason = Reason.PROVIDER_ERROR
+        }
+    }
 }
 
 // User-owned gateways connect directly from Android — no FRIDAY proxy; key/prompt/response stay on-device.
@@ -66,10 +104,10 @@ class DirectGatewayClient @Inject constructor() {
                 GatewayWireFormat.GEMINI -> probeGemini(config, probe)
             }
             GatewayTestResult.Ready
+        } catch (ce: CancellationException) {
+            throw ce
         } catch (t: Throwable) {
-            if (t is CancellationException) throw t
-            // Scrub the literal key in case the provider echoed it in the error body.
-            GatewayTestResult.Failed(GatewayErrorSanitizer.sanitize(t.message, config.apiKey))
+            classifyProbeFailure(t, config)
         }
     }
 
@@ -273,7 +311,7 @@ class DirectGatewayClient @Inject constructor() {
                 BufferedReader(InputStreamReader(it, Charsets.UTF_8)).readText()
             }.orEmpty().take(ERROR_BODY_CAP)
             conn.disconnect()
-            throw GatewayHttpException("HTTP $status${if (err.isNotBlank()) ": $err" else ""}")
+            throw GatewayHttpException(status, "HTTP $status${if (err.isNotBlank()) ": $err" else ""}")
         }
         try {
             val reader = BufferedReader(InputStreamReader(conn.inputStream, Charsets.UTF_8))
@@ -299,14 +337,61 @@ class DirectGatewayClient @Inject constructor() {
         }
     }
 
-    private class GatewayHttpException(message: String) : Exception(message)
+    private class GatewayHttpException(val httpStatus: Int, message: String) : Exception(message)
 
     companion object {
         // Cancellation rethrows (control signal, not an error); everything else is sanitized with the key.
         fun classifyError(t: Throwable, key: String): GatewayEvent {
             if (t is CancellationException) throw t
-            return GatewayEvent.Error(GatewayErrorSanitizer.sanitize(t.message, key))
+            val sanitized = GatewayErrorSanitizer.sanitize(t.message, key)
+            return GatewayEvent.Error(sanitized)
         }
+
+        // Typed probe failure: distinguishes DNS / TLS / timeout / auth / model / URL / 5xx so the
+        // caller can persist a structured reason alongside a sanitized message.
+        internal fun classifyProbeFailure(t: Throwable, config: GatewayConfig): GatewayTestResult.Failure {
+            val key = config.apiKey
+            val raw = t.message.orEmpty()
+            val sanitized = GatewayErrorSanitizer.sanitize(raw, key)
+            return when (t) {
+                is SocketTimeoutException -> GatewayTestResult.Failure.Timeout(sanitized)
+                is UnknownHostException -> GatewayTestResult.Failure.DnsFailure(sanitized)
+                is SSLException -> GatewayTestResult.Failure.TlsFailure(sanitized)
+                is MalformedURLException -> GatewayTestResult.Failure.InvalidUrl(sanitized)
+                is GatewayHttpException -> when (t.httpStatus) {
+                    401, 403 -> GatewayTestResult.Failure.AuthRejected(
+                        GatewayErrorSanitizer.forHttpStatus(t.httpStatus, raw, key)
+                    )
+                    404 -> if (looksLikeModelNotFound(raw)) {
+                        GatewayTestResult.Failure.InvalidModel(
+                            GatewayErrorSanitizer.forHttpStatus(404, raw, key)
+                        )
+                    } else {
+                        GatewayTestResult.Failure.NotFound(
+                            GatewayErrorSanitizer.forHttpStatus(404, raw, key)
+                        )
+                    }
+                    429 -> GatewayTestResult.Failure.RateLimited(
+                        GatewayErrorSanitizer.forHttpStatus(429, raw, key)
+                    )
+                    else -> GatewayTestResult.Failure.ProviderError(
+                        t.httpStatus,
+                        GatewayErrorSanitizer.forHttpStatus(t.httpStatus, raw, key),
+                    )
+                }
+                else -> {
+                    val urlError = GatewayValidation.isWellFormedHttpUrl(config.effectiveBaseUrl)
+                    val modelError = config.displayModel.isBlank()
+                    when {
+                        !urlError -> GatewayTestResult.Failure.InvalidUrl(sanitized)
+                        modelError -> GatewayTestResult.Failure.InvalidModel(sanitized)
+                        else -> GatewayTestResult.Failure.ProviderError(0, sanitized)
+                    }
+                }
+            }
+        }
+
+        private fun looksLikeModelNotFound(raw: String): Boolean = raw.lowercase().contains("model")
 
         private const val CONNECT_TIMEOUT_MS = 15000
         private const val READ_TIMEOUT_MS = 120000

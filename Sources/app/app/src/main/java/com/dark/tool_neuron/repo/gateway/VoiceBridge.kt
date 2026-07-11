@@ -36,4 +36,8 @@ class VoiceBridge @Inject constructor(
     }
 
     fun brainConfirm(): Boolean = brain.brainConfirm()
+
+    // Used by the UI to render a "waiting for confirmation" affordance when the brain arms a gate.
+    fun brainAwaitingConfirmation(): Boolean =
+        (brain as? GatewayRoleRouter)?.awaitingConfirmation?.value == true
 }
