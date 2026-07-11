@@ -19,11 +19,7 @@ import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
-// Gateway endpoints + API keys are the most sensitive part of the M1 data
-// boundary: they live in a dedicated signer-bound HXS vault and never reach
-// Firebase / FRIDAY API. The active Brain and Voice pointers ride the same
-// vault so the whole gateway state stays local. Brain and Voice selection are
-// independent (M2-02, FRI-553).
+// Signer-bound HXS vault — keys/endpoints never reach Firebase/FRIDAY. Brain and Voice pointers are independent.
 @Singleton
 class GatewayConfigRepository @Inject constructor(
     @param:ApplicationContext private val context: Context,
@@ -73,8 +69,7 @@ class GatewayConfigRepository @Inject constructor(
         return storage.createEncrypted(base, dek, userKey, encryptor)
     }
 
-    // The M1-03 vault stored a single "selected_gateway_id". Read it into the new
-    // brain pointer once so existing installs keep their active brain.
+    // Migrate the legacy single "selected_gateway_id" into the brain pointer once.
     private fun migrateBrainPointer(): String {
         val brain = readMeta(META_BRAIN)
         if (brain.isNotBlank()) return brain
@@ -91,20 +86,17 @@ class GatewayConfigRepository @Inject constructor(
 
     fun getById(id: String): GatewayConfig? = _gateways.value.firstOrNull { it.id == id }
 
-    // Active Brain Gateway — chat/reasoning/tools/actions route here. Falls back
-    // to the first brain-capable gateway if the pointer is stale/blank.
+    // Falls back to the first brain-capable gateway when the pointer is stale/blank.
     fun brainGateway(): GatewayConfig? =
         _gateways.value.firstOrNull { it.id == _brainId.value && it.supportsRole(GatewayRole.BRAIN) }
             ?: _gateways.value.firstOrNull { it.supportsRole(GatewayRole.BRAIN) }
 
-    // Active Voice Gateway — independent of the brain. Falls back to the first
-    // voice-capable gateway. May be null even when a brain exists.
+    // Independent of the brain; falls back to the first voice-capable gateway.
     fun voiceGateway(): GatewayConfig? =
         _gateways.value.firstOrNull { it.id == _voiceId.value && it.supportsRole(GatewayRole.VOICE) }
             ?: _gateways.value.firstOrNull { it.supportsRole(GatewayRole.VOICE) }
 
-    // Backwards-compatible: callers that predate roles asked for "the" selection,
-    // which was always the brain.
+    // Pre-role callers asked for "the" selection, which was always the brain.
     fun selected(): GatewayConfig? = brainGateway()
 
     fun upsert(config: GatewayConfig): GatewayConfig {
@@ -116,9 +108,7 @@ class GatewayConfigRepository @Inject constructor(
         storage.put(COL_GATEWAYS, stored.toRecord())
         storage.flush(COL_GATEWAYS)
         refresh()
-        // First brain-capable gateway auto-fills the empty brain pointer; same for
-        // voice. Selection is per-role so adding a brain-only provider never
-        // hijacks the voice slot.
+        // Per-role auto-fill so a brain-only provider never hijacks the voice slot.
         if (_brainId.value.isBlank() && stored.supportsRole(GatewayRole.BRAIN)) selectBrain(stored.id)
         if (_voiceId.value.isBlank() && stored.supportsRole(GatewayRole.VOICE)) selectVoice(stored.id)
         return stored
@@ -147,8 +137,7 @@ class GatewayConfigRepository @Inject constructor(
         return upsert(config)
     }
 
-    // Persist the result of a direct connection probe. Never stores the key or a
-    // raw Authorization header — the error is already sanitized by the caller.
+    // The error is already sanitized by the caller — never a raw key/header.
     fun recordStatus(id: String, status: GatewayStatus, error: String) {
         val current = getById(id) ?: return
         upsert(
@@ -164,8 +153,7 @@ class GatewayConfigRepository @Inject constructor(
         storage.queryString(COL_GATEWAYS, TAG_ID, id).forEach { storage.delete(COL_GATEWAYS, it.id) }
         storage.flush(COL_GATEWAYS)
         refresh()
-        // Deleting the active brain/voice falls back to the next role-capable
-        // record, or the no-provider state when none remain.
+        // Fall back to the next role-capable record, or the no-provider state.
         if (_brainId.value == id) {
             selectBrain(_gateways.value.firstOrNull { it.supportsRole(GatewayRole.BRAIN) }?.id ?: "")
         }

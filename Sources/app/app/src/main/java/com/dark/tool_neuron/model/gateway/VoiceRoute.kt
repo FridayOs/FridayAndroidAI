@@ -1,6 +1,4 @@
 package com.dark.tool_neuron.model.gateway
 
-// How a Voice Gateway handles audio. CLOUD streams audio to a provider that does
-// realtime speech itself; LOCAL uses on-device STT/TTS. Either way the reasoning
-// is bridged to the active Brain Gateway — audio handling and thinking are split.
+// CLOUD = provider does realtime speech; LOCAL = on-device STT/TTS. Either way reasoning bridges to the Brain Gateway.
 enum class VoiceRoute { CLOUD, LOCAL }

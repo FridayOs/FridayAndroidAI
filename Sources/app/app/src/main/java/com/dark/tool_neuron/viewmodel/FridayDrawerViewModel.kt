@@ -26,10 +26,7 @@ class FridayDrawerViewModel @Inject constructor(
     private val themeController: ThemeController,
 ) : ViewModel() {
 
-    // User-owned gateways, HXS-only. The drawer lists these instead of local
-    // GGUF models — Friday chat/voice route to whichever is selected, direct
-    // from Android. The FRIDAY managed provider stays a disabled placeholder.
-    // Brain and Voice selection are independent (M2-02).
+    // Brain and Voice selection are independent (M2-02); HXS-only, no FRIDAY proxy.
     val gateways: StateFlow<List<GatewayConfig>> = gatewayRepo.gateways
     val selectedId: StateFlow<String> = gatewayRepo.brainId
     val brainId: StateFlow<String> = gatewayRepo.brainId
@@ -52,8 +49,7 @@ class FridayDrawerViewModel @Inject constructor(
     fun validate(provider: GatewayProvider, apiKey: String, model: String, baseUrl: String): GatewayValidation.Result =
         GatewayValidation.validate(provider, apiKey, model, baseUrl)
 
-    // Add a gateway only when it validates. Returns the validation result so the
-    // caller can surface the reason; on Valid the config is created + persisted.
+    // Only creates when valid; returns the result so the caller can surface the reason.
     fun addGateway(
         provider: GatewayProvider,
         label: String,
@@ -70,8 +66,7 @@ class FridayDrawerViewModel @Inject constructor(
 
     fun deleteGateway(id: String) = gatewayRepo.delete(id)
 
-    // Fire a real direct connection probe and persist the outcome. Never fakes a
-    // ready state — the status comes straight from the provider's response.
+    // Never fakes ready — status comes straight from the provider's response.
     fun testGateway(id: String, onResult: (GatewayTestResult) -> Unit = {}) {
         val config = gatewayRepo.getById(id) ?: return
         testJob?.cancel()

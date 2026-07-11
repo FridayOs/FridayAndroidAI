@@ -1,9 +1,6 @@
 package com.dark.tool_neuron.model.gateway
 
-// Pure, Android-free validation for a gateway draft. Mirrors the design's
-// _validateAp: API key required when the provider needs one, model required,
-// base URL must be http/https and is mandatory for OpenClaw/Hermes/Custom.
-// Kept as a pure object so it can be unit-tested off-device.
+// Pure so it is unit-testable off-device.
 object GatewayValidation {
 
     sealed interface Result {
@@ -26,8 +23,7 @@ object GatewayValidation {
         val effectiveModel = model.trim().ifBlank { provider.defaultModel }
 
         if (provider.needsKey && key.isEmpty()) return Result.Invalid(Reason.MISSING_KEY)
-        // Local gateways pick an installed on-device model separately, so a model
-        // string isn't required here. Cloud providers still need one.
+        // Local picks an on-device model separately, so no model string required here.
         if (!provider.isLocal && effectiveModel.isBlank()) return Result.Invalid(Reason.MISSING_MODEL)
         if (provider.urlRequired && url.isEmpty()) return Result.Invalid(Reason.MISSING_URL)
         if (url.isNotEmpty() && !URL_REGEX.matches(url)) return Result.Invalid(Reason.BAD_URL)

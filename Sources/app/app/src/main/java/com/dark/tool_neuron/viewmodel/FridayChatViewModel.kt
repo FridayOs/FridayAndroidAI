@@ -77,9 +77,7 @@ class FridayChatViewModel @Inject constructor(
     fun send(text: String, viaVoice: Boolean = false) {
         val trimmed = text.trim()
         if (trimmed.isEmpty() || _thinking.value) return
-        // Resolve the active Brain Gateway up front. No brain (or a Local brain
-        // with no installed model) surfaces an error the screen turns into the
-        // provider/model selector, instead of failing silently.
+        // No brain surfaces an error the screen turns into the provider/model selector.
         val brain = router.brainGateway()
         if (brain == null) {
             _error.value = router.brainUnavailableMessage()

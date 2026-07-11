@@ -28,19 +28,13 @@ sealed interface GatewayEvent {
 
 data class GatewayTurn(val role: String, val content: String)
 
-// Result of a direct connection probe. Failed carries a sanitized, secret-free
-// summary suitable for persisting + showing. Success is NEVER faked — it only
-// comes back on a real 2xx from the provider.
+// Success is never faked — Ready only on a real 2xx; Failed carries a sanitized summary.
 sealed interface GatewayTestResult {
     data object Ready : GatewayTestResult
     data class Failed(val error: String) : GatewayTestResult
 }
 
-// User-owned gateways connect DIRECTLY from Android. No FRIDAY API proxy, no
-// Firebase. Endpoint, key, model and every prompt/response byte stay on-device.
-// Three wire formats cover every supported provider: OpenAI-compatible
-// (OpenAI/DeepSeek/Custom/OpenClaw/Hermes), Anthropic messages, Gemini
-// generateContent. All stream token deltas over a chunked HTTP read.
+// User-owned gateways connect directly from Android — no FRIDAY proxy; key/prompt/response stay on-device.
 @Singleton
 class DirectGatewayClient @Inject constructor() {
 
@@ -54,26 +48,15 @@ class DirectGatewayClient @Inject constructor() {
             }
             emit(GatewayEvent.Done(builder.toString()))
         } catch (ce: CancellationException) {
-            // Cancellation is a control signal — never converted to an Error or
-            // it would render an error message during in-flight cancellation.
-            // Rethrow to let the collecting Job cancel cleanly.
             throw ce
         } catch (t: Throwable) {
-            // Provider error bodies may echo the key/Authorization header back to
-            // us; sanitize with the literal key as well before any text reaches
-            // the UI or the persisted conversation turn.
-            emit(GatewayEvent.Error(GatewayErrorSanitizer.sanitize(t.message, config.apiKey)))
+            emit(classifyError(t, config.apiKey))
         }
     }.flowOn(Dispatchers.IO)
 
-    // A tiny direct request against the provider, sent from this phone only. On a
-    // real 2xx it returns Ready; anything else (auth 401, bad URL, DNS, TLS,
-    // timeout, rate limit) returns Failed with a sanitized, secret-free summary.
-    // Never fakes success. The whole probe runs on Dispatchers.IO and honours
-    // coroutine cancellation, so leaving the screen aborts it.
+    // Ready only on a real 2xx — never faked. Honours cancellation so leaving the screen aborts it.
     suspend fun testConnection(config: GatewayConfig): GatewayTestResult = withContext(Dispatchers.IO) {
-        // Local gateways run on-device; there is no cloud endpoint to probe. The
-        // brain/voice availability is gated on an installed local model elsewhere.
+        // Local gateways run on-device — no cloud endpoint to probe.
         if (config.provider.isLocal) return@withContext GatewayTestResult.Ready
         val probe = listOf(GatewayTurn("user", PROBE_PROMPT))
         try {
@@ -85,13 +68,12 @@ class DirectGatewayClient @Inject constructor() {
             GatewayTestResult.Ready
         } catch (t: Throwable) {
             if (t is CancellationException) throw t
-            // Pass the key so a provider that echoes it in an error body is scrubbed.
+            // Scrub the literal key in case the provider echoed it in the error body.
             GatewayTestResult.Failed(GatewayErrorSanitizer.sanitize(t.message, config.apiKey))
         }
     }
 
-    // Each probe reuses the same wire encoder as streaming but caps output tiny
-    // and drains a single event so we exercise auth + model + endpoint for real.
+    // Probe caps output tiny and drains one event to exercise auth + model + endpoint for real.
     private suspend fun probeOpenAi(config: GatewayConfig, history: List<GatewayTurn>) {
         val messages = JSONArray()
         history.forEach { messages.put(JSONObject().put("role", it.role).put("content", it.content)) }
@@ -143,9 +125,7 @@ class DirectGatewayClient @Inject constructor() {
         drainProbe(conn)
     }
 
-    // Checks the response code (throwing on non-2xx with the sanitized body) then
-    // consumes the first event. A 2xx with no event still means the endpoint is
-    // reachable and authorized, which is all the probe needs to confirm.
+    // A 2xx with no event still means the endpoint is reachable and authorized.
     private suspend fun drainProbe(conn: HttpURLConnection) {
         readSse(conn) { false }
     }
@@ -285,9 +265,7 @@ class DirectGatewayClient @Inject constructor() {
         out.use { it.write(body.toByteArray(Charsets.UTF_8)) }
     }
 
-    // Reads a text/event-stream: accumulates `data:` lines per event (blank line
-    // = dispatch). The visitor returns false to stop early. Non-2xx surfaces the
-    // provider error body verbatim so the user sees what the endpoint said.
+    // SSE reader: accumulate `data:` lines per event, dispatch on blank line; visitor returns false to stop.
     private suspend inline fun readSse(conn: HttpURLConnection, visit: (String) -> Boolean) {
         val status = conn.responseCode
         if (status !in 200..299) {
@@ -324,6 +302,12 @@ class DirectGatewayClient @Inject constructor() {
     private class GatewayHttpException(message: String) : Exception(message)
 
     companion object {
+        // Cancellation rethrows (control signal, not an error); everything else is sanitized with the key.
+        fun classifyError(t: Throwable, key: String): GatewayEvent {
+            if (t is CancellationException) throw t
+            return GatewayEvent.Error(GatewayErrorSanitizer.sanitize(t.message, key))
+        }
+
         private const val CONNECT_TIMEOUT_MS = 15000
         private const val READ_TIMEOUT_MS = 120000
         private const val MAX_TOKENS = 4096

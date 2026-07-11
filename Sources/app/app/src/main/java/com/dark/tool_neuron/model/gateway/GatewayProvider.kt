@@ -2,13 +2,7 @@ package com.dark.tool_neuron.model.gateway
 
 enum class GatewayWireFormat { OPENAI, ANTHROPIC, GEMINI }
 
-// User-owned AI gateways. Each connects DIRECTLY from Android — there is no
-// FRIDAY API proxy. FRIDAY is a disabled placeholder for a later phase; it
-// carries no wire format and cannot be configured or called.
-//
-// Each provider declares which roles it can fill (BRAIN and/or VOICE), whether
-// it needs an API key, and whether a base URL is mandatory. LOCAL runs on-device
-// (installed local model + on-device STT/TTS) and needs no cloud key.
+// User-owned gateways connect directly from Android; FRIDAY is a disabled, roleless placeholder.
 enum class GatewayProvider(
     val displayName: String,
     val wireFormat: GatewayWireFormat,

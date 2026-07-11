@@ -4,10 +4,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.dark.tool_neuron.model.friday.FridayTurn
 import com.dark.tool_neuron.repo.FridayConversationRepository
-import com.dark.tool_neuron.repo.gateway.CloudVoiceCapability
+import com.dark.tool_neuron.model.gateway.GatewayConfig
 import com.dark.tool_neuron.repo.gateway.GatewayEvent
-import com.dark.tool_neuron.repo.gateway.GatewayRoleRouter
 import com.dark.tool_neuron.repo.gateway.GatewayTurn
+import com.dark.tool_neuron.repo.gateway.VoiceBridge
 import com.dark.tool_neuron.repo.gateway.VoiceRouter
 import com.dark.tool_neuron.voice.VoiceModelManager
 import dagger.hilt.android.lifecycle.HiltViewModel
@@ -21,15 +21,15 @@ import javax.inject.Inject
 
 enum class VoiceMode { IDLE, LISTENING, THINKING, SPEAKING, DONE }
 
-// The voice VM resolves the active Voice Router route per turn. The router
-// decides whether audio is handled locally (VoiceModelManager STT/TTS + brain
-// bridge) or by a cloud realtime gateway (not implemented in M2-02 — surfaces
-// a clear error instead of pretending). Reasoning still always goes through
-// the active Brain Gateway — never through the FRIDAY API.
+sealed interface VoiceSelectorRequest {
+    data object NeedVoiceGateway : VoiceSelectorRequest
+    data object NeedBrainGateway : VoiceSelectorRequest
+}
+
 @HiltViewModel
 class FridayVoiceViewModel @Inject constructor(
-    private val router: GatewayRoleRouter,
     private val voiceRouter: VoiceRouter,
+    private val bridge: VoiceBridge,
     private val convoRepo: FridayConversationRepository,
     private val voiceManager: VoiceModelManager,
 ) : ViewModel() {
@@ -46,33 +46,32 @@ class FridayVoiceViewModel @Inject constructor(
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
 
+    private val _selectorRequest = MutableStateFlow<VoiceSelectorRequest?>(null)
+    val selectorRequest: StateFlow<VoiceSelectorRequest?> = _selectorRequest.asStateFlow()
+
     val amplitude: StateFlow<Float> = voiceManager.recordingAmplitude
 
     private var conversationId: String? = null
+    private var brainForTurn: GatewayConfig? = null
     private var flowJob: Job? = null
 
     fun clearError() { _error.value = null }
+    fun clearSelectorRequest() { _selectorRequest.value = null }
 
-    // Push-to-talk press: begin capturing mic audio. Requires the RECORD_AUDIO
-    // grant (requested by the screen) plus an installed STT model when the
-    // active Voice Gateway resolves to a local bridge. CLOUD voice gateways
-    // surface their Unavailable status before the mic is asked for.
+    // Gate mic before recording so a missing gateway opens the selector, never records-then-fails.
     fun startListening() {
         if (_mode.value == VoiceMode.THINKING || _mode.value == VoiceMode.LISTENING) return
-        when (val route = voiceRouter.route()) {
-            is VoiceRouter.Route.CloudUnavailable -> {
-                _error.value = "Cloud voice (${route.voice.label}) requires realtime audio — coming soon. Add or pick a Local voice gateway."
+        val brain = when (val route = voiceRouter.route()) {
+            is VoiceRouter.Route.LocalBridge -> route.brain
+            is VoiceRouter.Route.CloudBridge -> route.brain
+            VoiceRouter.Route.NoVoice -> {
+                _selectorRequest.value = VoiceSelectorRequest.NeedVoiceGateway
                 return
             }
-            is VoiceRouter.Route.NoVoice -> {
-                _error.value = "Add a Voice Gateway in the menu to talk to Friday."
+            VoiceRouter.Route.NoBrain -> {
+                _selectorRequest.value = VoiceSelectorRequest.NeedBrainGateway
                 return
             }
-            is VoiceRouter.Route.NoBrainForCloud -> {
-                _error.value = "Voice Gateway picked, but no Brain Gateway is selected — pick a brain first."
-                return
-            }
-            is VoiceRouter.Route.LocalBridge -> Unit
         }
         voiceManager.stopSpeaking()
         flowJob?.cancel()
@@ -85,12 +84,10 @@ class FridayVoiceViewModel @Inject constructor(
             _mode.value = VoiceMode.IDLE
             return
         }
+        brainForTurn = brain
         _mode.value = VoiceMode.LISTENING
     }
 
-    // Push-to-talk release: transcribe locally, then stream a brain reply and
-    // speak it. Audio is always handled here on-device (the only Voice Gateway
-    // route supported in M2-02); reasoning bridges to the active Brain Gateway.
     fun stopListening() {
         if (_mode.value != VoiceMode.LISTENING) return
         _mode.value = VoiceMode.THINKING
@@ -108,7 +105,7 @@ class FridayVoiceViewModel @Inject constructor(
 
     fun cancel() {
         flowJob?.cancel()
-        router.brainCancel()
+        bridge.cancel()
         voiceManager.cancelRecording()
         voiceManager.stopSpeaking()
         _mode.value = VoiceMode.IDLE
@@ -118,26 +115,24 @@ class FridayVoiceViewModel @Inject constructor(
     }
 
     private suspend fun respond(transcript: String) {
-        val brain = router.brainGateway()
-        if (brain == null) {
-            _error.value = router.brainUnavailableMessage()
+        val brain = brainForTurn ?: run {
+            _selectorRequest.value = VoiceSelectorRequest.NeedBrainGateway
             _mode.value = VoiceMode.IDLE
             return
         }
         val convoId = conversationId ?: convoRepo.createConversation(brain.id).id.also { conversationId = it }
-        val now = System.currentTimeMillis()
         convoRepo.addTurn(
             FridayTurn(
                 id = UUID.randomUUID().toString(),
                 conversationId = convoId,
                 role = "user",
                 content = transcript,
-                timestamp = now,
+                timestamp = System.currentTimeMillis(),
                 viaVoice = true,
             )
         )
         val history = convoRepo.getTurns(convoId).map { GatewayTurn(it.role, it.content) }
-        router.brainTurn(history).collect { event ->
+        bridge.brainTurn(history).collect { event ->
             when (event) {
                 is GatewayEvent.Delta -> {
                     if (_mode.value != VoiceMode.SPEAKING) _mode.value = VoiceMode.SPEAKING
