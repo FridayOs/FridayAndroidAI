@@ -25,11 +25,11 @@ class FridayConversationRepository @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val keyStore: AppKeyStore,
     private val encryptor: HxsEncryptor,
-) {
+) : FridayConvoStore {
     private val storage = HexStorage()
 
     private val _conversations = MutableStateFlow<List<FridayConversation>>(emptyList())
-    val conversations: StateFlow<List<FridayConversation>> = _conversations.asStateFlow()
+    override val conversations: StateFlow<List<FridayConversation>> = _conversations.asStateFlow()
 
     init {
         val dir = File(context.filesDir, SECURE_DIR).apply { mkdirs() }
@@ -59,13 +59,13 @@ class FridayConversationRepository @Inject constructor(
         return storage.createEncrypted(base, dek, userKey, encryptor)
     }
 
-    fun refresh() {
+    override fun refresh() {
         _conversations.value = storage.getAll(COL_CONVOS)
             .map { it.toConversation() }
             .sortedByDescending { it.updatedAt }
     }
 
-    fun createConversation(gatewayId: String): FridayConversation {
+    override fun createConversation(gatewayId: String): FridayConversation {
         val now = System.currentTimeMillis()
         val convo = FridayConversation(
             id = UUID.randomUUID().toString(),
@@ -80,15 +80,15 @@ class FridayConversationRepository @Inject constructor(
         return convo
     }
 
-    fun getConversation(id: String): FridayConversation? =
+    override fun getConversation(id: String): FridayConversation? =
         storage.queryString(COL_CONVOS, TAG_ID, id).firstOrNull()?.toConversation()
 
-    fun getTurns(conversationId: String): List<FridayTurn> =
+    override fun getTurns(conversationId: String): List<FridayTurn> =
         storage.queryString(COL_TURNS, TAG_TURN_CONVO_ID, conversationId)
             .map { it.toTurn() }
             .sortedBy { it.timestamp }
 
-    fun addTurn(turn: FridayTurn) {
+    override fun addTurn(turn: FridayTurn) {
         storage.put(COL_TURNS, turn.toRecord())
         storage.flush(COL_TURNS)
         val convo = getConversation(turn.conversationId) ?: return
@@ -100,13 +100,13 @@ class FridayConversationRepository @Inject constructor(
         ))
     }
 
-    fun updateTurn(turn: FridayTurn) {
+    override fun updateTurn(turn: FridayTurn) {
         storage.queryString(COL_TURNS, TAG_TURN_ID, turn.id).forEach { storage.delete(COL_TURNS, it.id) }
         storage.put(COL_TURNS, turn.toRecord())
         storage.flush(COL_TURNS)
     }
 
-    fun deleteConversation(id: String) {
+    override fun deleteConversation(id: String) {
         storage.queryString(COL_CONVOS, TAG_ID, id).forEach { storage.delete(COL_CONVOS, it.id) }
         storage.queryString(COL_TURNS, TAG_TURN_CONVO_ID, id).forEach { storage.delete(COL_TURNS, it.id) }
         storage.flushAll()

@@ -27,17 +27,17 @@ class VoiceModelManager @Inject constructor(
     private val prefs: Lazy<AppPreferences>,
     private val ttsPlayer: TtsPlayer,
     private val sttRecorder: SttRecorder,
-) {
+) : VoiceIo {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val ttsLock = Mutex()
     private val sttLock = Mutex()
 
     private val _error = MutableStateFlow<String?>(null)
-    val error: StateFlow<String?> = _error.asStateFlow()
+    override val error: StateFlow<String?> = _error.asStateFlow()
 
     val speakingId: StateFlow<String?> = ttsPlayer.speakingId
     val isRecording: StateFlow<Boolean> = sttRecorder.isRecording
-    val recordingAmplitude: StateFlow<Float> = sttRecorder.amplitude
+    override val recordingAmplitude: StateFlow<Float> = sttRecorder.amplitude
 
     fun clearError() { _error.value = null }
 
@@ -69,16 +69,16 @@ class VoiceModelManager @Inject constructor(
         return models.firstOrNull { it.id == preferred } ?: models.first()
     }
 
-    suspend fun speak(messageId: String, text: String): Boolean {
+    override suspend fun speak(messageId: String, text: String): Boolean {
         val ok = ensureTtsLoaded() ?: return false
         if (!ok) return false
         ttsPlayer.speak(messageId, text)
         return true
     }
 
-    fun stopSpeaking() { ttsPlayer.stop() }
+    override fun stopSpeaking() { ttsPlayer.stop() }
 
-    fun startRecording(): Boolean {
+    override fun startRecording(): Boolean {
         if (!sttRecorder.hasPermission()) {
             _error.value = "Microphone permission required"
             return false
@@ -92,9 +92,9 @@ class VoiceModelManager @Inject constructor(
         return started
     }
 
-    fun cancelRecording() { sttRecorder.cancel() }
+    override fun cancelRecording() { sttRecorder.cancel() }
 
-    suspend fun stopRecordingAndRecognize(): String? = withContext(Dispatchers.IO) {
+    override suspend fun stopRecordingAndRecognize(): String? = withContext(Dispatchers.IO) {
         val samples = sttRecorder.stop()
         if (samples.isEmpty()) {
             _error.value = "No audio captured"

@@ -149,8 +149,7 @@ class GatewayConfigRepositoryTest {
         assertTrue(repo.gateways.value.isEmpty())
     }
 
-    // create() persists without making the new gateway the active selection (save-only); an
-    // explicit selectBrain()/selectVoice() is the save-and-use step. Auto-fill is a fallback only.
+    // create() is save-only when a brain is already selected; explicit selectBrain() is save-and-use.
     @Test
     fun createIsSaveOnly_whenAnotherBrainIsAlreadySelected() {
         val repo = newRepo()

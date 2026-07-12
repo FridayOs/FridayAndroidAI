@@ -28,7 +28,7 @@ class GatewayRoleRouter @Inject constructor(
     private val client: DirectGatewayClient,
     private val modelRepo: ModelRepository,
     private val modelSession: ModelSessionManager,
-) : BrainBridge {
+) : BrainBridge, ChatBrain {
     sealed interface BrainRoute {
         data class Cloud(val config: GatewayConfig) : BrainRoute
         data class Local(val config: GatewayConfig, val model: ModelInfo) : BrainRoute
@@ -43,9 +43,9 @@ class GatewayRoleRouter @Inject constructor(
 
     fun hasBrain(): Boolean = gatewayRepo.brainGateway() != null
 
-    fun brainGateway(): GatewayConfig? = gatewayRepo.brainGateway()
+    override fun brainGateway(): GatewayConfig? = gatewayRepo.brainGateway()
 
-    fun brainUnavailableMessage(): String = when (val route = resolveBrain()) {
+    override fun brainUnavailableMessage(): String = when (val route = resolveBrain()) {
         is BrainRoute.Local, is BrainRoute.Cloud -> ""
         is BrainRoute.Unavailable -> unavailableMessage(route.reason)
         BrainRoute.None -> ERR_NO_BRAIN
@@ -67,9 +67,7 @@ class GatewayRoleRouter @Inject constructor(
         }
     }
 
-    // brain_continue produces a fresh turn over the existing history without injecting a new
-    // user message. For the cloud and local paths it's a re-run; an Unavailable brain surfaces
-    // the typed reason rather than silently producing empty output.
+    // brain_continue re-runs over the existing history without injecting a new user message.
     override fun brainContinue(history: List<GatewayTurn>): Flow<GatewayEvent> = brainTurn(history)
 
     // Cancelling the collecting Job stops cloud; also stop the engine and fail any parked confirmation.

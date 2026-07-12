@@ -10,6 +10,7 @@ import com.dark.tool_neuron.model.gateway.GatewayProvider
 import com.dark.tool_neuron.model.gateway.GatewayRole
 import com.dark.tool_neuron.model.gateway.GatewayStatus
 import com.dark.tool_neuron.model.gateway.VoiceRoute
+import com.dark.tool_neuron.repo.gateway.GatewayDirectory
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -25,11 +26,11 @@ class GatewayConfigRepository @Inject constructor(
     @param:ApplicationContext private val context: Context,
     private val keyStore: AppKeyStore,
     private val encryptor: HxsEncryptor,
-) {
+) : GatewayDirectory {
     private val storage = HexStorage()
 
     private val _gateways = MutableStateFlow<List<GatewayConfig>>(emptyList())
-    val gateways: StateFlow<List<GatewayConfig>> = _gateways.asStateFlow()
+    override val gateways: StateFlow<List<GatewayConfig>> = _gateways.asStateFlow()
 
     private val _brainId = MutableStateFlow("")
     val brainId: StateFlow<String> = _brainId.asStateFlow()
@@ -87,12 +88,12 @@ class GatewayConfigRepository @Inject constructor(
     fun getById(id: String): GatewayConfig? = _gateways.value.firstOrNull { it.id == id }
 
     // Falls back to the first brain-capable gateway when the pointer is stale/blank.
-    fun brainGateway(): GatewayConfig? =
+    override fun brainGateway(): GatewayConfig? =
         _gateways.value.firstOrNull { it.id == _brainId.value && it.supportsRole(GatewayRole.BRAIN) }
             ?: _gateways.value.firstOrNull { it.supportsRole(GatewayRole.BRAIN) }
 
     // Independent of the brain; falls back to the first voice-capable gateway.
-    fun voiceGateway(): GatewayConfig? =
+    override fun voiceGateway(): GatewayConfig? =
         _gateways.value.firstOrNull { it.id == _voiceId.value && it.supportsRole(GatewayRole.VOICE) }
             ?: _gateways.value.firstOrNull { it.supportsRole(GatewayRole.VOICE) }
 

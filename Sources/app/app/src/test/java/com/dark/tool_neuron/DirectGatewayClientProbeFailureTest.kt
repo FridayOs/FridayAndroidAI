@@ -125,8 +125,7 @@ class DirectGatewayClientProbeFailureTest {
     @Test
     fun localProviderShortCircuitsToReady() {
         val c = config(provider = GatewayProvider.LOCAL, model = "", baseUrl = "", apiKey = "")
-        // Local short-circuit happens in testConnection() — we can't easily reach it without a coroutine harness,
-        // but the precondition that enables the short-circuit is provider.isLocal.
+        // The precondition that enables the testConnection() local short-circuit is provider.isLocal.
         assertTrue(c.provider.isLocal)
     }
 }

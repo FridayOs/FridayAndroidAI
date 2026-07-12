@@ -3,13 +3,14 @@ package com.dark.tool_neuron.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.dark.tool_neuron.model.friday.FridayTurn
-import com.dark.tool_neuron.repo.FridayConversationRepository
+import com.dark.tool_neuron.repo.FridayConvoStore
 import com.dark.tool_neuron.model.gateway.GatewayConfig
 import com.dark.tool_neuron.repo.gateway.GatewayEvent
 import com.dark.tool_neuron.repo.gateway.GatewayTurn
 import com.dark.tool_neuron.repo.gateway.VoiceBridge
+import com.dark.tool_neuron.repo.gateway.VoiceRoutePort
 import com.dark.tool_neuron.repo.gateway.VoiceRouter
-import com.dark.tool_neuron.voice.VoiceModelManager
+import com.dark.tool_neuron.voice.VoiceIo
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -28,10 +29,10 @@ sealed interface VoiceSelectorRequest {
 
 @HiltViewModel
 class FridayVoiceViewModel @Inject constructor(
-    private val voiceRouter: VoiceRouter,
+    private val voiceRouter: VoiceRoutePort,
     private val bridge: VoiceBridge,
-    private val convoRepo: FridayConversationRepository,
-    private val voiceManager: VoiceModelManager,
+    private val convoRepo: FridayConvoStore,
+    private val voiceManager: VoiceIo,
 ) : ViewModel() {
 
     private val _mode = MutableStateFlow(VoiceMode.IDLE)

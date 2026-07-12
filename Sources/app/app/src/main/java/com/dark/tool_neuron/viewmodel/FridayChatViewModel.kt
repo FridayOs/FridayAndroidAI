@@ -3,10 +3,10 @@ package com.dark.tool_neuron.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.dark.tool_neuron.model.friday.FridayTurn
-import com.dark.tool_neuron.repo.FridayConversationRepository
-import com.dark.tool_neuron.repo.GatewayConfigRepository
+import com.dark.tool_neuron.repo.FridayConvoStore
+import com.dark.tool_neuron.repo.gateway.ChatBrain
+import com.dark.tool_neuron.repo.gateway.GatewayDirectory
 import com.dark.tool_neuron.repo.gateway.GatewayEvent
-import com.dark.tool_neuron.repo.gateway.GatewayRoleRouter
 import com.dark.tool_neuron.repo.gateway.GatewayTurn
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
@@ -29,9 +29,9 @@ data class FridayChatMessage(
 
 @HiltViewModel
 class FridayChatViewModel @Inject constructor(
-    private val gatewayRepo: GatewayConfigRepository,
-    private val convoRepo: FridayConversationRepository,
-    private val router: GatewayRoleRouter,
+    private val gatewayRepo: GatewayDirectory,
+    private val convoRepo: FridayConvoStore,
+    private val router: ChatBrain,
 ) : ViewModel() {
 
     private val _messages = MutableStateFlow<List<FridayChatMessage>>(emptyList())
@@ -88,39 +88,54 @@ class FridayChatViewModel @Inject constructor(
         }
         _thinking.value = true
         replyJob = viewModelScope.launch {
-            router.brainContinue(history).collect { event ->
-                when (event) {
-                    is GatewayEvent.Delta -> {
-                        if (_thinking.value) {
-                            _thinking.value = false
-                            if (_messages.value.none { it.id == aiId }) {
-                                _messages.value = _messages.value + FridayChatMessage(aiId, isUser = false, text = "", done = false)
+            var settled = false
+            try {
+                router.brainContinue(history).collect { event ->
+                    when (event) {
+                        is GatewayEvent.Delta -> {
+                            if (_thinking.value) {
+                                _thinking.value = false
+                                if (_messages.value.none { it.id == aiId }) {
+                                    _messages.value = _messages.value + FridayChatMessage(aiId, isUser = false, text = "", done = false)
+                                }
+                            }
+                            _messages.value = _messages.value.map {
+                                if (it.id == aiId) it.copy(text = it.text + event.text) else it
                             }
                         }
-                        _messages.value = _messages.value.map {
-                            if (it.id == aiId) it.copy(text = it.text + event.text) else it
+                        is GatewayEvent.Done -> {
+                            settled = true
+                            _thinking.value = false
+                            val finalText = event.fullText
+                            _messages.value = _messages.value.map {
+                                if (it.id == aiId) it.copy(text = finalText, done = true) else it
+                            }
+                            if (finalText.isNotBlank()) persistRegenerated(convoId, aiId, existing, finalText)
                         }
-                    }
-                    is GatewayEvent.Done -> {
-                        _thinking.value = false
-                        val finalText = event.fullText
-                        _messages.value = _messages.value.map {
-                            if (it.id == aiId) it.copy(text = finalText, done = true) else it
+                        is GatewayEvent.Error -> {
+                            settled = true
+                            _thinking.value = false
+                            restoreRegenerated(aiId, existing)
+                            _error.value = event.message
                         }
-                        if (finalText.isNotBlank()) persistRegenerated(convoId, aiId, existing, finalText)
-                    }
-                    is GatewayEvent.Error -> {
-                        _thinking.value = false
-                        // Keep the old answer on error/cancel: restore the replaced bubble, drop an empty new one.
-                        _messages.value = if (existing != null) {
-                            _messages.value.map { if (it.id == aiId) it.copy(text = existing.content, done = true) else it }
-                        } else {
-                            _messages.value.filterNot { it.id == aiId }
-                        }
-                        _error.value = event.message
                     }
                 }
+            } finally {
+                // Cancellation (open()/newChat()) rethrows with no terminal event: restore UI, never persist a partial. Guard convo so a switch doesn't clobber the new view.
+                if (!settled && conversationId == convoId) {
+                    _thinking.value = false
+                    restoreRegenerated(aiId, existing)
+                }
             }
+        }
+    }
+
+    // Old answer stays: restore the replaced bubble to its stored content, or drop an empty fresh one.
+    private fun restoreRegenerated(aiId: String, existing: FridayTurn?) {
+        _messages.value = if (existing != null) {
+            _messages.value.map { if (it.id == aiId) it.copy(text = existing.content, done = true) else it }
+        } else {
+            _messages.value.filterNot { it.id == aiId }
         }
     }
 
@@ -210,8 +225,7 @@ class FridayChatViewModel @Inject constructor(
     }
 
     companion object {
-        // History excludes the last assistant answer (and anything after it); that answer, if present,
-        // is the turn to replace, otherwise a fresh assistant turn is created.
+        // History excludes the last assistant answer (that answer, if present, is the turn to replace).
         fun planRegeneration(turns: List<FridayTurn>): Pair<List<GatewayTurn>, FridayTurn?> {
             val idx = turns.indexOfLast { it.role == "assistant" }
             val source = if (idx >= 0) turns.subList(0, idx) else turns

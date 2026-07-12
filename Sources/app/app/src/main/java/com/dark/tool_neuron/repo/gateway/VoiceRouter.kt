@@ -9,7 +9,7 @@ import javax.inject.Singleton
 @Singleton
 class VoiceRouter @Inject constructor(
     private val gatewayRepo: GatewayConfigRepository,
-) {
+) : VoiceRoutePort {
 
     sealed interface Route {
         data class LocalBridge(val voice: GatewayConfig, val brain: GatewayConfig) : Route
@@ -18,7 +18,7 @@ class VoiceRouter @Inject constructor(
         data object NoBrain : Route
     }
 
-    fun route(): Route = decide(gatewayRepo.voiceGateway(), gatewayRepo.brainGateway())
+    override fun route(): Route = decide(gatewayRepo.voiceGateway(), gatewayRepo.brainGateway())
 
     companion object {
         // Both routes bridge reasoning to the brain, so a brain is required before either opens the mic.
