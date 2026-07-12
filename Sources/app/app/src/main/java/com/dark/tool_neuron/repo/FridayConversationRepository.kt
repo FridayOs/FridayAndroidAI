@@ -16,10 +16,7 @@ import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
-// Friday gateway chat + voice transcripts. HXS-only, sealed under the DEK +
-// signer-bound user-key like every other vault. Nothing here ever reaches
-// Firebase / FRIDAY API — transcript is on the local-only side of the M1
-// data boundary. Survives process restart so the History screen shows it.
+// Friday transcripts: signer-bound HXS vault, never reaches Firebase/FRIDAY; survives restart for the History screen.
 @Singleton
 class FridayConversationRepository @Inject constructor(
     @param:ApplicationContext private val context: Context,
