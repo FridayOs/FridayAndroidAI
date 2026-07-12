@@ -1,7 +1,10 @@
 package com.dark.tool_neuron
 
+import com.dark.tool_neuron.model.ModelInfo
+import com.dark.tool_neuron.model.enums.PathType
 import com.dark.tool_neuron.model.gateway.GatewayConfig
 import com.dark.tool_neuron.model.gateway.GatewayProvider
+import com.dark.tool_neuron.model.gateway.GatewayRole
 import com.dark.tool_neuron.model.gateway.VoiceRoute
 import com.dark.tool_neuron.repo.gateway.GatewayRoleRouter
 import org.junit.Assert.assertEquals
@@ -46,7 +49,7 @@ class GatewayRoleRouterTest {
         assertTrue(route is GatewayRoleRouter.BrainRoute.Cloud)
         assertFalse(
             "FRIDAY provider must never be a valid cloud brain",
-            GatewayProvider.FRIDAY.supportsRole(com.dark.tool_neuron.model.gateway.GatewayRole.BRAIN),
+            GatewayProvider.FRIDAY.supportsRole(GatewayRole.BRAIN),
         )
     }
 
@@ -64,11 +67,11 @@ class GatewayRoleRouterTest {
     @Test
     fun localBrainWithModelRoutesToLocal() {
         val brain = config(GatewayProvider.LOCAL)
-        val model = com.dark.tool_neuron.model.ModelInfo(
+        val model = ModelInfo(
             id = "gguf-1",
             name = "Test",
             path = "/sdcard/test.gguf",
-            pathType = com.dark.tool_neuron.model.enums.PathType.FILE,
+            pathType = PathType.FILE,
         )
         val route = GatewayRoleRouter.decideBrain(brain, model)
         assertTrue(route is GatewayRoleRouter.BrainRoute.Local)
@@ -79,8 +82,8 @@ class GatewayRoleRouterTest {
     fun localBrainDoesNotRequireApiKeyValidation() {
         // LOCAL provider is keyless by design — even an empty apiKey is fine.
         val brain = config(GatewayProvider.LOCAL).copy(apiKey = "")
-        val model = com.dark.tool_neuron.model.ModelInfo(
-            id = "gguf-1", name = "Test", path = "/x", pathType = com.dark.tool_neuron.model.enums.PathType.FILE,
+        val model = ModelInfo(
+            id = "gguf-1", name = "Test", path = "/x", pathType = PathType.FILE,
         )
         val route = GatewayRoleRouter.decideBrain(brain, model)
         assertTrue(route is GatewayRoleRouter.BrainRoute.Local)
@@ -89,7 +92,7 @@ class GatewayRoleRouterTest {
     @Test
     fun fridayProviderIsRolelessAndCannotBecomeBrain() {
         val friday = config(GatewayProvider.FRIDAY)
-        assertFalse(friday.supportsRole(com.dark.tool_neuron.model.gateway.GatewayRole.BRAIN))
+        assertFalse(friday.supportsRole(GatewayRole.BRAIN))
         // Roleless FRIDAY config never classifies — excluded by supportsRole upstream.
         val route = GatewayRoleRouter.decideBrain(friday, null)
         assertEquals(GatewayRoleRouter.BrainRoute.None, route)
