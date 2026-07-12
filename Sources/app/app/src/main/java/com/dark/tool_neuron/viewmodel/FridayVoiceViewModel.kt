@@ -114,9 +114,7 @@ class FridayVoiceViewModel @Inject constructor(
         _error.value = null
     }
 
-    // Confirmation latch: armed by requireConfirmation() during a turn; user actions
-    // resolve it via confirm() / cancel() (brain_confirm / brain_cancel). Surfaced to the UI
-    // through awaitingConfirmation.
+    // brain_confirm: resolves a confirmation gate armed during a turn (brain_cancel is the negative path).
     fun confirm() {
         bridge.brainConfirm()
     }

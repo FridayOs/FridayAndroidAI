@@ -64,8 +64,11 @@ class VoiceBridgeWiringTest {
             }
         }
 
+        var awaiting = false
+
         override fun brainCancel() { cancelled = true }
-        override fun brainConfirm(): Boolean { confirmed = true; return true }
+        override fun brainConfirm(): Boolean { confirmed = true; awaiting = false; return true }
+        override fun brainAwaitingConfirmation(): Boolean = awaiting
     }
 
     @Test
@@ -123,5 +126,13 @@ class VoiceBridgeWiringTest {
         assertTrue("brainCancel must reach the delegate", fake.cancelled)
         assertTrue("brainCancel must tear down the live collecting Job", fake.cancelledMidStream)
         assertTrue("cancelled Job must be complete", job.isCancelled)
+    }
+
+    @Test
+    fun brainAwaitingConfirmation_passesThroughBrain() {
+        val fake = FakeBrain()
+        fake.awaiting = true
+        val bridge = VoiceBridge(fake)
+        assertTrue(bridge.brainAwaitingConfirmation())
     }
 }

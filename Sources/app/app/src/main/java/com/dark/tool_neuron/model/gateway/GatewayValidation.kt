@@ -30,8 +30,7 @@ object GatewayValidation {
         return Result.Valid
     }
 
-    // java.net.URI rejects fragments without scheme; require explicit http(s) + non-empty host so
-    // the regex "^https?://.+" can no longer accept malformed strings like "http://" or "https:// ".
+    // Real parse (java.net.URI) instead of "^https?://.+" so "http://" / "https:// " no longer pass.
     fun isWellFormedHttpUrl(raw: String): Boolean {
         val trimmed = raw.trim()
         if (trimmed.isEmpty()) return false
@@ -40,8 +39,7 @@ object GatewayValidation {
         if (scheme != "http" && scheme != "https") return false
         val host = uri.host ?: return false
         if (host.isBlank()) return false
-        // Host must contain at least one dot OR be a literal IPv4/IPv6 — bare single-label hosts
-        // ("http://localhost") are still valid since some providers run on them.
+        // A dot/colon covers dotted hosts and literal IPv4/IPv6; localhost is the one bare host we allow.
         return host.any { it == '.' || it == ':' } || host.equals("localhost", ignoreCase = true)
     }
 

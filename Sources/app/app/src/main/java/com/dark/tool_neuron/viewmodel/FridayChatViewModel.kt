@@ -74,25 +74,28 @@ class FridayChatViewModel @Inject constructor(
 
     fun clearError() { _error.value = null }
 
-    // Re-run the most recent assistant turn with the same history (brain_continue) — used by
-    // an explicit user "regenerate" affordance without injecting a new user message.
+    // brain_continue: re-run from the turn before the last assistant answer without a new user message.
     fun regenerate() {
         val convoId = conversationId ?: return
+        if (_thinking.value) return
         val turns = convoRepo.getTurns(convoId)
-        if (turns.isEmpty()) return
-        // Drop the most recent assistant turn (if any) so brain_continue produces a fresh answer.
-        val lastAssistant = turns.lastOrNull { it.role == "assistant" }
-        if (lastAssistant != null) convoRepo.updateTurn(lastAssistant.copy(content = ""))
-        val history = turns.map { GatewayTurn(it.role, it.content) }
+        val (history, existing) = planRegeneration(turns)
+        if (history.isEmpty()) return
+        val aiId = existing?.id ?: UUID.randomUUID().toString()
+        // Reset only the visible bubble; the stored turn keeps its old content until Done succeeds.
+        if (existing != null) {
+            _messages.value = _messages.value.map { if (it.id == aiId) it.copy(text = "", done = false) else it }
+        }
         _thinking.value = true
-        val aiId = lastAssistant?.id ?: UUID.randomUUID().toString()
         replyJob = viewModelScope.launch {
             router.brainContinue(history).collect { event ->
                 when (event) {
                     is GatewayEvent.Delta -> {
                         if (_thinking.value) {
                             _thinking.value = false
-                            _messages.value = _messages.value + FridayChatMessage(aiId, isUser = false, text = "", done = false)
+                            if (_messages.value.none { it.id == aiId }) {
+                                _messages.value = _messages.value + FridayChatMessage(aiId, isUser = false, text = "", done = false)
+                            }
                         }
                         _messages.value = _messages.value.map {
                             if (it.id == aiId) it.copy(text = it.text + event.text) else it
@@ -104,17 +107,37 @@ class FridayChatViewModel @Inject constructor(
                         _messages.value = _messages.value.map {
                             if (it.id == aiId) it.copy(text = finalText, done = true) else it
                         }
-                        if (lastAssistant != null && finalText.isNotBlank()) {
-                            convoRepo.updateTurn(lastAssistant.copy(content = finalText))
-                        }
+                        if (finalText.isNotBlank()) persistRegenerated(convoId, aiId, existing, finalText)
                     }
                     is GatewayEvent.Error -> {
                         _thinking.value = false
-                        _messages.value = _messages.value.filterNot { it.id == aiId }
+                        // Keep the old answer on error/cancel: restore the replaced bubble, drop an empty new one.
+                        _messages.value = if (existing != null) {
+                            _messages.value.map { if (it.id == aiId) it.copy(text = existing.content, done = true) else it }
+                        } else {
+                            _messages.value.filterNot { it.id == aiId }
+                        }
                         _error.value = event.message
                     }
                 }
             }
+        }
+    }
+
+    // Replace the regenerated assistant turn in place, or create one when the history had none.
+    private fun persistRegenerated(convoId: String, aiId: String, existing: FridayTurn?, finalText: String) {
+        if (existing != null) {
+            convoRepo.updateTurn(existing.copy(content = finalText))
+        } else {
+            convoRepo.addTurn(
+                FridayTurn(
+                    id = aiId,
+                    conversationId = convoId,
+                    role = "assistant",
+                    content = finalText,
+                    timestamp = System.currentTimeMillis(),
+                )
+            )
         }
     }
 
@@ -183,6 +206,17 @@ class FridayChatViewModel @Inject constructor(
                     }
                 }
             }
+        }
+    }
+
+    companion object {
+        // History excludes the last assistant answer (and anything after it); that answer, if present,
+        // is the turn to replace, otherwise a fresh assistant turn is created.
+        fun planRegeneration(turns: List<FridayTurn>): Pair<List<GatewayTurn>, FridayTurn?> {
+            val idx = turns.indexOfLast { it.role == "assistant" }
+            val source = if (idx >= 0) turns.subList(0, idx) else turns
+            val history = source.map { GatewayTurn(it.role, it.content) }
+            return history to (if (idx >= 0) turns[idx] else null)
         }
     }
 }

@@ -347,8 +347,7 @@ class DirectGatewayClient @Inject constructor() {
             return GatewayEvent.Error(sanitized)
         }
 
-        // Typed probe failure: distinguishes DNS / TLS / timeout / auth / model / URL / 5xx so the
-        // caller can persist a structured reason alongside a sanitized message.
+        // Typed probe failure so the caller persists a structured DNS/TLS/timeout/auth/model/URL/5xx reason.
         internal fun classifyProbeFailure(t: Throwable, config: GatewayConfig): GatewayTestResult.Failure {
             val key = config.apiKey
             val raw = t.message.orEmpty()

@@ -8,4 +8,5 @@ interface BrainBridge {
     fun brainContinue(history: List<GatewayTurn>): Flow<GatewayEvent>
     fun brainCancel()
     fun brainConfirm(): Boolean
+    fun brainAwaitingConfirmation(): Boolean
 }

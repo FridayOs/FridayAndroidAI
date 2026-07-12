@@ -84,6 +84,8 @@ class GatewayRoleRouter @Inject constructor(
     // Confirm the parked action. Returns false when nothing is awaiting confirmation.
     override fun brainConfirm(): Boolean = confirmationGate.confirm()
 
+    override fun brainAwaitingConfirmation(): Boolean = confirmationGate.awaiting.value
+
     private suspend fun FlowCollector<GatewayEvent>.emitLocal(model: ModelInfo, history: List<GatewayTurn>) {
         val loaded = ensureLocalLoaded(model)
         if (!loaded) {
