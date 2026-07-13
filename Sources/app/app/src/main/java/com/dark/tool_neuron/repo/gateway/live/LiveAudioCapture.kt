@@ -21,17 +21,17 @@ import javax.inject.Singleton
 @Singleton
 class LiveAudioCapture @Inject constructor(
     @param:ApplicationContext private val context: Context,
-) {
+) : LiveAudioSource {
     private val recording = AtomicBoolean(false)
     @Volatile private var recorder: AudioRecord? = null
     @Volatile private var job: Job? = null
 
-    fun hasPermission(): Boolean = ContextCompat.checkSelfPermission(
+    override fun hasPermission(): Boolean = ContextCompat.checkSelfPermission(
         context, Manifest.permission.RECORD_AUDIO,
     ) == PackageManager.PERMISSION_GRANTED
 
     // Emits PCM16 little-endian chunks via onChunk on an IO coroutine; returns false if the mic can't open.
-    fun start(scope: CoroutineScope, onChunk: (ByteArray) -> Unit): Boolean {
+    override fun start(scope: CoroutineScope, onChunk: (ByteArray) -> Unit): Boolean {
         if (recording.get()) return true
         if (!hasPermission()) return false
         val minBuf = AudioRecord.getMinBufferSize(
@@ -74,7 +74,7 @@ class LiveAudioCapture @Inject constructor(
         return true
     }
 
-    fun stop() {
+    override fun stop() {
         if (!recording.compareAndSet(true, false)) {
             releaseRecorder()
             return

@@ -19,26 +19,18 @@ import java.util.concurrent.atomic.AtomicBoolean
 // GET-only curl, HttpURLConnection can't upgrade), so the transport is hand-rolled here — no new dependency,
 // and it connects straight to the user's Gemini host (never a FRIDAY proxy). Read frames arrive as a Flow;
 // writes are synchronized so the send coroutine and control pings never interleave a partial frame.
-internal class LiveWebSocketTransport {
+internal class LiveWebSocketTransport : LiveTransport {
 
     private val closed = AtomicBoolean(false)
     @Volatile private var socket: Socket? = null
     @Volatile private var output: OutputStream? = null
     private val writeLock = Any()
 
-    sealed interface Incoming {
-        data class Text(val text: String) : Incoming
-        data class Binary(val bytes: ByteArray) : Incoming
-        data class Closed(val code: Int, val reason: String) : Incoming
-    }
-
-    class HandshakeException(val httpStatus: Int, message: String) : Exception(message)
-
     // Opens the TLS socket + WebSocket upgrade, then emits every inbound message frame until close.
     // onReady fires once, right after a successful upgrade and before the read loop, so the caller can
     // send the mandatory first frame (Gemini's `setup`) before any server message is expected.
     // Blocking socket I/O runs on Dispatchers.IO; cancelling the collector tears the socket down.
-    fun open(host: String, port: Int, path: String, onReady: () -> Unit = {}): Flow<Incoming> = callbackFlow {
+    override fun open(host: String, port: Int, path: String, onReady: () -> Unit): Flow<LiveTransport.Incoming> = callbackFlow {
         val key = WebSocketHandshake.nonce()
         val sock = (SSLSocketFactory.getDefault() as SSLSocketFactory)
             .createSocket() as SSLSocket
@@ -55,7 +47,7 @@ internal class LiveWebSocketTransport {
             val head = readHandshakeResponse(input)
             if (!WebSocketHandshake.isValidResponse(head, key)) {
                 val status = WebSocketHandshake.statusCode(head)
-                throw HandshakeException(status, "WebSocket upgrade rejected (HTTP $status)")
+                throw LiveTransport.HandshakeException(status, "WebSocket upgrade rejected (HTTP $status)")
             }
 
             socket = sock
@@ -75,10 +67,10 @@ internal class LiveWebSocketTransport {
                         if (accumulatingBinary) binaryAcc.write(frame.payload) else payload.append(String(frame.payload, Charsets.UTF_8))
                         if (frame.fin) {
                             if (accumulatingBinary) {
-                                trySend(Incoming.Binary(binaryAcc.toByteArray()))
+                                trySend(LiveTransport.Incoming.Binary(binaryAcc.toByteArray()))
                                 binaryAcc.reset()
                             } else {
-                                trySend(Incoming.Text(payload.toString()))
+                                trySend(LiveTransport.Incoming.Text(payload.toString()))
                                 payload.setLength(0)
                             }
                         }
@@ -87,7 +79,7 @@ internal class LiveWebSocketTransport {
                     WebSocketFrame.OPCODE_PONG -> {}
                     WebSocketFrame.OPCODE_CLOSE -> {
                         val (code, reason) = WebSocketFrame.parseClose(frame.payload)
-                        trySend(Incoming.Closed(code, reason))
+                        trySend(LiveTransport.Incoming.Closed(code, reason))
                         break
                     }
                 }
@@ -103,7 +95,7 @@ internal class LiveWebSocketTransport {
     }.flowOn(Dispatchers.IO)
 
     // Client→server frames are always masked per RFC 6455 §5.3; the write lock keeps concurrent sends whole.
-    fun sendText(text: String) {
+    override fun sendText(text: String) {
         val out = output ?: return
         synchronized(writeLock) {
             runCatching {
@@ -123,7 +115,7 @@ internal class LiveWebSocketTransport {
         }
     }
 
-    fun close() {
+    override fun close() {
         if (!closed.compareAndSet(false, true)) return
         val out = output
         synchronized(writeLock) {

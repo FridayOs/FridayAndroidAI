@@ -2,7 +2,7 @@ package com.dark.tool_neuron
 
 import com.dark.tool_neuron.repo.gateway.live.LiveErrorKind
 import com.dark.tool_neuron.repo.gateway.live.LiveSessionEngine
-import com.dark.tool_neuron.repo.gateway.live.LiveWebSocketTransport
+import com.dark.tool_neuron.repo.gateway.live.LiveTransport
 import java.io.IOException
 import java.net.SocketTimeoutException
 import java.net.UnknownHostException
@@ -15,25 +15,25 @@ class LiveSessionEngineClassifyTest {
 
     @Test
     fun handshake401IsAuth() {
-        val t = LiveWebSocketTransport.HandshakeException(401, "unauthorized")
+        val t = LiveTransport.HandshakeException(401, "unauthorized")
         assertEquals(LiveErrorKind.AUTH, LiveSessionEngine.classifyTransport(t))
     }
 
     @Test
     fun handshake404IsInvalidModel() {
-        val t = LiveWebSocketTransport.HandshakeException(404, "model not found")
+        val t = LiveTransport.HandshakeException(404, "model not found")
         assertEquals(LiveErrorKind.INVALID_MODEL, LiveSessionEngine.classifyTransport(t))
     }
 
     @Test
     fun handshake429IsQuota() {
-        val t = LiveWebSocketTransport.HandshakeException(429, "rate limited")
+        val t = LiveTransport.HandshakeException(429, "rate limited")
         assertEquals(LiveErrorKind.QUOTA, LiveSessionEngine.classifyTransport(t))
     }
 
     @Test
     fun handshake503IsRemoteClose() {
-        val t = LiveWebSocketTransport.HandshakeException(503, "unavailable")
+        val t = LiveTransport.HandshakeException(503, "unavailable")
         assertEquals(LiveErrorKind.REMOTE_CLOSE, LiveSessionEngine.classifyTransport(t))
     }
 

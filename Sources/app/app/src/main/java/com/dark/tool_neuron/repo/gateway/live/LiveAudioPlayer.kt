@@ -19,7 +19,7 @@ import javax.inject.Singleton
 // a generation token and drops the current turn's queued audio instantly so a stale chunk never plays after
 // the user cuts in.
 @Singleton
-class LiveAudioPlayer @Inject constructor() {
+class LiveAudioPlayer @Inject constructor() : LiveAudioSink {
 
     @Volatile private var track: AudioTrack? = null
     private val playing = AtomicBoolean(false)
@@ -34,7 +34,7 @@ class LiveAudioPlayer @Inject constructor() {
     private data class Chunk(val pcm: ByteArray, val gen: Long)
 
     @Synchronized
-    fun start() {
+    override fun start() {
         if (playing.get()) return
         val minBuf = AudioTrack.getMinBufferSize(
             LiveProtocol.OUTPUT_SAMPLE_RATE,
@@ -71,10 +71,10 @@ class LiveAudioPlayer @Inject constructor() {
         }
     }
 
-    fun currentGeneration(): Long = generation
+    override fun currentGeneration(): Long = generation
 
     // Enqueue a chunk for ordered playback. Non-blocking on the caller — the consumer coroutine does the write.
-    fun enqueue(pcm: ByteArray, gen: Long) {
+    override fun enqueue(pcm: ByteArray, gen: Long) {
         if (gen != generation) return
         queue?.trySend(Chunk(pcm, gen))
     }
@@ -93,7 +93,7 @@ class LiveAudioPlayer @Inject constructor() {
 
     // Barge-in / interrupt: bump generation, pause+flush the track so queued PCM stops immediately.
     @Synchronized
-    fun flush() {
+    override fun flush() {
         generation++
         val t = track ?: return
         runCatching { t.pause() }
@@ -102,7 +102,7 @@ class LiveAudioPlayer @Inject constructor() {
     }
 
     @Synchronized
-    fun stop() {
+    override fun stop() {
         generation++
         playing.set(false)
         queue?.close()

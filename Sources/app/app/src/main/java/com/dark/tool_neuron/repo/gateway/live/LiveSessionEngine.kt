@@ -22,9 +22,9 @@ import java.util.concurrent.atomic.AtomicReference
 // Audio never touches the brain; the transcript it yields is bridged to brain_turn by the caller (FRI-553 seam).
 // Every failure surfaces as a displayable, secret-free LiveEvent.Error — connected/ready is never faked.
 internal class LiveSessionEngine(
-    private val transportFactory: () -> LiveWebSocketTransport,
-    private val capture: LiveAudioCapture,
-    private val player: LiveAudioPlayer,
+    private val transportFactory: () -> LiveTransport,
+    private val capture: LiveAudioSource,
+    private val player: LiveAudioSink,
 ) {
     private val _state = MutableStateFlow(LiveSessionState.IDLE)
     val state: StateFlow<LiveSessionState> = _state.asStateFlow()
@@ -34,7 +34,7 @@ internal class LiveSessionEngine(
     @Volatile private var bargeIn = true
     // Reset to true once an attempt reaches CONFIGURED so a healthy session that blips later keeps its full retry budget.
     @Volatile private var reachedConfigured = false
-    private val transport = AtomicReference<LiveWebSocketTransport?>(null)
+    private val transport = AtomicReference<LiveTransport?>(null)
     @Volatile private var sessionScope: CoroutineScope? = null
 
     // Runs the full session as a cold flow. Collecting starts it; cancelling the collector tears everything down.
@@ -68,6 +68,10 @@ internal class LiveSessionEngine(
             // Collector left — fall through to teardown.
         }
 
+        // The retry loop ended (terminal error / clean close / cancel), so close the producer — the flow completes
+        // for the collector instead of hanging in awaitClose. A collector that cancels mid-session while the loop
+        // is still streaming never reaches here; its cancellation fires awaitClose's teardown directly.
+        close()
         awaitClose { teardown() }
     }
 
@@ -89,15 +93,15 @@ internal class LiveSessionEngine(
             val onReady = { ws.sendText(LiveProtocol.setupFrame(config)) }
             ws.open(config.baseHost, PORT, endpointPath(config), onReady).collect { incoming ->
                 when (incoming) {
-                    is LiveWebSocketTransport.Incoming.Text -> {
+                    is LiveTransport.Incoming.Text -> {
                         val kind = handleServerText(config, incoming.text, ws, scope, emit, micDenied)
                         if (kind != null) {
                             serverFailure.set(kind)
                             ws.close()
                         }
                     }
-                    is LiveWebSocketTransport.Incoming.Binary -> {} // Gemini Live is text-framed JSON only.
-                    is LiveWebSocketTransport.Incoming.Closed -> {
+                    is LiveTransport.Incoming.Binary -> {} // Gemini Live is text-framed JSON only.
+                    is LiveTransport.Incoming.Closed -> {
                         peerClose = PeerClose(incoming.code)
                         ws.close()
                     }
@@ -134,7 +138,7 @@ internal class LiveSessionEngine(
     private fun handleServerText(
         config: GeminiLiveConfig,
         text: String,
-        ws: LiveWebSocketTransport,
+        ws: LiveTransport,
         scope: CoroutineScope,
         emit: (LiveEvent) -> Unit,
         micDenied: AtomicBoolean,
@@ -182,7 +186,7 @@ internal class LiveSessionEngine(
     // Returns false when the mic can't open (permission/hardware) so connectOnce ends the attempt as PERMISSION.
     private fun startMicStreaming(
         config: GeminiLiveConfig,
-        ws: LiveWebSocketTransport,
+        ws: LiveTransport,
         scope: CoroutineScope,
         emit: (LiveEvent) -> Unit,
     ): Boolean {
@@ -213,6 +217,36 @@ internal class LiveSessionEngine(
         ws.sendText(LiveProtocol.audioStreamEndFrame())
     }
 
+    // --- Lifecycle contract (FRI-548 owns transport/session teardown; FRI-562 owns the UI that calls these) ---
+    // Each maps a device/app event to the right transport+audio response so mic/socket never outlive the reason
+    // to hold them. The host (Voice Home) wires audio-focus/route/foreground callbacks to these; the engine keeps
+    // the teardown discipline in one place instead of scattering it across the UI.
+
+    // Audio focus lost (a call, another media app) or the app went to background: stop capturing + speaking and
+    // end the user's turn. Not a fault — a full teardown, since we must not hold the mic while backgrounded.
+    fun onAudioFocusLost() {
+        capture.stop()
+        player.flush()
+        cancel()
+    }
+
+    // Headset/Bluetooth/speaker route change mid-turn: flush the queued playback so a half-buffered chunk doesn't
+    // replay on the new device, then keep streaming. The AudioTrack re-binds to the new route on the next enqueue.
+    fun onAudioRouteChanged() {
+        player.flush()
+    }
+
+    // App moved to background: identical policy to focus loss — never keep the mic/socket alive off-screen.
+    fun onBackground() = onAudioFocusLost()
+
+    // Microphone permission revoked while live: capture can no longer read, so end the session as PERMISSION
+    // (terminal, non-retryable) rather than idling the socket into a timeout retry.
+    fun onPermissionRevoked() {
+        capture.stop()
+        _state.value = LiveSessionState.ERROR
+        cancel()
+    }
+
     private fun teardown() {
         capture.stop()
         player.stop()
@@ -235,7 +269,7 @@ internal class LiveSessionEngine(
             "/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${config.apiKey}"
 
         internal fun classifyTransport(t: Throwable): LiveErrorKind = when (t) {
-            is LiveWebSocketTransport.HandshakeException -> when (t.httpStatus) {
+            is LiveTransport.HandshakeException -> when (t.httpStatus) {
                 401, 403 -> LiveErrorKind.AUTH
                 404 -> LiveErrorKind.INVALID_MODEL
                 429 -> LiveErrorKind.QUOTA
