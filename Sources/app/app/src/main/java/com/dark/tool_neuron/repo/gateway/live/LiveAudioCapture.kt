@@ -8,10 +8,12 @@ import android.media.AudioRecord
 import android.media.MediaRecorder
 import androidx.core.content.ContextCompat
 import dagger.hilt.android.qualifiers.ApplicationContext
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.launch
+import java.io.IOException
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -31,7 +33,7 @@ class LiveAudioCapture @Inject constructor(
     ) == PackageManager.PERMISSION_GRANTED
 
     // Emits PCM16 little-endian chunks via onChunk on an IO coroutine; returns false if the mic can't open.
-    override fun start(scope: CoroutineScope, onChunk: (ByteArray) -> Unit): Boolean {
+    override fun start(scope: CoroutineScope, onChunk: (ByteArray) -> Unit, onError: (Throwable) -> Unit): Boolean {
         if (recording.get()) return true
         if (!hasPermission()) return false
         val minBuf = AudioRecord.getMinBufferSize(
@@ -64,11 +66,19 @@ class LiveAudioCapture @Inject constructor(
                 rec.startRecording()
                 while (recording.get()) {
                     val n = rec.read(buf, 0, buf.size, AudioRecord.READ_BLOCKING)
-                    if (n <= 0) continue
+                    if (n < 0) throw IOException("AudioRecord.read failed ($n)")
+                    if (n == 0) continue
                     onChunk(buf.copyOf(n))
                 }
-            } catch (_: Throwable) {
-                // Surfaced by the session engine as an AUDIO error via the state stream.
+            } catch (ce: CancellationException) {
+                throw ce
+            } catch (t: Throwable) {
+                // A runtime failure AFTER a successful open (mic yanked, dead object). Release + surface once so
+                // the engine ends the session as AUDIO; a deliberate stop() already flipped recording to false.
+                if (recording.compareAndSet(true, false)) {
+                    releaseRecorder()
+                    onError(t)
+                }
             }
         }
         return true

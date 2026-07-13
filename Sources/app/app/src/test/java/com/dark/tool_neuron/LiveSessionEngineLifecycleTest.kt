@@ -34,10 +34,13 @@ class LiveSessionEngineLifecycleTest {
         var stopCount = 0
         var permission = true
         var openable = true
+        var failAfterStart = false // simulate a runtime mic failure after a successful open
         override fun hasPermission(): Boolean = permission
-        override fun start(scope: CoroutineScope, onChunk: (ByteArray) -> Unit): Boolean {
+        override fun start(scope: CoroutineScope, onChunk: (ByteArray) -> Unit, onError: (Throwable) -> Unit): Boolean {
             startCount++
-            return openable
+            if (!openable) return false
+            if (failAfterStart) onError(IOException("mic died mid-session"))
+            return true
         }
         override fun stop() { stopCount++ }
     }
@@ -125,7 +128,7 @@ class LiveSessionEngineLifecycleTest {
     }
 
     @Test
-    fun rapidStartStop_isIdempotent_noLeak() {
+    fun rapidLifecycleCallsOnIdleEngine_areSafe() {
         val src = FakeSource(); val sink = FakeSink()
         val eng = engine(src, sink)
         // Hammer cancel/lifecycle without a running flow — must not crash and must always release audio.
@@ -137,6 +140,47 @@ class LiveSessionEngineLifecycleTest {
         assertTrue(src.stopCount >= 1)
         assertTrue(sink.stopCount >= 1)
         assertEquals(LiveSessionState.CLOSED, eng.state.value)
+    }
+
+    // A real running session (transport reaches setupComplete, mic opens) started and torn down repeatedly:
+    // every cycle must release capture + playback + close the transport and end CLOSED, with no leak.
+    @Test
+    fun rapidRunningSessionStartStop_noLeak() = runTest {
+        repeat(5) {
+            val src = FakeSource(); val sink = FakeSink()
+            val transport = FakeTransport(
+                frames = listOf(LiveTransport.Incoming.Text("""{"setupComplete":{}}""")),
+                keepOpen = true,
+            )
+            val eng = engine(src, sink) { transport }
+            val job = launch { eng.run(config()).collect {} }
+            advanceUntilIdle()
+            assertTrue("running session opened the mic", src.startCount >= 1)
+            job.cancel(); job.join()
+            eng.cancel()
+            assertTrue("transport closed on stop", transport.closeCount >= 1)
+            assertTrue("capture released on stop", src.stopCount >= 1)
+            assertTrue("playback released on stop", sink.stopCount >= 1)
+            assertEquals(LiveSessionState.CLOSED, eng.state.value)
+        }
+    }
+
+    // Mic fails AFTER a successful open (yanked / dead object) mid-session: engine surfaces terminal AUDIO,
+    // not a silent socket, and never idles into a retry loop.
+    @Test
+    fun micFailsAfterOpen_surfacesAudioError_notRetryLoop() = runTest {
+        val src = FakeSource().apply { failAfterStart = true }
+        val sink = FakeSink()
+        val eng = engine(src, sink) {
+            FakeTransport(frames = listOf(LiveTransport.Incoming.Text("""{"setupComplete":{}}""")))
+        }
+        val events = eng.run(config()).toList()
+        val error = events.filterIsInstance<LiveEvent.Error>().firstOrNull()
+        assertEquals(LiveErrorKind.AUDIO, error?.kind)
+        assertTrue(
+            "AUDIO is terminal — no reconnect loop",
+            events.none { it is LiveEvent.State && it.state == LiveSessionState.RECONNECTING },
+        )
     }
 
     @Test

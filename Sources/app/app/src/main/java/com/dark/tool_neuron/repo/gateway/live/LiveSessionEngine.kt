@@ -86,6 +86,8 @@ internal class LiveSessionEngine(
         emitState(LiveSessionState.CONNECTING, emit)
         // Captured out of the collect lambda since a non-local return from collect is illegal.
         val serverFailure = AtomicReference<LiveErrorKind?>(null)
+        // A mic runtime failure fired from the capture coroutine after a successful open (terminal AUDIO).
+        val captureError = AtomicReference<LiveErrorKind?>(null)
         var peerClose: PeerClose? = null
         val micDenied = AtomicBoolean(false)
         try {
@@ -94,7 +96,7 @@ internal class LiveSessionEngine(
             ws.open(config.baseHost, PORT, endpointPath(config), onReady).collect { incoming ->
                 when (incoming) {
                     is LiveTransport.Incoming.Text -> {
-                        val kind = handleServerText(config, incoming.text, ws, scope, emit, micDenied)
+                        val kind = handleServerText(config, incoming.text, ws, scope, emit, micDenied, captureError)
                         if (kind != null) {
                             serverFailure.set(kind)
                             ws.close()
@@ -108,6 +110,8 @@ internal class LiveSessionEngine(
                 }
             }
             serverFailure.get()?.let { return it }
+            // A mic that died mid-session is terminal AUDIO, not a network drop — never loop it.
+            captureError.get()?.let { return it }
             if (cancelled.get()) return null
             // Local mic permission denial is terminal, not a transient network drop — never loop it into TIMEOUT.
             if (micDenied.get()) return LiveErrorKind.PERMISSION
@@ -119,6 +123,7 @@ internal class LiveSessionEngine(
             return null
         } catch (t: Throwable) {
             serverFailure.get()?.let { return it }
+            captureError.get()?.let { return it }
             if (micDenied.get()) return LiveErrorKind.PERMISSION
             val kind = classifyTransport(t)
             emit(LiveEvent.Error(kind, GatewayErrorSanitizer.sanitize(t.message, config.apiKey)))
@@ -142,6 +147,7 @@ internal class LiveSessionEngine(
         scope: CoroutineScope,
         emit: (LiveEvent) -> Unit,
         micDenied: AtomicBoolean,
+        captureError: AtomicReference<LiveErrorKind?>,
     ): LiveErrorKind? {
         for (frame in LiveProtocol.parseServerFrame(text)) {
             when (frame) {
@@ -149,7 +155,7 @@ internal class LiveSessionEngine(
                     reachedConfigured = true
                     emitState(LiveSessionState.CONFIGURED, emit)
                     // Mic denial is terminal — close so connectOnce returns PERMISSION instead of idling into a timeout retry.
-                    if (!startMicStreaming(config, ws, scope, emit)) {
+                    if (!startMicStreaming(config, ws, scope, emit, captureError)) {
                         micDenied.set(true)
                         ws.close()
                         return null
@@ -184,19 +190,31 @@ internal class LiveSessionEngine(
     }
 
     // Returns false when the mic can't open (permission/hardware) so connectOnce ends the attempt as PERMISSION.
+    // A failure AFTER a successful open arrives via onError: records AUDIO + closes the socket so connectOnce
+    // ends the attempt as terminal AUDIO instead of the session silently running on with a dead mic.
     private fun startMicStreaming(
         config: GeminiLiveConfig,
         ws: LiveTransport,
         scope: CoroutineScope,
         emit: (LiveEvent) -> Unit,
+        captureError: AtomicReference<LiveErrorKind?>,
     ): Boolean {
         emitState(LiveSessionState.LISTENING, emit)
         if (!config.bargeIn) ws.sendText(LiveProtocol.activityStartFrame())
-        val started = capture.start(scope) { chunk ->
-            if (cancelled.get()) return@start
-            val b64 = Base64.encodeToString(chunk, Base64.NO_WRAP)
-            ws.sendText(LiveProtocol.audioFrame(b64))
-        }
+        val started = capture.start(
+            scope,
+            onChunk = onChunk@{ chunk ->
+                if (cancelled.get()) return@onChunk
+                val b64 = Base64.encodeToString(chunk, Base64.NO_WRAP)
+                ws.sendText(LiveProtocol.audioFrame(b64))
+            },
+            onError = { t ->
+                if (captureError.compareAndSet(null, LiveErrorKind.AUDIO)) {
+                    emit(LiveEvent.Error(LiveErrorKind.AUDIO, GatewayErrorSanitizer.sanitize(t.message, config.apiKey)))
+                    ws.close()
+                }
+            },
+        )
         if (!started) {
             emit(LiveEvent.Error(LiveErrorKind.PERMISSION, "Microphone unavailable or permission denied"))
         }

@@ -7,33 +7,37 @@ import kotlinx.coroutines.flow.Flow
 import javax.inject.Inject
 import javax.inject.Singleton
 
-// Production LiveBrainGateway over the real BrainBridge; tracks the active turnId so a stale cancel/confirm is dropped.
+// Production LiveBrainGateway over the real BrainBridge. This adapter OWNS correlation: the underlying BrainBridge
+// (GatewayRoleRouter) manages a single in-flight turn and takes no id, so identity is enforced here. It tracks the
+// full active BrainCorrelation (sessionId + turnId), not just the turnId, so a cancel/confirm from a superseded
+// turn OR a different session is dropped before it can touch the live turn (cross-session isolation). Concurrent
+// Live sessions aren't a product scenario (one mic), but the guard makes a stale/foreign correlation a no-op.
 @Singleton
 class BrainGatewayLiveAdapter @Inject constructor(
     private val brain: BrainBridge,
 ) : LiveBrainGateway {
 
     @Volatile
-    private var activeTurnId: String? = null
+    private var active: BrainCorrelation? = null
 
     override fun brainTurn(correlation: BrainCorrelation, history: List<GatewayTurn>): Flow<GatewayEvent> {
-        activeTurnId = correlation.turnId
+        active = correlation
         return brain.brainTurn(history)
     }
 
     override fun brainContinue(correlation: BrainCorrelation, history: List<GatewayTurn>): Flow<GatewayEvent> {
-        activeTurnId = correlation.turnId
+        active = correlation
         return brain.brainContinue(history)
     }
 
     override fun brainCancel(correlation: BrainCorrelation) {
-        if (correlation.turnId != activeTurnId) return
-        activeTurnId = null
+        if (correlation != active) return
+        active = null
         brain.brainCancel()
     }
 
     override fun brainConfirm(correlation: BrainCorrelation): Boolean {
-        if (correlation.turnId != activeTurnId) return false
+        if (correlation != active) return false
         return brain.brainConfirm()
     }
 

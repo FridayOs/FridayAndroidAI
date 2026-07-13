@@ -19,25 +19,25 @@ import java.util.concurrent.atomic.AtomicBoolean
 // GET-only curl, HttpURLConnection can't upgrade), so the transport is hand-rolled here — no new dependency,
 // and it connects straight to the user's Gemini host (never a FRIDAY proxy). Read frames arrive as a Flow;
 // writes are synchronized so the send coroutine and control pings never interleave a partial frame.
-internal class LiveWebSocketTransport : LiveTransport {
+// connect is injectable so a loopback test can exercise the real read loop / close path without TLS.
+internal class LiveWebSocketTransport(
+    private val connect: (host: String, port: Int) -> Socket = ::defaultConnect,
+) : LiveTransport {
 
     private val closed = AtomicBoolean(false)
     @Volatile private var socket: Socket? = null
     @Volatile private var output: OutputStream? = null
     private val writeLock = Any()
 
-    // Opens the TLS socket + WebSocket upgrade, then emits every inbound message frame until close.
+    // Opens the socket + WebSocket upgrade, then emits every inbound message frame until close.
     // onReady fires once, right after a successful upgrade and before the read loop, so the caller can
     // send the mandatory first frame (Gemini's `setup`) before any server message is expected.
     // Blocking socket I/O runs on Dispatchers.IO; cancelling the collector tears the socket down.
     override fun open(host: String, port: Int, path: String, onReady: () -> Unit): Flow<LiveTransport.Incoming> = callbackFlow {
         val key = WebSocketHandshake.nonce()
-        val sock = (SSLSocketFactory.getDefault() as SSLSocketFactory)
-            .createSocket() as SSLSocket
         try {
-            sock.connect(InetSocketAddress(host, port), CONNECT_TIMEOUT_MS)
-            sock.soTimeout = READ_TIMEOUT_MS
-            sock.startHandshake()
+            val sock = connect(host, port)
+            socket = sock // set early so a handshake failure still tears the socket down
             val out = sock.outputStream
             val input = BufferedInputStream(sock.inputStream)
 
@@ -50,7 +50,6 @@ internal class LiveWebSocketTransport : LiveTransport {
                 throw LiveTransport.HandshakeException(status, "WebSocket upgrade rejected (HTTP $status)")
             }
 
-            socket = sock
             output = out
             onReady()
 
@@ -87,11 +86,16 @@ internal class LiveWebSocketTransport : LiveTransport {
         } catch (ce: CancellationException) {
             throw ce
         } catch (t: Throwable) {
-            close()
+            this@LiveWebSocketTransport.close()
             throw t
         }
 
-        awaitClose { close() }
+        // Peer close / EOF ended the read loop. Tear the socket down and COMPLETE the producer channel
+        // (unqualified close() = ProducerScope.close) so the engine's collect returns instead of suspending
+        // in awaitClose forever; the awaitClose block re-runs teardown on a collector cancel.
+        this@LiveWebSocketTransport.close()
+        close()
+        awaitClose { this@LiveWebSocketTransport.close() }
     }.flowOn(Dispatchers.IO)
 
     // Client→server frames are always masked per RFC 6455 §5.3; the write lock keeps concurrent sends whole.
@@ -146,5 +150,13 @@ internal class LiveWebSocketTransport : LiveTransport {
     companion object {
         private const val CONNECT_TIMEOUT_MS = 15000
         private const val READ_TIMEOUT_MS = 60000
+
+        // Production connector: a system-trust TLS socket to the user's Gemini host, handshaken and ready to read.
+        private fun defaultConnect(host: String, port: Int): Socket =
+            (SSLSocketFactory.getDefault() as SSLSocketFactory).createSocket().let { it as SSLSocket }.apply {
+                connect(InetSocketAddress(host, port), CONNECT_TIMEOUT_MS)
+                soTimeout = READ_TIMEOUT_MS
+                startHandshake()
+            }
     }
 }

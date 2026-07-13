@@ -8,7 +8,9 @@ import kotlinx.coroutines.CoroutineScope
 interface LiveAudioSource {
     fun hasPermission(): Boolean
     // Streams PCM16 chunks via onChunk on an IO coroutine; false when the mic can't open (denied/unavailable).
-    fun start(scope: CoroutineScope, onChunk: (ByteArray) -> Unit): Boolean
+    // onError fires once if the recorder fails AFTER a successful open (mic yanked, read error) so the engine
+    // surfaces a terminal AUDIO error instead of silently keeping the socket alive.
+    fun start(scope: CoroutineScope, onChunk: (ByteArray) -> Unit, onError: (Throwable) -> Unit): Boolean
     fun stop()
 }
 
