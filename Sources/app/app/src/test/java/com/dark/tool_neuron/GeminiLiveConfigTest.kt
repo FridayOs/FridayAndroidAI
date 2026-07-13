@@ -6,6 +6,7 @@ import com.dark.tool_neuron.repo.gateway.live.GeminiLiveConfig
 import com.dark.tool_neuron.repo.gateway.live.LiveSessionEngine
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -45,9 +46,37 @@ class GeminiLiveConfigTest {
     }
 
     @Test
-    fun customBaseUrlYieldsBareHost() {
+    fun customBaseUrlParsesHostPortAndPath() {
         val cfg = GeminiLiveConfig.from(gateway(baseUrl = "https://my.proxy.example:8443/v1beta"))
-        assertEquals("my.proxy.example:8443", cfg.baseHost)
+        assertEquals("my.proxy.example", cfg.baseHost)
+        assertEquals(8443, cfg.basePort)
+        assertEquals("/v1beta", cfg.basePath)
+        assertTrue(LiveSessionEngine.endpointPath(cfg).startsWith("/v1beta/ws/"))
+    }
+
+    @Test
+    fun blankBaseUrlDefaultsToGeminiHostAndPort443() {
+        val cfg = GeminiLiveConfig.from(gateway())
+        assertEquals(GeminiLiveConfig.DEFAULT_HOST, cfg.baseHost)
+        assertEquals(443, cfg.basePort)
+        assertEquals("", cfg.basePath)
+    }
+
+    @Test
+    fun insecureOrMalformedEndpointFallsBackToSecureDefault() {
+        // http/ws would downgrade the socket (key/audio/transcript are TLS-only) — must not be honored.
+        val http = GeminiLiveConfig.from(gateway(baseUrl = "http://downgrade.example"))
+        assertEquals(GeminiLiveConfig.DEFAULT_HOST, http.baseHost)
+        assertEquals(443, http.basePort)
+        val junk = GeminiLiveConfig.from(gateway(baseUrl = "not a url"))
+        assertEquals(GeminiLiveConfig.DEFAULT_HOST, junk.baseHost)
+    }
+
+    @Test
+    fun defaultModelIsNotTheShutdownGemini2Model() {
+        // gemini-2.0-flash-live-001 was shut down 2025-12-09 — the default must be the current live model.
+        assertNotEquals("gemini-2.0-flash-live-001", GeminiLiveConfig.DEFAULT_MODEL)
+        assertEquals("gemini-3.1-flash-live-preview", GeminiLiveConfig.DEFAULT_MODEL)
     }
 
     @Test

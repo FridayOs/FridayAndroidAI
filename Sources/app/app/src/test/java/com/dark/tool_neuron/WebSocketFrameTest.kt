@@ -6,6 +6,7 @@ import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -80,6 +81,51 @@ class WebSocketFrameTest {
     fun closePayload_encodesCode() {
         val payload = WebSocketFrame.closePayload(1000, "")
         assertEquals(1000, ((payload[0].toInt() and 0xFF) shl 8) or (payload[1].toInt() and 0xFF))
+    }
+
+    @Test
+    fun readFrame_rejectsMaskedServerFrame() {
+        // b0 = FIN+text, b1 = mask-bit + len 1, 4 mask bytes, 1 payload byte.
+        val bytes = byteArrayOf(0x81.toByte(), 0x81.toByte(), 1, 2, 3, 4, 0x00)
+        assertThrows(WebSocketFrame.ProtocolException::class.java) {
+            WebSocketFrame.readFrame(ByteArrayInputStream(bytes))
+        }
+    }
+
+    @Test
+    fun readFrame_rejectsRsvBits() {
+        // b0 = FIN + RSV1 (0x40) + text opcode.
+        val bytes = byteArrayOf(0xC1.toByte(), 0x00)
+        assertThrows(WebSocketFrame.ProtocolException::class.java) {
+            WebSocketFrame.readFrame(ByteArrayInputStream(bytes))
+        }
+    }
+
+    @Test
+    fun readFrame_rejectsReservedOpcode() {
+        // b0 = FIN + opcode 0x3 (reserved data opcode).
+        val bytes = byteArrayOf(0x83.toByte(), 0x00)
+        assertThrows(WebSocketFrame.ProtocolException::class.java) {
+            WebSocketFrame.readFrame(ByteArrayInputStream(bytes))
+        }
+    }
+
+    @Test
+    fun readFrame_rejectsFragmentedControlFrame() {
+        // b0 = FIN=0 + CLOSE opcode (control frames must not be fragmented).
+        val bytes = byteArrayOf(0x08, 0x00)
+        assertThrows(WebSocketFrame.ProtocolException::class.java) {
+            WebSocketFrame.readFrame(ByteArrayInputStream(bytes))
+        }
+    }
+
+    @Test
+    fun readFrame_rejectsOversizedControlFrame() {
+        // b0 = FIN + PING, b1 = 126 length marker → 200-byte control payload (> 125 max).
+        val bytes = byteArrayOf(0x89.toByte(), 0x7E, 0x00, 0xC8.toByte())
+        assertThrows(WebSocketFrame.ProtocolException::class.java) {
+            WebSocketFrame.readFrame(ByteArrayInputStream(bytes))
+        }
     }
 
     // Builds an unmasked server->client frame (server frames are never masked per RFC 6455 §5.1).

@@ -15,11 +15,7 @@ import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
 import java.util.concurrent.atomic.AtomicBoolean
 
-// Minimal RFC 6455 client over a system-trust TLS socket. The repo has no WebSocket dep (:networking is
-// GET-only curl, HttpURLConnection can't upgrade), so the transport is hand-rolled here — no new dependency,
-// and it connects straight to the user's Gemini host (never a FRIDAY proxy). Read frames arrive as a Flow;
-// writes are synchronized so the send coroutine and control pings never interleave a partial frame.
-// connect is injectable so a loopback test can exercise the real read loop / close path without TLS.
+// Hand-rolled RFC 6455 client over a system-trust TLS socket (repo has no WebSocket dep); connect is injectable so a loopback test drives the real read/close path.
 internal class LiveWebSocketTransport(
     private val connect: (host: String, port: Int) -> Socket = ::defaultConnect,
 ) : LiveTransport {
@@ -29,10 +25,7 @@ internal class LiveWebSocketTransport(
     @Volatile private var output: OutputStream? = null
     private val writeLock = Any()
 
-    // Opens the socket + WebSocket upgrade, then emits every inbound message frame until close.
-    // onReady fires once, right after a successful upgrade and before the read loop, so the caller can
-    // send the mandatory first frame (Gemini's `setup`) before any server message is expected.
-    // Blocking socket I/O runs on Dispatchers.IO; cancelling the collector tears the socket down.
+    // onReady fires once after a successful upgrade, before the read loop, so the caller sends Gemini's mandatory `setup` first frame.
     override fun open(host: String, port: Int, path: String, onReady: () -> Unit): Flow<LiveTransport.Incoming> = callbackFlow {
         val key = WebSocketHandshake.nonce()
         try {
@@ -53,25 +46,22 @@ internal class LiveWebSocketTransport(
             output = out
             onReady()
 
-            val payload = StringBuilder()
-            val binaryAcc = java.io.ByteArrayOutputStream()
-            var accumulatingBinary = false
+            val messageBytes = java.io.ByteArrayOutputStream()
+            var messageIsBinary = false
             while (!closed.get()) {
                 val frame = WebSocketFrame.readFrame(input) ?: break
                 when (frame.opcode) {
                     WebSocketFrame.OPCODE_TEXT, WebSocketFrame.OPCODE_BINARY,
                     WebSocketFrame.OPCODE_CONTINUATION -> {
-                        if (frame.opcode == WebSocketFrame.OPCODE_BINARY) accumulatingBinary = true
-                        if (frame.opcode == WebSocketFrame.OPCODE_TEXT) accumulatingBinary = false
-                        if (accumulatingBinary) binaryAcc.write(frame.payload) else payload.append(String(frame.payload, Charsets.UTF_8))
+                        // Decode UTF-8 only at FIN so a multi-byte code point split across fragments isn't corrupted.
+                        if (frame.opcode == WebSocketFrame.OPCODE_TEXT) { messageBytes.reset(); messageIsBinary = false }
+                        if (frame.opcode == WebSocketFrame.OPCODE_BINARY) { messageBytes.reset(); messageIsBinary = true }
+                        messageBytes.write(frame.payload)
                         if (frame.fin) {
-                            if (accumulatingBinary) {
-                                trySend(LiveTransport.Incoming.Binary(binaryAcc.toByteArray()))
-                                binaryAcc.reset()
-                            } else {
-                                trySend(LiveTransport.Incoming.Text(payload.toString()))
-                                payload.setLength(0)
-                            }
+                            val bytes = messageBytes.toByteArray()
+                            if (messageIsBinary) trySend(LiveTransport.Incoming.Binary(bytes))
+                            else trySend(LiveTransport.Incoming.Text(String(bytes, Charsets.UTF_8)))
+                            messageBytes.reset()
                         }
                     }
                     WebSocketFrame.OPCODE_PING -> writeControl(WebSocketFrame.OPCODE_PONG, frame.payload)
@@ -90,31 +80,30 @@ internal class LiveWebSocketTransport(
             throw t
         }
 
-        // Peer close / EOF ended the read loop. Tear the socket down and COMPLETE the producer channel
-        // (unqualified close() = ProducerScope.close) so the engine's collect returns instead of suspending
-        // in awaitClose forever; the awaitClose block re-runs teardown on a collector cancel.
+        // Peer close / EOF ended the read loop: close the socket AND the producer channel (unqualified close()) so the engine's collect returns instead of hanging in awaitClose.
         this@LiveWebSocketTransport.close()
         close()
         awaitClose { this@LiveWebSocketTransport.close() }
     }.flowOn(Dispatchers.IO)
 
-    // Client→server frames are always masked per RFC 6455 §5.3; the write lock keeps concurrent sends whole.
-    override fun sendText(text: String) {
-        val out = output ?: return
-        synchronized(writeLock) {
-            runCatching {
-                out.write(WebSocketFrame.encode(WebSocketFrame.OPCODE_TEXT, text.toByteArray(Charsets.UTF_8)))
-                out.flush()
-            }
-        }
-    }
+    @Volatile private var writeError: Throwable? = null
+    // Test/diagnostic: a send failed and tore the transport down (a silently swallowed send is the regression).
+    internal val lastWriteFailed: Boolean get() = writeError != null
 
-    private fun writeControl(opcode: Int, payload: ByteArray) {
+    // Client frames are masked (§5.3), write-locked whole; a write failure closes the transport (not swallowed) so the engine classifies the drop.
+    override fun sendText(text: String) = writeFrame(WebSocketFrame.OPCODE_TEXT, text.toByteArray(Charsets.UTF_8))
+
+    private fun writeControl(opcode: Int, payload: ByteArray) = writeFrame(opcode, payload)
+
+    private fun writeFrame(opcode: Int, payload: ByteArray) {
         val out = output ?: return
         synchronized(writeLock) {
-            runCatching {
+            try {
                 out.write(WebSocketFrame.encode(opcode, payload))
                 out.flush()
+            } catch (t: Throwable) {
+                writeError = t
+                close()
             }
         }
     }
@@ -151,9 +140,14 @@ internal class LiveWebSocketTransport(
         private const val CONNECT_TIMEOUT_MS = 15000
         private const val READ_TIMEOUT_MS = 60000
 
-        // Production connector: a system-trust TLS socket to the user's Gemini host, handshaken and ready to read.
+        // RFC 2818 hostname verification: without it a raw SSLSocket checks the cert chain but not the host (MITM).
+        internal fun hardenTls(socket: SSLSocket): SSLSocket = socket.apply {
+            sslParameters = sslParameters.apply { endpointIdentificationAlgorithm = "HTTPS" }
+        }
+
+        // Production connector: a system-trust, hostname-verified TLS socket to the user's Gemini host.
         private fun defaultConnect(host: String, port: Int): Socket =
-            (SSLSocketFactory.getDefault() as SSLSocketFactory).createSocket().let { it as SSLSocket }.apply {
+            hardenTls((SSLSocketFactory.getDefault() as SSLSocketFactory).createSocket() as SSLSocket).apply {
                 connect(InetSocketAddress(host, port), CONNECT_TIMEOUT_MS)
                 soTimeout = READ_TIMEOUT_MS
                 startHandshake()

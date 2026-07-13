@@ -18,8 +18,7 @@ import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
 
-// Streams 16kHz mono PCM16 mic frames to Gemini Live. Capture stops the moment the session tears down —
-// the recorder is released in stop(), never left holding the mic after a turn ends.
+// Streams 16kHz mono PCM16 mic frames to Gemini Live; the recorder is released in stop() so the mic never outlives a turn.
 @Singleton
 class LiveAudioCapture @Inject constructor(
     @param:ApplicationContext private val context: Context,
@@ -73,8 +72,7 @@ class LiveAudioCapture @Inject constructor(
             } catch (ce: CancellationException) {
                 throw ce
             } catch (t: Throwable) {
-                // A runtime failure AFTER a successful open (mic yanked, dead object). Release + surface once so
-                // the engine ends the session as AUDIO; a deliberate stop() already flipped recording to false.
+                // A runtime failure after a successful open (mic yanked): release + surface once so the engine ends as AUDIO.
                 if (recording.compareAndSet(true, false)) {
                     releaseRecorder()
                     onError(t)

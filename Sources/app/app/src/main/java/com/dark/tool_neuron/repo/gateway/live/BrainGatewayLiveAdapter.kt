@@ -7,11 +7,7 @@ import kotlinx.coroutines.flow.Flow
 import javax.inject.Inject
 import javax.inject.Singleton
 
-// Production LiveBrainGateway over the real BrainBridge. This adapter OWNS correlation: the underlying BrainBridge
-// (GatewayRoleRouter) manages a single in-flight turn and takes no id, so identity is enforced here. It tracks the
-// full active BrainCorrelation (sessionId + turnId), not just the turnId, so a cancel/confirm from a superseded
-// turn OR a different session is dropped before it can touch the live turn (cross-session isolation). Concurrent
-// Live sessions aren't a product scenario (one mic), but the guard makes a stale/foreign correlation a no-op.
+// Adapter owns correlation (real BrainBridge takes no id): tracks the full active BrainCorrelation so a cancel/confirm from a superseded turn or foreign session is a no-op.
 @Singleton
 class BrainGatewayLiveAdapter @Inject constructor(
     private val brain: BrainBridge,

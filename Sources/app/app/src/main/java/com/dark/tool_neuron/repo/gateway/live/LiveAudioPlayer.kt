@@ -8,16 +8,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
 
-// Plays Gemini Live's 24kHz PCM16 audio in arrival order on a dedicated consumer coroutine, so a barge-in
-// flush() never waits behind an in-flight AudioTrack.WRITE_BLOCKING call on the receive thread. flush() bumps
-// a generation token and drops the current turn's queued audio instantly so a stale chunk never plays after
-// the user cuts in.
+// Plays Gemini Live's 24kHz PCM16 in arrival order on a dedicated consumer coroutine; flush() bumps a generation token so a barge-in drops the current turn's audio instantly.
 @Singleton
 class LiveAudioPlayer @Inject constructor() : LiveAudioSink {
 
@@ -32,6 +30,9 @@ class LiveAudioPlayer @Inject constructor() : LiveAudioSink {
     private var consumer: Job? = null
 
     private data class Chunk(val pcm: ByteArray, val gen: Long)
+
+    // ~64 chunks of 24kHz PCM16 is a few seconds of buffered audio — enough headroom, bounded RAM.
+    private companion object { const val QUEUE_CAPACITY = 64 }
 
     @Synchronized
     override fun start() {
@@ -62,7 +63,8 @@ class LiveAudioPlayer @Inject constructor() : LiveAudioSink {
         t.play()
         playing.set(true)
 
-        val ch = Channel<Chunk>(Channel.UNLIMITED)
+        // Bounded + DROP_OLDEST so a slow AudioTrack can't grow the queue without limit; newest audio wins.
+        val ch = Channel<Chunk>(QUEUE_CAPACITY, onBufferOverflow = BufferOverflow.DROP_OLDEST)
         val sc = CoroutineScope(SupervisorJob() + Dispatchers.IO)
         queue = ch
         scope = sc
@@ -91,10 +93,11 @@ class LiveAudioPlayer @Inject constructor() : LiveAudioSink {
         }
     }
 
-    // Barge-in / interrupt: bump generation, pause+flush the track so queued PCM stops immediately.
+    // Barge-in / interrupt: bump generation, drain the superseded turn's queued chunks, pause+flush the track.
     @Synchronized
     override fun flush() {
         generation++
+        queue?.let { q -> while (q.tryReceive().isSuccess) { /* drop stale queued chunks */ } }
         val t = track ?: return
         runCatching { t.pause() }
         runCatching { t.flush() }
