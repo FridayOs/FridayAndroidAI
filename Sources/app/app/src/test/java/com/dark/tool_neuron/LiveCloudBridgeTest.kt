@@ -1,8 +1,9 @@
 package com.dark.tool_neuron
 
-import com.dark.tool_neuron.repo.gateway.BrainBridge
 import com.dark.tool_neuron.repo.gateway.GatewayEvent
 import com.dark.tool_neuron.repo.gateway.GatewayTurn
+import com.dark.tool_neuron.repo.gateway.live.BrainCorrelation
+import com.dark.tool_neuron.repo.gateway.live.LiveBrainGateway
 import com.dark.tool_neuron.repo.gateway.live.LiveCloudBridge
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -16,112 +17,177 @@ import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-// Proves the FRI-530 CloudBridge seam reaches the Brain Gateway through all four brain_* ops with a fake brain,
-// carries the live transcript as text (never audio), and keeps every request correlated to the session id.
+// Fake LiveBrainGateway captures the BrainCorrelation received at the seam, proving turn/continue/cancel/confirm target the right turn.
 @OptIn(ExperimentalCoroutinesApi::class)
 class LiveCloudBridgeTest {
 
-    private class FakeBrain : BrainBridge {
-        val turns = mutableListOf<List<GatewayTurn>>()
-        val continues = mutableListOf<List<GatewayTurn>>()
-        var cancelled = false
-        var confirmed = false
+    // Captures exactly what identity + history arrives at the seam so tests assert the right turn is targeted.
+    private class FakeBrainGateway : LiveBrainGateway {
+        data class TurnCall(val correlation: BrainCorrelation, val history: List<GatewayTurn>)
+
+        val turns = mutableListOf<TurnCall>()
+        val continues = mutableListOf<TurnCall>()
+        val cancels = mutableListOf<BrainCorrelation>()
+        val confirms = mutableListOf<BrainCorrelation>()
         var awaiting = false
         var confirmResult = true
 
-        override fun brainTurn(history: List<GatewayTurn>): Flow<GatewayEvent> {
-            turns += history
+        override fun brainTurn(correlation: BrainCorrelation, history: List<GatewayTurn>): Flow<GatewayEvent> {
+            turns += TurnCall(correlation, history)
             return flow { emit(GatewayEvent.Delta("hi")); emit(GatewayEvent.Done("hi")) }
         }
 
-        override fun brainContinue(history: List<GatewayTurn>): Flow<GatewayEvent> {
-            continues += history
+        override fun brainContinue(correlation: BrainCorrelation, history: List<GatewayTurn>): Flow<GatewayEvent> {
+            continues += TurnCall(correlation, history)
             return flow { emit(GatewayEvent.Done("more")) }
         }
 
-        override fun brainCancel() { cancelled = true }
-        override fun brainConfirm(): Boolean { confirmed = true; awaiting = false; return confirmResult }
+        override fun brainCancel(correlation: BrainCorrelation) { cancels += correlation }
+        override fun brainConfirm(correlation: BrainCorrelation): Boolean {
+            confirms += correlation; awaiting = false; return confirmResult
+        }
         override fun brainAwaitingConfirmation(): Boolean = awaiting
     }
 
     @Test
-    fun brainTurn_appendsTranscriptAsUserTurn_andReachesBrain() = runTest {
-        val fake = FakeBrain()
+    fun brainTurn_carriesSessionCorrelationAndTranscriptToSeam() = runTest {
+        val fake = FakeBrainGateway()
         val bridge = LiveCloudBridge(fake, sessionId = "sess-1")
         val history = listOf(GatewayTurn("user", "earlier"), GatewayTurn("assistant", "reply"))
 
         val events = bridge.brainTurn(history, transcript = "what's the weather").toList()
 
         assertEquals(1, fake.turns.size)
-        val forwarded = fake.turns.first()
-        // Existing history preserved, transcript appended as the new user turn — audio never crosses the seam.
-        assertEquals(history + GatewayTurn("user", "what's the weather"), forwarded)
+        val call = fake.turns.first()
+        // The correlation actually reached the seam, tagged to this session.
+        assertEquals("sess-1", call.correlation.sessionId)
+        assertTrue(call.correlation.turnId.isNotBlank())
+        assertEquals(call.correlation, bridge.currentCorrelation)
+        // Existing history preserved, transcript appended as the new user turn — audio never crosses.
+        assertEquals(history + GatewayTurn("user", "what's the weather"), call.history)
         assertTrue(events.any { it is GatewayEvent.Done })
     }
 
     @Test
-    fun brainContinue_reRunsHistory_withoutInjectingUserTurn() = runTest {
-        val fake = FakeBrain()
+    fun brainContinue_carriesFreshTurnIdSameSession_noNewUserTurn() = runTest {
+        val fake = FakeBrainGateway()
         val bridge = LiveCloudBridge(fake, sessionId = "sess-1")
         val history = listOf(GatewayTurn("user", "again"))
 
-        val events = bridge.brainContinue(history).toList()
+        bridge.brainContinue(history).toList()
 
-        assertEquals(listOf(history), fake.continues)
-        assertTrue(events.any { it is GatewayEvent.Done })
+        assertEquals(1, fake.continues.size)
+        assertEquals("sess-1", fake.continues.first().correlation.sessionId)
+        assertEquals(history, fake.continues.first().history)
     }
 
     @Test
-    fun brainCancel_reachesBrain_andClearsCorrelation() = runTest {
-        val fake = FakeBrain()
+    fun brainCancel_forwardsTheActiveTurnCorrelation_andClearsIt() = runTest {
+        val fake = FakeBrainGateway()
         val bridge = LiveCloudBridge(fake, sessionId = "sess-1")
         bridge.brainTurn(emptyList(), "hello").toList()
-        assertNotNullCorrelation(bridge.currentCorrelationId)
+        val active = bridge.currentCorrelation!!
 
         bridge.brainCancel()
 
-        assertTrue("brain_cancel must reach the brain", fake.cancelled)
-        assertNull("cancel clears the in-flight correlation", bridge.currentCorrelationId)
+        assertEquals("cancel forwards the active turn's correlation", listOf(active), fake.cancels)
+        assertNull("cancel clears the in-flight correlation", bridge.currentCorrelation)
     }
 
     @Test
-    fun brainConfirm_reachesBrain_andReturnsGateResult() {
-        val fake = FakeBrain().apply { confirmResult = true }
+    fun brainConfirm_forwardsActiveCorrelation_andReturnsGateResult() = runTest {
+        val fake = FakeBrainGateway().apply { confirmResult = true }
         val bridge = LiveCloudBridge(fake, sessionId = "sess-1")
+        bridge.brainTurn(emptyList(), "do it").toList()
+        val active = bridge.currentCorrelation!!
+
         assertTrue(bridge.brainConfirm())
-        assertTrue(fake.confirmed)
+        assertEquals(listOf(active), fake.confirms)
     }
 
     @Test
-    fun brainConfirm_returnsFalseWhenNothingArmed() {
-        val fake = FakeBrain().apply { confirmResult = false }
+    fun brainConfirm_returnsFalseWhenNoTurnActive() {
+        val fake = FakeBrainGateway()
         val bridge = LiveCloudBridge(fake, sessionId = "sess-1")
         assertFalse(bridge.brainConfirm())
+        assertTrue("no active turn -> nothing forwarded", fake.confirms.isEmpty())
     }
 
     @Test
-    fun awaitingConfirmation_passesThroughBrain() {
-        val fake = FakeBrain().apply { awaiting = true }
+    fun awaitingConfirmation_passesThroughSeam() {
+        val fake = FakeBrainGateway().apply { awaiting = true }
         assertTrue(LiveCloudBridge(fake, "sess-1").brainAwaitingConfirmation())
     }
 
-    // Correlation contract: every brain request is tagged to the session id and each turn gets a distinct id.
     @Test
-    fun everyRequestCorrelationIsTaggedToSession() = runTest {
-        val fake = FakeBrain()
+    fun eachTurnGetsFreshCorrelationUnderStableSession() = runTest {
+        val fake = FakeBrainGateway()
         val bridge = LiveCloudBridge(fake, sessionId = "sess-42")
 
         bridge.brainTurn(emptyList(), "one").toList()
-        val first = bridge.currentCorrelationId
+        val first = bridge.currentCorrelation!!
         bridge.brainContinue(emptyList()).toList()
-        val second = bridge.currentCorrelationId
+        val second = bridge.currentCorrelation!!
 
-        assertTrue("correlation carries the session id", first!!.startsWith("sess-42:"))
-        assertTrue("correlation carries the session id", second!!.startsWith("sess-42:"))
-        assertNotEquals("each turn gets a fresh correlation id", first, second)
+        assertEquals("sess-42", first.sessionId)
+        assertEquals("sess-42", second.sessionId)
+        assertNotEquals("each turn gets a fresh turnId", first.turnId, second.turnId)
+        // Both identities were actually delivered to the seam.
+        assertEquals(first, fake.turns.first().correlation)
+        assertEquals(second, fake.continues.first().correlation)
     }
 
-    private fun assertNotNullCorrelation(id: String?) {
-        assertTrue("a turn must set a correlation id", id != null && id.isNotBlank())
+    // Stale-turn guard: turn A opens, turn B supersedes it; a late cancel for A must NOT cancel B.
+    @Test
+    fun staleCancel_forSupersededTurn_neverCancelsTheNewerTurn() = runTest {
+        val fake = FakeBrainGateway()
+        val bridge = LiveCloudBridge(fake, sessionId = "sess-1")
+
+        bridge.brainTurn(emptyList(), "turn A").toList()
+        val turnA = bridge.currentCorrelation!!
+        bridge.brainContinue(emptyList()).toList()
+        val turnB = bridge.currentCorrelation!!
+        assertNotEquals(turnA, turnB)
+
+        // A late cancel arriving for the already-superseded turn A: must be dropped, not forwarded.
+        bridge.cancelTurn(turnA)
+        assertTrue("stale cancel for turn A is not forwarded", fake.cancels.isEmpty())
+        assertEquals("newer turn B stays active", turnB, bridge.currentCorrelation)
+
+        // Cancelling the actual active turn B forwards exactly B.
+        bridge.cancelTurn(turnB)
+        assertEquals(listOf(turnB), fake.cancels)
+        assertNull(bridge.currentCorrelation)
+    }
+
+    // Stale-turn guard for confirm: a confirm from a superseded turn must not resolve the newer turn's gate.
+    @Test
+    fun staleConfirm_forSupersededTurn_isDropped() = runTest {
+        val fake = FakeBrainGateway().apply { confirmResult = true }
+        val bridge = LiveCloudBridge(fake, sessionId = "sess-1")
+
+        bridge.brainTurn(emptyList(), "turn A").toList()
+        val turnA = bridge.currentCorrelation!!
+        bridge.brainTurn(emptyList(), "turn B").toList()
+        val turnB = bridge.currentCorrelation!!
+
+        assertFalse("stale confirm for turn A returns false", bridge.confirmTurn(turnA))
+        assertTrue("stale confirm never reaches the seam", fake.confirms.isEmpty())
+
+        assertTrue("confirming the active turn B works", bridge.confirmTurn(turnB))
+        assertEquals(listOf(turnB), fake.confirms)
+    }
+
+    // A cross-session correlation (different sessionId) must never match the active turn.
+    @Test
+    fun cancel_withForeignSessionCorrelation_isIgnored() = runTest {
+        val fake = FakeBrainGateway()
+        val bridge = LiveCloudBridge(fake, sessionId = "sess-1")
+        bridge.brainTurn(emptyList(), "hi").toList()
+
+        bridge.cancelTurn(BrainCorrelation(sessionId = "other-session", turnId = "whatever"))
+
+        assertTrue("a foreign-session cancel never forwards", fake.cancels.isEmpty())
+        assertTrue("active turn is untouched", bridge.currentCorrelation != null)
     }
 }

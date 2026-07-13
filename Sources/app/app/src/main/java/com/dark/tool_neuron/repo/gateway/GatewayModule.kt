@@ -3,6 +3,8 @@ package com.dark.tool_neuron.repo.gateway
 import com.dark.tool_neuron.repo.FridayConversationRepository
 import com.dark.tool_neuron.repo.FridayConvoStore
 import com.dark.tool_neuron.repo.GatewayConfigRepository
+import com.dark.tool_neuron.repo.gateway.live.BrainGatewayLiveAdapter
+import com.dark.tool_neuron.repo.gateway.live.LiveBrainGateway
 import com.dark.tool_neuron.voice.VoiceIo
 import com.dark.tool_neuron.voice.VoiceModelManager
 import dagger.Binds
@@ -18,6 +20,10 @@ abstract class GatewayModule {
     @Binds
     @Singleton
     abstract fun bindBrainBridge(impl: GatewayRoleRouter): BrainBridge
+
+    @Binds
+    @Singleton
+    abstract fun bindLiveBrainGateway(impl: BrainGatewayLiveAdapter): LiveBrainGateway
 
     @Binds
     @Singleton

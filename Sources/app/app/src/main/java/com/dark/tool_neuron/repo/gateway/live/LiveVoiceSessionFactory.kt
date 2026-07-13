@@ -2,7 +2,6 @@ package com.dark.tool_neuron.repo.gateway.live
 
 import com.dark.tool_neuron.model.gateway.GatewayConfig
 import com.dark.tool_neuron.model.gateway.GatewayWireFormat
-import com.dark.tool_neuron.repo.gateway.BrainBridge
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import java.util.UUID
@@ -46,7 +45,7 @@ class LiveVoiceSession internal constructor(
 class LiveVoiceSessionFactory @Inject constructor(
     private val capture: LiveAudioCapture,
     private val player: LiveAudioPlayer,
-    private val brain: BrainBridge,
+    private val brain: LiveBrainGateway,
 ) {
     // Only Gemini's wire format is a Live-capable cloud voice transport in this task's scope.
     fun supports(config: GatewayConfig): Boolean =
