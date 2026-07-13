@@ -1348,6 +1348,50 @@ Unit (JVM, off-device, 40 tests): `GatewayValidationTest`, `GatewayErrorSanitize
 
 ---
 
+## M2-01 Direct Android Gemini Live gateway client
+
+FRI-548 owns the **transport + session engine** for the Gemini Live cloud voice route — the `VoiceRoute.CLOUD` seam FRI-553 left as `CloudBridge`. It connects Android straight to the user's Gemini Live WebSocket endpoint, streams mic audio, plays model audio in order, and surfaces a displayable session state. It does **not** own reasoning/context/tools/actions — those bridge to the Brain Gateway via `brain_turn`/`brain_continue`/`brain_cancel`/`brain_confirm`. Provider UI is FRI-583; Voice Home binding/orchestration is FRI-562. Everything stays HXS-local; no Firebase/FRIDAY proxy touches key/audio/transcript.
+
+### Package (`repo/gateway/live/`)
+
+Pure, off-device-unit-testable layer (no Android, no `org.json`):
+- `LiveJson.kt` — minimal pure-Kotlin JSON emitter + tolerant parser. Android's `org.json` is stubbed in JVM tests, so the Live codec carries its own JSON. `escape` handles control chars (`'\u000C'` for form-feed — Kotlin has no `'\f'` char escape). `JsonValue.Obj` has typed accessors (`obj/arr/str/bool/has`).
+- `GeminiLiveConfig.kt` — resolved wire config from a `GatewayConfig` (apiKey/model/voice/locale/bargeIn/host). `wireModel` prefixes `models/`; `from(GatewayConfig,…)` extracts host from `baseUrl` and defaults `gemini-2.0-flash-live-001` / voice `Aoede`.
+- `LiveSessionState.kt` — 9-state lifecycle enum (IDLE→CONNECTING→CONFIGURED→LISTENING→STREAMING, plus RECONNECTING/CLOSING/CLOSED/ERROR).
+- `LiveEvent.kt` — one displayable event stream (`State`/`AudioDelta(pcm,seq)`/`OutputTranscript`/`InputTranscript`/`TurnComplete`/`Interrupted`/`Error`). `LiveErrorKind` taxonomy with `transient` = `NETWORK|TIMEOUT|REMOTE_CLOSE` (QUOTA is **not** transient — looping would hammer the quota).
+- `LiveProtocol.kt` — pure Gemini Live wire codec. `setupFrame` (responseModalities=AUDIO, speechConfig voice+languageCode, in/out transcription on; barge-in-off disables Gemini automatic VAD so the client owns turn boundaries), `audioFrame` (`realtimeInput.audio`, mime `audio/pcm;rate=16000`), `audioStreamEndFrame`, `activityStart/EndFrame`. `parseServerFrame` → ordered `ServerFrame` list (Interrupted is emitted **before** TurnComplete so the player flushes then ends the turn). `classifyServerError` maps code/message → `LiveErrorKind`. Input PCM **16kHz mono LE 16-bit**, output **24kHz PCM16** (Gemini Live spec).
+- `WebSocketFrame.kt` — pure RFC 6455 frame codec. `encode` masks client→server frames (§5.3, injectable rng for deterministic tests); `readFrame` decodes unmasked server frames (returns null on clean EOF); `parseClose`/`closePayload`. Handles 7-bit / 16-bit / 64-bit length forms.
+- `WebSocketHandshake.kt` — pure RFC 6455 §4 opening handshake: `nonce`, `request`, `expectedAccept` (SHA1(key+GUID)), `isValidResponse` (101 + Accept match), `statusCode`.
+- `LiveRetryPolicy.kt` — bounded exponential backoff (`MAX_ATTEMPTS=4`, 500ms→1s→2s→4s cap 8s); `retryable` = `LiveErrorKind.transient`. Auth/model/config/quota never loop.
+
+Android I/O layer:
+- `LiveWebSocketTransport.kt` — minimal RFC 6455 client over a **system-trust `SSLSocket`**. The repo has **no WebSocket dependency** (`:networking` is GET-only curl-impersonate, `HttpURLConnection` can't upgrade), so the transport is hand-rolled — no new dep, connects straight to the user's Gemini host. `open(host,port,path,onReady)` returns inbound frames as a `callbackFlow` on `Dispatchers.IO`; `onReady` fires right after a successful upgrade so the caller sends the mandatory `setup` first frame before any server message. Writes are `synchronized` (send coroutine + control pongs never interleave a partial frame). Handshake rejection → `HandshakeException(httpStatus)`.
+- `LiveAudioCapture.kt` — `@Singleton`, 16kHz mono PCM16 `AudioRecord` (VOICE_RECOGNITION), 100ms (3200-byte) chunks via `onChunk`. `stop()` releases the recorder — mic never survives a turn.
+- `LiveAudioPlayer.kt` — `@Singleton`, 24kHz PCM16 `AudioTrack` MODE_STREAM. `flush()` bumps a generation token + pause/flush/play so a barge-in/interrupt drops the current turn's queued audio instantly (a stale chunk never plays after the user cuts in); `write(pcm,gen)` discards chunks from a superseded generation.
+
+Orchestration:
+- `LiveSessionEngine.kt` — `internal` class owning one session as a cold `run(config): Flow<LiveEvent>`. Connect→send setup on onReady→CONFIGURED on `setupComplete`→start mic→STREAMING on first audio, with `LiveRetryPolicy` bounded reconnect on transient failures. Non-local returns from `collect` are illegal, so a server-reported failure is captured via `AtomicReference` and closes the socket. `endUserTurn()` stops capture + sends `audioStreamEnd` (and `activityEnd` when barge-in off). `cancel()`/`teardown()` stop capture+playback+socket+scope — nothing survives teardown. `classifyTransport` maps socket/handshake exceptions → `LiveErrorKind`.
+- `LiveVoiceSessionFactory.kt` — `@Singleton`. `create(GatewayConfig,voice,locale,bargeIn)` → `LiveVoiceSession` (pairs the engine with resolved config; `run()`/`endUserTurn()`/`cancel()`/`state`). `supports()` gates to `GatewayWireFormat.GEMINI`. This is the injectable seam FRI-562's CloudBridge calls; it owns transport/session only, never brain reasoning or the Android action layer.
+
+### Tests (JVM, off-device, 62 new)
+
+`LiveProtocolTest` (17 — setup/audio/end framing, server-frame parse + interrupt-before-turnComplete ordering, malformed→Unknown, error taxonomy), `WebSocketFrameTest` (9 — mask bit, roundtrip, 7/16/64-bit lengths, fragmentation, close parse), `WebSocketHandshakeTest` (7 — Accept digest, 101 validation, status extraction), `LiveRetryPolicyTest` (8 — only transient loops, bounded backoff, quota never loops), `GeminiLiveConfigTest` (7 — host extraction, model prefixing, defaults), `LiveSessionEngineClassifyTest` (10 — auth/model/quota/network mapping), `LiveJsonTest` (4 — escaping/no-secret-leak + parse). All green, 0 skipped, in `./gradlew :app:testDebugUnitTest`.
+
+### Things NOT to regress (M2-01)
+
+- Don't add a WebSocket library dependency for Gemini Live. The hand-rolled `WebSocketFrame`/`WebSocketHandshake`/`LiveWebSocketTransport` over `SSLSocket` is deliberate — `:networking` is GET-only curl-impersonate and `HttpURLConnection` can't upgrade, and adding OkHttp/Java-WebSocket for one feature is scope the repo rejected. The transport connects **direct to the user's Gemini host**, never a FRIDAY/Firebase proxy.
+- Don't route Live audio, the API key, or the raw transcript through Firebase / FRIDAY API. The whole session is HXS-local; only the transcript the session yields bridges to `brain_turn` (text, never audio). The brain never sees audio.
+- Don't send `setup` anywhere but the mandatory first frame (transport `onReady`, before any server message). Gemini waits for `setup` before `setupComplete`; sending it late deadlocks the session.
+- Don't keep `LiveErrorKind.QUOTA` in the `transient` set. Auth/invalid-model/quota/config/permission never retry — only NETWORK/TIMEOUT/REMOTE_CLOSE loop, bounded by `LiveRetryPolicy` (4 attempts, 500ms→4s cap 8s). A bad credential or bad model must surface immediately, never spin a reconnect loop.
+- Don't fake a CONNECTED/CONFIGURED/READY state. State only advances on real protocol progress (real upgrade → CONNECTING, `setupComplete` → CONFIGURED, first decoded audio → STREAMING). Failures surface as `LiveEvent.Error` with a secret-free message via `GatewayErrorSanitizer`.
+- Don't drop the `LiveAudioPlayer` generation token on `flush()`. Barge-in/interrupt bumps `generation` and pause/flush/play the track so queued PCM from the interrupted turn stops instantly; `write` discards superseded-generation chunks. Playing a stale chunk after the user cuts in is the regression this prevents.
+- Don't leave the mic or socket alive after `endUserTurn`/`cancel`/teardown. `LiveAudioCapture.stop()` releases the `AudioRecord`; teardown stops capture+player+socket+scope. Nothing survives.
+- Don't change input PCM off **16kHz mono LE 16-bit** (`audio/pcm;rate=16000`) or output off **24kHz PCM16** — those are the Gemini Live wire contract, not tunables.
+- Don't route Live audio input as `byte[]` over any process boundary or add a `:server`/`:inference` hop — the session is in-`:app`, direct to Gemini.
+- Don't emit control chars raw in `LiveJson.escape`; Kotlin has no `'\f'` char escape, so form-feed uses the `'\u000C'` unicode escape. Keep the self-contained JSON — `org.json` is stubbed in JVM tests and the codec must stay unit-testable off-device.
+
+---
+
 ## Housekeeping
 
 Whenever you change anything on the list below, update **this file** as part of the same change:
