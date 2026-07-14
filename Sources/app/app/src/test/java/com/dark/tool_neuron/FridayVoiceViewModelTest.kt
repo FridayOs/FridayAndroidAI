@@ -3,6 +3,7 @@ package com.dark.tool_neuron
 import com.dark.tool_neuron.model.friday.FridayConversation
 import com.dark.tool_neuron.model.friday.FridayTurn
 import com.dark.tool_neuron.repo.FridayConvoStore
+import com.dark.tool_neuron.repo.context.ContextHistorySource
 import com.dark.tool_neuron.repo.gateway.BrainBridge
 import com.dark.tool_neuron.repo.gateway.GatewayEvent
 import com.dark.tool_neuron.repo.gateway.GatewayTurn
@@ -64,8 +65,14 @@ class FridayVoiceViewModelTest {
         override fun route(): VoiceRouter.Route = VoiceRouter.Route.NoVoice
     }
 
+    private class FakeContextEngine : ContextHistorySource {
+        override suspend fun buildHistory(conversationId: String?, pendingTurns: List<FridayTurn>?): List<GatewayTurn> = emptyList()
+        override fun onUserTurnPersisted(turn: FridayTurn) {}
+        override fun onTurnCompleted(conversationId: String) {}
+    }
+
     private fun vm(brain: FakeBrain): FridayVoiceViewModel =
-        FridayVoiceViewModel(FakeRoute(), VoiceBridge(brain), FakeConvoStore(), FakeVoiceIo())
+        FridayVoiceViewModel(FakeRoute(), VoiceBridge(brain), FakeConvoStore(), FakeVoiceIo(), FakeContextEngine())
 
     @Test
     fun confirm_reachesBrainConfirmationGate() = runTest {

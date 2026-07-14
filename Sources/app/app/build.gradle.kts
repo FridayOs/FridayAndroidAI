@@ -114,6 +114,10 @@ android {
             )
         }
     }
+
+    testOptions {
+        unitTests.isReturnDefaultValues = true
+    }
 }
 
 kotlin {
@@ -181,6 +185,7 @@ dependencies {
     // Unit tests
     testImplementation(libs.junit)
     testImplementation(libs.kotlinx.coroutines.test)
+    testImplementation(libs.json.unit.test)
 
     // Instrumented tests
     androidTestImplementation(libs.androidx.junit)

@@ -4,10 +4,10 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.dark.tool_neuron.model.friday.FridayTurn
 import com.dark.tool_neuron.repo.FridayConvoStore
+import com.dark.tool_neuron.repo.context.ContextHistorySource
 import com.dark.tool_neuron.repo.gateway.ChatBrain
 import com.dark.tool_neuron.repo.gateway.GatewayDirectory
 import com.dark.tool_neuron.repo.gateway.GatewayEvent
-import com.dark.tool_neuron.repo.gateway.GatewayTurn
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -32,6 +32,7 @@ class FridayChatViewModel @Inject constructor(
     private val gatewayRepo: GatewayDirectory,
     private val convoRepo: FridayConvoStore,
     private val router: ChatBrain,
+    private val contextEngine: ContextHistorySource,
 ) : ViewModel() {
 
     private val _messages = MutableStateFlow<List<FridayChatMessage>>(emptyList())
@@ -79,8 +80,8 @@ class FridayChatViewModel @Inject constructor(
         val convoId = conversationId ?: return
         if (_thinking.value) return
         val turns = convoRepo.getTurns(convoId)
-        val (history, existing) = planRegeneration(turns)
-        if (history.isEmpty()) return
+        val (pending, existing) = planRegeneration(turns)
+        if (pending.isEmpty()) return
         val aiId = existing?.id ?: UUID.randomUUID().toString()
         // Reset only the visible bubble; the stored turn keeps its old content until Done succeeds.
         if (existing != null) {
@@ -90,6 +91,7 @@ class FridayChatViewModel @Inject constructor(
         replyJob = viewModelScope.launch {
             var settled = false
             try {
+                val history = contextEngine.buildHistory(convoId, pendingTurns = pending)
                 router.brainContinue(history).collect { event ->
                     when (event) {
                         is GatewayEvent.Delta -> {
@@ -110,7 +112,10 @@ class FridayChatViewModel @Inject constructor(
                             _messages.value = _messages.value.map {
                                 if (it.id == aiId) it.copy(text = finalText, done = true) else it
                             }
-                            if (finalText.isNotBlank()) persistRegenerated(convoId, aiId, existing, finalText)
+                            if (finalText.isNotBlank()) {
+                                persistRegenerated(convoId, aiId, existing, finalText)
+                                contextEngine.onTurnCompleted(convoId)
+                            }
                         }
                         is GatewayEvent.Error -> {
                             settled = true
@@ -177,14 +182,15 @@ class FridayChatViewModel @Inject constructor(
             viaVoice = viaVoice,
         )
         convoRepo.addTurn(userTurn)
+        contextEngine.onUserTurnPersisted(userTurn)
         _messages.value = _messages.value + FridayChatMessage(userTurn.id, isUser = true, text = trimmed)
         _thinking.value = true
 
-        val history = convoRepo.getTurns(convoId).map { GatewayTurn(it.role, it.content) }
         val aiId = UUID.randomUUID().toString()
 
         // brain_turn: chat always routes through the active Brain Gateway.
         replyJob = viewModelScope.launch {
+            val history = contextEngine.buildHistory(convoId)
             router.brainTurn(history).collect { event ->
                 when (event) {
                     is GatewayEvent.Delta -> {
@@ -212,6 +218,7 @@ class FridayChatViewModel @Inject constructor(
                                     timestamp = System.currentTimeMillis(),
                                 )
                             )
+                            contextEngine.onTurnCompleted(convoId)
                         }
                     }
                     is GatewayEvent.Error -> {
@@ -225,12 +232,12 @@ class FridayChatViewModel @Inject constructor(
     }
 
     companion object {
-        // History excludes the last assistant answer (that answer, if present, is the turn to replace).
-        fun planRegeneration(turns: List<FridayTurn>): Pair<List<GatewayTurn>, FridayTurn?> {
+        // Turns preceding the last assistant answer (that answer, if present, is the turn to replace).
+        // Packaged through ContextEngine.buildHistory(pendingTurns = ...), not mapped raw.
+        fun planRegeneration(turns: List<FridayTurn>): Pair<List<FridayTurn>, FridayTurn?> {
             val idx = turns.indexOfLast { it.role == "assistant" }
             val source = if (idx >= 0) turns.subList(0, idx) else turns
-            val history = source.map { GatewayTurn(it.role, it.content) }
-            return history to (if (idx >= 0) turns[idx] else null)
+            return source to (if (idx >= 0) turns[idx] else null)
         }
     }
 }

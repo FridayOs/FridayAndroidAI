@@ -68,6 +68,7 @@ class RepositoryDataStore @Inject constructor(
     private fun HFRepository.toJson(): JSONObject = JSONObject().apply {
         put("id", id); put("name", name); put("repoPath", repoPath)
         put("isEnabled", isEnabled); put("category", category.name)
+        put("languages", JSONArray(languages.toList()))
     }
 
     private fun JSONObject.toRepo(): HFRepository = HFRepository(
@@ -77,6 +78,11 @@ class RepositoryDataStore @Inject constructor(
         isEnabled = optBoolean("isEnabled", true),
         category = try { ModelCategory.valueOf(optString("category", "GENERAL")) }
                    catch (_: Exception) { ModelCategory.GENERAL },
+        // optJSONArray: persisted repo lists predating this field decode with
+        // the "en"-only default (backward compat, FRI-557 phase 5).
+        languages = optJSONArray("languages")?.let { arr ->
+            (0 until arr.length()).map { arr.getString(it) }.toSet()
+        }.let { if (it.isNullOrEmpty()) setOf("en") else it },
     )
 
     companion object {
@@ -85,17 +91,17 @@ class RepositoryDataStore @Inject constructor(
             HFRepository("lfm25-350m", "LFM 2.5 350M", "LiquidAI/LFM2.5-350M-GGUF"),
             // LFM (vision) — kept; small enough to be a default VLM
             HFRepository("lfm2-vl-450m", "LFM2-VL 450M", "LiquidAI/LFM2-VL-450M-GGUF"),
-            // Qwen (text) — small, tool-calling tested
-            HFRepository("qwen3-0.6b", "Qwen3 0.6B", "Qwen/Qwen3-0.6B-GGUF"),
-            HFRepository("unsloth-qwen3_5-0_8b", "Qwen3.5 0.8B", "unsloth/Qwen3.5-0.8B-GGUF"),
-            HFRepository("unsloth-qwen3_5-4b", "Qwen3.5 4B", "unsloth/Qwen3.5-4B-GGUF"),
+            // Qwen (text) — small, tool-calling tested; multilingual (100+ langs incl. vi)
+            HFRepository("qwen3-0.6b", "Qwen3 0.6B", "Qwen/Qwen3-0.6B-GGUF", languages = setOf("en", "vi")),
+            HFRepository("unsloth-qwen3_5-0_8b", "Qwen3.5 0.8B", "unsloth/Qwen3.5-0.8B-GGUF", languages = setOf("en", "vi")),
+            HFRepository("unsloth-qwen3_5-4b", "Qwen3.5 4B", "unsloth/Qwen3.5-4B-GGUF", languages = setOf("en", "vi")),
             // Qwen (vision)
             HFRepository("qwen3-vl-2b", "Qwen3-VL 2B Instruct", "Qwen/Qwen3-VL-2B-Instruct-GGUF"),
             // Mistral
             HFRepository("mistral-7b-v03", "Mistral 7B Instruct v0.3", "bartowski/Mistral-7B-Instruct-v0.3-GGUF"),
-            // Gemma
-            HFRepository("gemma3-1b-it", "Gemma 3 1B IT", "unsloth/gemma-3-1b-it-GGUF"),
-            HFRepository("gemma4-e2b-it", "Gemma 4 E2B IT", "unsloth/gemma-4-E2B-it-GGUF"),
+            // Gemma — multilingual (140+ langs incl. vi)
+            HFRepository("gemma3-1b-it", "Gemma 3 1B IT", "unsloth/gemma-3-1b-it-GGUF", languages = setOf("en", "vi")),
+            HFRepository("gemma4-e2b-it", "Gemma 4 E2B IT", "unsloth/gemma-4-E2B-it-GGUF", languages = setOf("en", "vi")),
             // Tool-calling champion (per project memory)
             HFRepository("smollm3-3b", "SmolLM3 3B", "HuggingFaceTB/SmolLM3-3B-GGUF"),
             // General-purpose pick

@@ -99,6 +99,7 @@ If `getPackageInfo(... GET_SIGNING_CERTIFICATES)` returns null/empty (some weird
 | `chat_documents/sources_v2/` | per-file AEAD via `SourceFileVault` | Each `<sourceId>.bin` is `[iv(12)][ct][tag(16)]` AEAD blob. Per-file key is `HKDF(DEK, salt=signerHash, info="tn.chat_doc_source.user_key.v2@<sourceId>")`. AAD = sourceId UTF-8 bytes (rename → decrypt fails). Replaces the legacy plaintext `chat_documents/sources/` (deleted on first v2 boot). |
 | `rag_keyword_v1/` | `tn.rag_keyword.user_key.v2` | BM25 inverted-index records. |
 | `download_history_v1/` | `tn.download_history.user_key.v2` | Download history (id, displayName, type, status, totalBytes, completedAt, error). Capped at 50 newest; oldest pruned on insert. Fresh-created on first launch of the Downloads-screen build; no migration. |
+| `context_store_v1/` | `tn.context.user_key.v2` | ContextEngine memories + per-conversation summaries + their own BM25 index (`context_bm25`). Independent of `friday_store_v1` (chats/transcripts) and `gateway_store_v1` (provider config) — "Clear context & memory" wipes only this vault, "Clear conversations" wipes `friday_store_v1` + this vault's per-convo summaries but keeps memories. Greenfield, no migration. See `## M2-03`. |
 
 **v1 → v2 migration is destructive.** Each repo's `openOrRebuild` tries `openEncrypted` with the v2 key. If that fails (existing v1 data sealed under the old non-signer-bound key), it wipes the vault dir and re-creates fresh. On first launch with a v2 build, an existing user loses their PIN, chat history, and RAG attachments — one time. The Keystore alias is preserved (so the DEK is still the same), only the per-vault user-keys change.
 
@@ -1345,6 +1346,54 @@ Unit (JVM, off-device, 40 tests): `GatewayValidationTest`, `GatewayErrorSanitize
 - Don't resolve the brain route once and cache it across a turn boundary. `resolveBrain()` is per-turn so a selector change applies from the next turn without breaking the running one.
 - Don't require a model string for a `LOCAL` gateway in validation — the on-device model is chosen separately. Cloud providers still require key (when `needsKey`) + model + valid `http(s)` URL (mandatory for OpenClaw/Hermes/Custom).
 - Don't renumber `GatewayConfig` HXS tags. 1–8 are the M1-03 fields; 9–12 are `status`/`lastTestedAt`/`statusError`/`voiceRoute`. New fields use tag ≥ 13.
+
+---
+
+## M2-03 Local ContextEngine + Vietnamese local model (FRI-557)
+
+Local-first context/memory/retrieval feeding the Brain Gateway a minimal package instead of the raw transcript. Full history/memory/summaries never leave the device — only the built `ContextPackage` (system preamble + bounded raw window) crosses into `router.brainTurn(history)`. No new network path; no Firebase/FRIDAY code anywhere under `repo/context/`.
+
+### Vault (`repo/context/ContextStore.kt`)
+
+Own signer-bound `context_store_v1` vault (`tn.context.user_key.v2`), separate from `friday_store_v1` and `gateway_store_v1` on purpose — that separation is what makes "Clear context & memory" and "Clear conversations" independently correct. Three collections: `context_memories`, `context_summaries`, `context_bm25` (native RAG index, reusing `HexStorage.ragIngest/ragQuery`). Careful: the hxs JNI layer is **process-global** state (`g_collections`/`g_rag_indexes` in `hxs.cpp`), not per-HexStorage-instance — vault separation only holds because collection names are unique across vaults, and re-opening a vault must invalidate cached rag indexes for its collections (see the `g_rag_indexes.erase` in the open-path reload loops). `clearContextAndMemory()` wipes all three; `clearForConversation(id)` removes only that conversation's summary + BM25 doc, memories untouched.
+
+### Engine (`repo/context/ContextEngine.kt`, `@Singleton`)
+
+Facade composing `ContextStore` + `ContextRetriever` (BM25) + `ConversationSummarizer` + `ContextPackageBuilder`. `buildHistory(conversationId, pendingTurns)` never throws to the caller — any internal failure (vault I/O, retrieval, summarizer) degrades to a raw-window package with empty memories/snippets/summary so context assembly can never block a send. `onUserTurnPersisted(turn)` runs deterministic marker extraction synchronously; `onTurnCompleted(conversationId)` fires a single-flight background summarize job on the engine's own `SupervisorJob` scope (not the caller's, so a VM leaving the screen never aborts an in-flight summarize).
+
+### Retrieval scope (`repo/context/ContextRetriever.kt`)
+
+BM25 only, two structurally separate scopes: memories query `chatId="global"`, summary snippets query `chatId=<the exact conversationId being asked about>`. No dense/embedding retrieval (would need an EMBEDDING model loaded — non-deterministic dependency, YAGNI). No cross-conversation turn retrieval at all — the chatId scoping IS the leak barrier.
+
+### Extraction (`repo/context/MemoryExtractor.kt`)
+
+Deterministic regex only, anchored at the start of the (NFC-normalized) user turn: EN `remember that/remember:/don't forget`, VI `nhớ rằng/hãy nhớ/ghi nhớ:/đừng quên`. No LLM auto-extraction, no free-form scan, no clock/randomness in the match — same input always produces the same memory.
+
+### Summarizer (`repo/context/ConversationSummarizer.kt`)
+
+Wraps `InferenceClient.compactConversation` behind a `LocalSummaryModel` seam with `SUMMARIZE_TIMEOUT_MS`; `isLoaded()` never triggers a model load (summarizing is a background convenience, not worth paging in a model for). Any missing/unloaded/timed-out/blank model result falls back to a deterministic extractive digest (`viaModel=false`) — never fabricated content.
+
+### VM injection point
+
+`FridayChatViewModel` and `FridayVoiceViewModel` call `ContextEngine.buildHistory(convoId)` instead of raw `convoRepo.getTurns(convoId).map { GatewayTurn(...) }`. Injection is at the ViewModel history-assembly seam, NOT inside `BrainBridge`/`LiveCloudBridge`/`BrainCorrelation` — the FRI-548 Live voice seam is untouched by this change.
+
+### Vietnamese support
+
+`qwen3-0.6b` (already cataloged, in `PACK_LARGE_CHAT_VOICE`) carries `languages` capability metadata on `HFRepository` — config only, no code branch. Locale comes from `LanguageController`/`friday_language` HXS key (read-only from ContextEngine's side — `localeSignal()` never writes it). VI/EN prompt variants live in `ContextPrompts`.
+
+### Tests
+
+Unit (JVM, off-device): `MemoryExtractorTest`, `ContextRetrieverTest`, `ContextPackageBuilderTest` (token budget, relevance, deterministic ordering, cancellation, minimal-context-only), `ConversationSummarizerTest`, `ContextEngineTest`, `LocalModelCapabilitiesTest`, `VietnamesePipelineTest`. Instrumented: `ContextStoreTest` (CRUD, restart persistence, VI byte-exact roundtrip, BM25 global-scope never leaks `sum:` rows, clear independence at the store level), `ContextClearIndependenceTest` (all three vaults live simultaneously, driven through the real `ContextEngine` — `clearContextAndMemory` keeps conversations+gateway, `clearAllConversations` keeps memories+gateway), `ContextEngineIntegrationTest` (VI marker `"nhớ rằng tôi tên là Hùng"` extracted → persisted → vault restart → BM25-retrieved into the packaged system turn, diacritics byte-exact end to end).
+
+### Things NOT to regress (M2-03)
+
+- Don't bypass `ContextEngine.buildHistory` in `FridayChatViewModel`/`FridayVoiceViewModel`. Raw `getTurns().map { GatewayTurn }` reintroduces unbounded full-transcript upload to cloud gateways.
+- Don't add LLM-based memory auto-extraction. Extraction policy is explicit markers only (deterministic, `MemoryExtractor` companion constants) — no free-form scan of user text.
+- Don't retrieve across conversations. BM25 chatId scoping (`"global"` for memories, the exact conversationId for summaries) is the leak barrier; widening a query's chatId defeats it.
+- Don't merge `context_store_v1` into `friday_store_v1`. Separate vaults are what make "Clear context & memory" and "Clear conversations" independently correct.
+- Don't let the summarizer fallback fabricate content. Extractive digest only, flagged `viaModel=false` — never invent text attributed to the model.
+- Don't trigger a model load from the summarizer. `LocalSummaryModel.isLoaded()` only checks state; an unloaded model means immediate deterministic fallback, never a paged-in load just to summarize.
+- Don't write `friday_language` from any context op. `ContextEngine.localeSignal()` and the summarizer are read-only consumers of `LanguageController`.
 
 ---
 

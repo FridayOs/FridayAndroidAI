@@ -201,6 +201,10 @@ Java_com_dark_hxs_HexStorage_nativeOpenPlaintext(
 
     // Load registered collections
     for (auto& meta : g_manifest->list_collections()) {
+        // Drop any cached rag index for this name — it holds a raw pointer to
+        // the Collection we're about to replace; keeping it would leave a
+        // dangling Collection* (use-after-free on the next rag call).
+        g_rag_indexes.erase(meta.name);
         auto coll = std::make_unique<hxs::Collection>(meta.name, g_base_dir, g_crypto);
         coll->load();
         g_collections[meta.name] = std::move(coll);
@@ -276,6 +280,10 @@ Java_com_dark_hxs_HexStorage_nativeOpenEncrypted(
     }
 
     for (auto& meta : g_manifest->list_collections()) {
+        // Same-vault re-open replaces the Collection below; erase the cached
+        // rag index first — it snapshots the old Collection* and would dangle.
+        // Only this name: other vaults' cached indexes stay valid.
+        g_rag_indexes.erase(meta.name);
         auto coll = std::make_unique<hxs::Collection>(meta.name, g_base_dir, g_crypto);
         coll->load();
         g_collections[meta.name] = std::move(coll);

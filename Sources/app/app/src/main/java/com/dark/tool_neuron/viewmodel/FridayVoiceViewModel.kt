@@ -5,8 +5,8 @@ import androidx.lifecycle.viewModelScope
 import com.dark.tool_neuron.model.friday.FridayTurn
 import com.dark.tool_neuron.repo.FridayConvoStore
 import com.dark.tool_neuron.model.gateway.GatewayConfig
+import com.dark.tool_neuron.repo.context.ContextHistorySource
 import com.dark.tool_neuron.repo.gateway.GatewayEvent
-import com.dark.tool_neuron.repo.gateway.GatewayTurn
 import com.dark.tool_neuron.repo.gateway.VoiceBridge
 import com.dark.tool_neuron.repo.gateway.VoiceRoutePort
 import com.dark.tool_neuron.repo.gateway.VoiceRouter
@@ -33,6 +33,7 @@ class FridayVoiceViewModel @Inject constructor(
     private val bridge: VoiceBridge,
     private val convoRepo: FridayConvoStore,
     private val voiceManager: VoiceIo,
+    private val contextEngine: ContextHistorySource,
 ) : ViewModel() {
 
     private val _mode = MutableStateFlow(VoiceMode.IDLE)
@@ -129,17 +130,17 @@ class FridayVoiceViewModel @Inject constructor(
             return
         }
         val convoId = conversationId ?: convoRepo.createConversation(brain.id).id.also { conversationId = it }
-        convoRepo.addTurn(
-            FridayTurn(
-                id = UUID.randomUUID().toString(),
-                conversationId = convoId,
-                role = "user",
-                content = transcript,
-                timestamp = System.currentTimeMillis(),
-                viaVoice = true,
-            )
+        val userTurn = FridayTurn(
+            id = UUID.randomUUID().toString(),
+            conversationId = convoId,
+            role = "user",
+            content = transcript,
+            timestamp = System.currentTimeMillis(),
+            viaVoice = true,
         )
-        val history = convoRepo.getTurns(convoId).map { GatewayTurn(it.role, it.content) }
+        convoRepo.addTurn(userTurn)
+        contextEngine.onUserTurnPersisted(userTurn)
+        val history = contextEngine.buildHistory(convoId)
         bridge.runTurn(viewModelScope, history) { event ->
             when (event) {
                 is GatewayEvent.Delta -> {
@@ -161,6 +162,7 @@ class FridayVoiceViewModel @Inject constructor(
                                 viaVoice = true,
                             )
                         )
+                        contextEngine.onTurnCompleted(convoId)
                         val spoken = voiceManager.speak(UUID.randomUUID().toString(), finalText)
                         if (!spoken) _error.value = voiceManager.error.value
                     }

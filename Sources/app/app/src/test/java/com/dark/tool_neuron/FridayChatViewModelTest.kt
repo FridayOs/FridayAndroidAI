@@ -5,6 +5,7 @@ import com.dark.tool_neuron.model.friday.FridayTurn
 import com.dark.tool_neuron.model.gateway.GatewayConfig
 import com.dark.tool_neuron.model.gateway.GatewayProvider
 import com.dark.tool_neuron.repo.FridayConvoStore
+import com.dark.tool_neuron.repo.context.ContextHistorySource
 import com.dark.tool_neuron.repo.gateway.ChatBrain
 import com.dark.tool_neuron.repo.gateway.GatewayDirectory
 import com.dark.tool_neuron.repo.gateway.GatewayEvent
@@ -71,6 +72,17 @@ class FridayChatViewModelTest {
         override fun brainCancel() {}
     }
 
+    // Raw-window packaging (no memories/summary) — matches ContextEngine's degraded path shape,
+    // sufficient for VM-level tests since ContextEngine internals are covered by ContextEngineTest.
+    private class FakeContextEngine(private val store: FridayConvoStore) : ContextHistorySource {
+        val persistedTurns = mutableListOf<FridayTurn>()
+        val completedConversations = mutableListOf<String>()
+        override suspend fun buildHistory(conversationId: String?, pendingTurns: List<FridayTurn>?): List<GatewayTurn> =
+            (pendingTurns ?: conversationId?.let { store.getTurns(it) }.orEmpty()).map { GatewayTurn(it.role, it.content) }
+        override fun onUserTurnPersisted(turn: FridayTurn) { persistedTurns += turn }
+        override fun onTurnCompleted(conversationId: String) { completedConversations += conversationId }
+    }
+
     private fun user(id: String, text: String) = FridayTurn(id, "c1", "user", text, id.hashCode().toLong())
     private fun assistant(id: String, text: String) = FridayTurn(id, "c1", "assistant", text, id.hashCode().toLong())
 
@@ -80,7 +92,7 @@ class FridayChatViewModelTest {
     ): Triple<FridayChatViewModel, FakeConvoStore, FakeChatBrain> {
         val store = FakeConvoStore().apply { turnsMap["c1"] = turns.toMutableList() }
         val brain = FakeChatBrain(flowFor)
-        val vm = FridayChatViewModel(FakeGateways(), store, brain)
+        val vm = FridayChatViewModel(FakeGateways(), store, brain, FakeContextEngine(store))
         return Triple(vm, store, brain)
     }
 

@@ -1,6 +1,7 @@
 package com.dark.tool_neuron.data
 
 import com.dark.tool_neuron.model.AppLanguage
+import com.dark.tool_neuron.repo.context.LocaleSource
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -10,9 +11,9 @@ import javax.inject.Singleton
 @Singleton
 class LanguageController @Inject constructor(
     private val prefs: AppPreferences,
-) {
+) : LocaleSource {
     private val _selected = MutableStateFlow(readSelected())
-    val selected: StateFlow<AppLanguage> = _selected.asStateFlow()
+    override val selected: StateFlow<AppLanguage> = _selected.asStateFlow()
 
     fun setSelected(value: AppLanguage) {
         prefs.putString(KEY_LANGUAGE, value.name)

@@ -1,13 +1,12 @@
 package com.dark.tool_neuron
 
 import com.dark.tool_neuron.model.friday.FridayTurn
-import com.dark.tool_neuron.repo.gateway.GatewayTurn
 import com.dark.tool_neuron.viewmodel.FridayChatViewModel
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-// Pure planRegeneration tests: history sent to brainContinue excludes the answer being replaced.
+// Pure planRegeneration tests: pending turns fed to ContextEngine.buildHistory exclude the answer being replaced.
 class FridayChatRegeneratePlanTest {
 
     private fun user(text: String) = FridayTurn(
@@ -24,8 +23,8 @@ class FridayChatRegeneratePlanTest {
             user("hi"),
             assistant("a1", "old answer"),
         )
-        val (history, existing) = FridayChatViewModel.planRegeneration(turns)
-        assertEquals("history must exclude the old assistant answer", listOf(GatewayTurn("user", "hi")), history)
+        val (pending, existing) = FridayChatViewModel.planRegeneration(turns)
+        assertEquals("pending turns must exclude the old assistant answer", listOf(user("hi")), pending)
         assertEquals("a1", existing?.id)
     }
 
@@ -37,10 +36,10 @@ class FridayChatRegeneratePlanTest {
             user("q2"),
             assistant("a2", "answer 2"),
         )
-        val (history, existing) = FridayChatViewModel.planRegeneration(turns)
+        val (pending, existing) = FridayChatViewModel.planRegeneration(turns)
         assertEquals(
-            listOf(GatewayTurn("user", "q1"), GatewayTurn("assistant", "answer 1"), GatewayTurn("user", "q2")),
-            history,
+            listOf(user("q1"), assistant("a1", "answer 1"), user("q2")),
+            pending,
         )
         assertEquals("a2", existing?.id)
     }
@@ -48,8 +47,8 @@ class FridayChatRegeneratePlanTest {
     @Test
     fun regenerate_withoutAssistant_returnsFullHistoryAndCreatesFresh() {
         val turns = listOf(user("hi"), user("again"))
-        val (history, existing) = FridayChatViewModel.planRegeneration(turns)
-        assertEquals(listOf(GatewayTurn("user", "hi"), GatewayTurn("user", "again")), history)
+        val (pending, existing) = FridayChatViewModel.planRegeneration(turns)
+        assertEquals(listOf(user("hi"), user("again")), pending)
         assertEquals(null, existing)
     }
 
