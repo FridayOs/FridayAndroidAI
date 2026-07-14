@@ -16,6 +16,9 @@ import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import kotlin.concurrent.thread
 
 // Fake LiveBrainGateway captures the BrainCorrelation received at the seam, proving turn/continue/cancel/confirm target the right turn.
 @OptIn(ExperimentalCoroutinesApi::class)
@@ -189,5 +192,54 @@ class LiveCloudBridgeTest {
 
         assertTrue("a foreign-session cancel never forwards", fake.cancels.isEmpty())
         assertTrue("active turn is untouched", bridge.currentCorrelation != null)
+    }
+
+    // Blocks inside the seam's confirm so a racing new-turn open can be pinned mid-critical-section.
+    private class BlockingBrainGateway : LiveBrainGateway {
+        val turns = mutableListOf<BrainCorrelation>()
+        val confirms = mutableListOf<BrainCorrelation>()
+        val confirmEntered = CountDownLatch(1)
+        val confirmProceed = CountDownLatch(1)
+        override fun brainTurn(correlation: BrainCorrelation, history: List<GatewayTurn>): Flow<GatewayEvent> {
+            synchronized(turns) { turns += correlation }
+            return flow { emit(GatewayEvent.Done("ok")) }
+        }
+        override fun brainContinue(correlation: BrainCorrelation, history: List<GatewayTurn>): Flow<GatewayEvent> =
+            brainTurn(correlation, history)
+        override fun brainCancel(correlation: BrainCorrelation) {}
+        override fun brainConfirm(correlation: BrainCorrelation): Boolean {
+            synchronized(confirms) { confirms += correlation }
+            confirmEntered.countDown()
+            confirmProceed.await(5, TimeUnit.SECONDS)
+            return true
+        }
+        override fun brainAwaitingConfirmation(): Boolean = false
+    }
+
+    // Serialized end-to-end: while confirm(A) is inside the seam, a new turn open must wait — it can never interleave and let A's confirm land on B's gate.
+    @Test
+    fun confirmTurn_vsNewTurnOpen_isSerializedNotInterleaved() {
+        val seam = BlockingBrainGateway()
+        val bridge = LiveCloudBridge(seam, sessionId = "sess-1")
+        bridge.brainTurn(emptyList(), "turn A")
+        val turnA = bridge.currentCorrelation!!
+
+        var confirmResult = false
+        val confirmer = thread { confirmResult = bridge.confirmTurn(turnA) }
+        assertTrue("confirm reached the seam", seam.confirmEntered.await(5, TimeUnit.SECONDS))
+
+        val opener = thread { bridge.brainTurn(emptyList(), "turn B") }
+        Thread.sleep(200)
+        assertEquals("turn B open waits behind the in-flight confirm", 1, synchronized(seam.turns) { seam.turns.size })
+
+        seam.confirmProceed.countDown()
+        confirmer.join(5000)
+        opener.join(5000)
+
+        assertTrue("confirm targeted A while A was still the active turn", confirmResult)
+        assertEquals(listOf(turnA), seam.confirms)
+        assertNotEquals("B superseded A after the confirm completed", turnA, bridge.currentCorrelation)
+        assertFalse("a late confirm for A is now stale", bridge.confirmTurn(turnA))
+        assertEquals("the stale confirm never reached the seam", listOf(turnA), seam.confirms)
     }
 }

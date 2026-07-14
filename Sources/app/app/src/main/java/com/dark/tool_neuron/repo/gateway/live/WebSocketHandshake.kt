@@ -33,16 +33,18 @@ internal object WebSocketHandshake {
     fun isValidResponse(responseHeaders: String, key: String): Boolean {
         val lines = responseHeaders.split("\r\n")
         if (lines.firstOrNull()?.contains(" 101") != true) return false
-        if (!headerContains(lines, "Upgrade", "websocket")) return false
-        if (!headerContains(lines, "Connection", "upgrade")) return false
+        if (!headerHasToken(lines, "Upgrade", "websocket")) return false
+        if (!headerHasToken(lines, "Connection", "upgrade")) return false
         val accept = lines.firstOrNull { it.startsWith("Sec-WebSocket-Accept:", ignoreCase = true) }
             ?.substringAfter(':')?.trim()
         return accept == expectedAccept(key)
     }
 
-    private fun headerContains(lines: List<String>, name: String, token: String): Boolean =
-        lines.firstOrNull { it.startsWith("$name:", ignoreCase = true) }
-            ?.substringAfter(':')?.lowercase()?.contains(token.lowercase()) == true
+    // RFC 6455 §4.1: match whole comma-separated tokens case-insensitively — "notupgrade"/"websocketevil" must NOT pass a substring check.
+    private fun headerHasToken(lines: List<String>, name: String, token: String): Boolean =
+        lines.filter { it.startsWith("$name:", ignoreCase = true) }
+            .flatMap { it.substringAfter(':').split(',') }
+            .any { it.trim().equals(token, ignoreCase = true) }
 
     // Extract the HTTP status code from the response head so the transport classifies 401/403/404/429 before upgrade.
     fun statusCode(responseHeaders: String): Int {

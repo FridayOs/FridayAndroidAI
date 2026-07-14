@@ -11,6 +11,10 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import java.util.Collections
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
+import kotlin.concurrent.thread
 
 // Production-adapter proof: cancel/confirm forward only for the exact active correlation (cross-session isolation).
 class BrainGatewayLiveAdapterTest {
@@ -98,5 +102,94 @@ class BrainGatewayLiveAdapterTest {
     fun awaitingConfirmation_passesThrough() {
         val brain = FakeBrain().apply { awaiting = true }
         assertTrue(BrainGatewayLiveAdapter(brain).brainAwaitingConfirmation())
+    }
+
+    // Blocks inside the identity-less brain calls so tests can pin a racing thread mid-critical-section deterministically.
+    private class BlockingBrain : BrainBridge {
+        val calls: MutableList<String> = Collections.synchronizedList(mutableListOf())
+        val confirmEntered = CountDownLatch(1)
+        val confirmProceed = CountDownLatch(1)
+        val cancelEntered = CountDownLatch(1)
+        val cancelProceed = CountDownLatch(1)
+        override fun brainTurn(history: List<GatewayTurn>): Flow<GatewayEvent> { calls += "turn"; return emptyFlow() }
+        override fun brainContinue(history: List<GatewayTurn>): Flow<GatewayEvent> { calls += "continue"; return emptyFlow() }
+        override fun brainCancel() { calls += "cancel"; cancelEntered.countDown(); cancelProceed.await(5, TimeUnit.SECONDS) }
+        override fun brainConfirm(): Boolean { calls += "confirm"; confirmEntered.countDown(); confirmProceed.await(5, TimeUnit.SECONDS); return true }
+        override fun brainAwaitingConfirmation(): Boolean = false
+    }
+
+    // The race the review flagged: confirm(A) check passes, then a new turn B opens before the identity-less brainConfirm() fires — B's gate must never be the one confirmed.
+    @Test
+    fun concurrentTurnOpen_cannotInterleaveInsideConfirm() {
+        val brain = BlockingBrain()
+        val adapter = BrainGatewayLiveAdapter(brain)
+        val a = BrainCorrelation("s1", "tA")
+        val b = BrainCorrelation("s1", "tB")
+        adapter.brainTurn(a, emptyList())
+
+        var confirmResult = false
+        val confirmer = thread { confirmResult = adapter.brainConfirm(a) }
+        assertTrue("confirm reached the brain seam", brain.confirmEntered.await(5, TimeUnit.SECONDS))
+
+        val opener = thread { adapter.brainTurn(b, emptyList()) }
+        Thread.sleep(200)
+        assertEquals("turn open for B must wait for confirm(A) to finish", 1, brain.calls.count { it == "turn" })
+
+        brain.confirmProceed.countDown()
+        confirmer.join(5000)
+        opener.join(5000)
+
+        assertTrue("confirm resolved A's gate while A was still active", confirmResult)
+        assertEquals(listOf("turn", "confirm", "turn"), brain.calls)
+        assertFalse("A is superseded by B after the race settles", adapter.brainConfirm(a))
+    }
+
+    @Test
+    fun concurrentCancelAndConfirm_onlyCancelReachesBrain() {
+        val brain = BlockingBrain()
+        val adapter = BrainGatewayLiveAdapter(brain)
+        val a = BrainCorrelation("s1", "tA")
+        adapter.brainTurn(a, emptyList())
+
+        val canceller = thread { adapter.brainCancel(a) }
+        assertTrue(brain.cancelEntered.await(5, TimeUnit.SECONDS))
+
+        var confirmResult = true
+        val confirmer = thread { confirmResult = adapter.brainConfirm(a) }
+        Thread.sleep(200)
+        assertEquals("confirm must wait behind the in-flight cancel", 0, brain.calls.count { it == "confirm" })
+
+        brain.cancelProceed.countDown()
+        canceller.join(5000)
+        confirmer.join(5000)
+
+        assertFalse("confirm after cancel sees no active turn", confirmResult)
+        assertEquals("confirm never reached the brain", 0, brain.calls.count { it == "confirm" })
+        assertEquals(1, brain.calls.count { it == "cancel" })
+    }
+
+    @Test
+    fun foreignSessionConfirm_duringActiveConfirm_neverReachesBrain() {
+        val brain = BlockingBrain()
+        val adapter = BrainGatewayLiveAdapter(brain)
+        val a = BrainCorrelation("s1", "tA")
+        adapter.brainTurn(a, emptyList())
+
+        var ownResult = false
+        val owner = thread { ownResult = adapter.brainConfirm(a) }
+        assertTrue(brain.confirmEntered.await(5, TimeUnit.SECONDS))
+
+        var foreignResult = true
+        val foreign = thread { foreignResult = adapter.brainConfirm(BrainCorrelation("s2", "tA")) }
+        Thread.sleep(200)
+        assertEquals("foreign-session confirm is serialized behind the active one", 1, brain.calls.count { it == "confirm" })
+
+        brain.confirmProceed.countDown()
+        owner.join(5000)
+        foreign.join(5000)
+
+        assertTrue(ownResult)
+        assertFalse("foreign-session confirm is dropped", foreignResult)
+        assertEquals("only the owning session's confirm reached the brain", 1, brain.calls.count { it == "confirm" })
     }
 }

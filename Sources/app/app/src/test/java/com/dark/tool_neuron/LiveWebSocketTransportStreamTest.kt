@@ -17,6 +17,7 @@ import java.io.InputStream
 import java.io.OutputStream
 import java.io.PipedInputStream
 import java.io.PipedOutputStream
+import java.net.InetAddress
 import java.net.ServerSocket
 import java.net.Socket
 import javax.net.ssl.SSLSocket
@@ -46,7 +47,7 @@ class LiveWebSocketTransportStreamTest {
 
     // Boots a one-shot WS server: handshake, `afterHandshake` writes, then optionally reads the client's close code.
     private fun startServer(readClientClose: ((Int) -> Unit)? = null, afterHandshake: (OutputStream) -> Unit): ServerSocket {
-        val server = ServerSocket(0, 1, java.net.InetAddress.getByName("127.0.0.1"))
+        val server = ServerSocket(0, 1, InetAddress.getByName("127.0.0.1"))
         Thread {
             server.accept().use { sock ->
                 val input = sock.getInputStream()

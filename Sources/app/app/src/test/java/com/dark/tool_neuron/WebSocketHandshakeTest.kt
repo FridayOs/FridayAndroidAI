@@ -57,6 +57,32 @@ class WebSocketHandshakeTest {
     }
 
     @Test
+    fun isValidResponse_rejectsSubstringImpostorTokens() {
+        // RFC 6455 §4.1 wants token matching — "notupgrade"/"websocketevil" contain the substring but are NOT the token.
+        val key = "dGhlIHNhbXBsZSBub25jZQ=="
+        val accept = WebSocketHandshake.expectedAccept(key)
+        fun head(upgrade: String, connection: String) =
+            "HTTP/1.1 101 Switching Protocols\r\nUpgrade: $upgrade\r\nConnection: $connection\r\nSec-WebSocket-Accept: $accept\r\n\r\n"
+        assertFalse(WebSocketHandshake.isValidResponse(head("websocket", "notupgrade"), key))
+        assertFalse(WebSocketHandshake.isValidResponse(head("websocketevil", "Upgrade"), key))
+        assertFalse(WebSocketHandshake.isValidResponse(head("evilwebsocket", "Upgrade"), key))
+        assertFalse(WebSocketHandshake.isValidResponse(head("websocket", "upgradenot"), key))
+    }
+
+    @Test
+    fun isValidResponse_acceptsTokenListsCaseAndWhitespaceVariants() {
+        val key = "dGhlIHNhbXBsZSBub25jZQ=="
+        val accept = WebSocketHandshake.expectedAccept(key)
+        fun head(upgrade: String, connection: String) =
+            "HTTP/1.1 101 Switching Protocols\r\nUpgrade: $upgrade\r\nConnection: $connection\r\nSec-WebSocket-Accept: $accept\r\n\r\n"
+        // Proxies commonly emit "Connection: keep-alive, Upgrade" — token-list membership must pass.
+        assertTrue(WebSocketHandshake.isValidResponse(head("websocket", "keep-alive, Upgrade"), key))
+        assertTrue(WebSocketHandshake.isValidResponse(head("WebSocket", "UPGRADE"), key))
+        assertTrue(WebSocketHandshake.isValidResponse(head("websocket", "  upgrade  "), key))
+        assertTrue(WebSocketHandshake.isValidResponse(head("websocket", "Upgrade, keep-alive"), key))
+    }
+
+    @Test
     fun isValidResponse_falseOnBadAccept() {
         val head = "HTTP/1.1 101 Switching Protocols\r\nSec-WebSocket-Accept: wrong\r\n\r\n"
         assertFalse(WebSocketHandshake.isValidResponse(head, "dGhlIHNhbXBsZSBub25jZQ=="))

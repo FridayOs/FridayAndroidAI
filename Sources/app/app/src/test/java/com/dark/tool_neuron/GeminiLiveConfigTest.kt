@@ -34,8 +34,8 @@ class GeminiLiveConfigTest {
 
     @Test
     fun wireModelGetsModelsPrefix() {
-        val cfg = GeminiLiveConfig.from(gateway(model = "gemini-2.5-flash-native-audio-preview-12-2025"))
-        assertEquals("models/gemini-2.5-flash-native-audio-preview-12-2025", cfg.wireModel)
+        val cfg = GeminiLiveConfig.from(gateway(model = "gemini-3.1-flash-live-preview"))
+        assertEquals("models/gemini-3.1-flash-live-preview", cfg.wireModel)
     }
 
     @Test
@@ -75,7 +75,7 @@ class GeminiLiveConfigTest {
     fun defaultModelIsNotTheShutdownGemini2Model() {
         // gemini-2.0-flash-live-001 was shut down 2025-12-09 — the default must be a current documented live model.
         assertNotEquals("gemini-2.0-flash-live-001", GeminiLiveConfig.DEFAULT_MODEL)
-        assertEquals("gemini-2.5-flash-native-audio-preview-12-2025", GeminiLiveConfig.DEFAULT_MODEL)
+        assertEquals("gemini-3.1-flash-live-preview", GeminiLiveConfig.DEFAULT_MODEL)
     }
 
     @Test

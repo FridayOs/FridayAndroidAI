@@ -111,7 +111,10 @@ class LiveAudioPlayer @Inject constructor() : LiveAudioSink {
     @Synchronized
     override fun flush() {
         generation++
-        queue?.let { q -> while (q.tryReceive().isSuccess) { /* drop stale queued chunks */ } }
+        // Drain stale queued chunks so the superseded turn's PCM can't delay the next turn.
+        queue?.let { q ->
+            while (q.tryReceive().isSuccess) Unit
+        }
         val t = track ?: return
         runCatching { t.pause() }
         runCatching { t.flush() }
