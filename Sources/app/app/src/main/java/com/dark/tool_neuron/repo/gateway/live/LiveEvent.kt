@@ -1,7 +1,6 @@
 package com.dark.tool_neuron.repo.gateway.live
 
-// Terminal failure taxonomy. TRANSIENT reasons (NETWORK/TIMEOUT/REMOTE_CLOSE) may retry with bounded backoff;
-// AUTH/INVALID_MODEL/CONFIG/PERMISSION never loop — they surface immediately for the user to fix.
+// Failure taxonomy: transient NETWORK/TIMEOUT/REMOTE_CLOSE may retry bounded; everything else surfaces immediately.
 enum class LiveErrorKind {
     AUTH,
     INVALID_MODEL,

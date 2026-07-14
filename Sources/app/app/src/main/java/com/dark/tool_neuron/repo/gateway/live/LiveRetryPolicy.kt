@@ -1,7 +1,6 @@
 package com.dark.tool_neuron.repo.gateway.live
 
-// Bounded exponential backoff for transient live-session failures. Auth/model/config errors are non-retryable
-// so a bad credential never spins a reconnect loop; user cancel stops retries immediately (checked by the engine).
+// Bounded exponential backoff for transient live-session failures; a bad credential/model never spins a reconnect loop.
 object LiveRetryPolicy {
 
     const val MAX_ATTEMPTS = 4

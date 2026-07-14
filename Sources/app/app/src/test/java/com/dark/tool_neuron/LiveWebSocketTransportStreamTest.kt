@@ -2,25 +2,27 @@ package com.dark.tool_neuron
 
 import com.dark.tool_neuron.repo.gateway.live.LiveTransport
 import com.dark.tool_neuron.repo.gateway.live.LiveWebSocketTransport
+import com.dark.tool_neuron.repo.gateway.live.WebSocketFrame
 import com.dark.tool_neuron.repo.gateway.live.WebSocketHandshake
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertThrows
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.ByteArrayOutputStream
 import java.io.IOException
 import java.io.InputStream
 import java.io.OutputStream
+import java.io.PipedInputStream
+import java.io.PipedOutputStream
 import java.net.ServerSocket
 import java.net.Socket
 import javax.net.ssl.SSLSocket
 import javax.net.ssl.SSLSocketFactory
 
-// Exercises the REAL LiveWebSocketTransport (hand-rolled RFC 6455 read loop + close path) over a loopback
-// socket — no TLS, via the injectable connector. Proves the producer completes on a normal peer close AND on a
-// bare EOF, so collect returns instead of hanging (the production bug: awaitClose with no channel close).
+// Exercises the REAL LiveWebSocketTransport over a loopback socket via the injectable connector (no TLS needed).
 class LiveWebSocketTransportStreamTest {
 
     // Unmasked server->client frame (payloads here are < 126 bytes, single-byte length).
@@ -42,8 +44,8 @@ class LiveWebSocketTransportStreamTest {
             write(payload)
         }.toByteArray()
 
-    // Boots a one-shot WS server: handshake, then whatever `afterHandshake` writes, then close. Returns the port.
-    private fun startServer(afterHandshake: (OutputStream) -> Unit): ServerSocket {
+    // Boots a one-shot WS server: handshake, `afterHandshake` writes, then optionally reads the client's close code.
+    private fun startServer(readClientClose: ((Int) -> Unit)? = null, afterHandshake: (OutputStream) -> Unit): ServerSocket {
         val server = ServerSocket(0, 1, java.net.InetAddress.getByName("127.0.0.1"))
         Thread {
             server.accept().use { sock ->
@@ -70,6 +72,7 @@ class LiveWebSocketTransportStreamTest {
                 out.flush()
                 afterHandshake(out)
                 out.flush()
+                if (readClientClose != null) runCatching { readClientCloseCode(input) }.getOrNull()?.let(readClientClose)
             }
         }.apply { isDaemon = true }.start()
         return server
@@ -116,8 +119,7 @@ class LiveWebSocketTransportStreamTest {
         }
     }
 
-    // A UTF-8 code point (é = 0xC3 0xA9) split across a TEXT fin=false + CONTINUATION fin=true frame must decode
-    // as one glyph — the transport accumulates raw bytes and decodes once at FIN, not per fragment.
+    // A UTF-8 code point (é = 0xC3 0xA9) split across TEXT fin=false + CONTINUATION fin=true must decode as one glyph.
     @Test
     fun reassemblesUtf8CodePointSplitAcrossFragments() {
         val eBytes = "é".toByteArray(Charsets.UTF_8) // 0xC3, 0xA9
@@ -137,19 +139,17 @@ class LiveWebSocketTransportStreamTest {
         }
     }
 
-    // A send that fails at the socket must surface (transport torn down), never be silently swallowed. Uses a fake
-    // socket that completes the handshake then throws on the next write — fully deterministic, no thread races.
+    // A failed send must surface as a TransportError on the flow (so the engine classifies it), not be swallowed.
     @Test
-    fun sendFailureAfterHandshake_isSurfacedNotSwallowed() {
+    fun sendFailureAfterHandshake_isSurfacedAsTransportError() {
         val transport = LiveWebSocketTransport { _, _ -> HandshakeThenFailSocket() }
-        runBlocking {
+        val received = runBlocking {
             withTimeout(5000) {
-                transport.open("localhost", 443, "/x") {
-                    transport.sendText("setup") // write fails on the post-handshake fake output → transport records it
-                }.toList()
+                transport.open("localhost", 443, "/x") { transport.sendText("setup") }.toList()
             }
         }
-        assertTrue("a write failure tears the transport down, never silently swallowed", transport.lastWriteFailed)
+        assertTrue("write failure surfaces a TransportError event", received.any { it is LiveTransport.Incoming.TransportError })
+        assertTrue("write failure tears the transport down, never silently swallowed", transport.lastWriteFailed)
     }
 
     // hardenTls turns on RFC 2818 hostname verification; without it a raw SSLSocket checks the chain but not the host.
@@ -162,11 +162,10 @@ class LiveWebSocketTransportStreamTest {
         }
     }
 
-    // In-memory socket: absorbs the handshake request, replies 101 with the correct accept via a piped input the
-    // transport reads, then flips to fail mode so the FIRST post-handshake frame write (the setup send) throws.
+    // In-memory socket: absorbs the handshake, replies 101, then fails the first post-handshake frame write.
     private class HandshakeThenFailSocket : Socket() {
-        private val pin = java.io.PipedInputStream(8192)
-        private val pout = java.io.PipedOutputStream(pin)
+        private val pin = PipedInputStream(8192)
+        private val pout = PipedOutputStream(pin)
         private val reqAcc = ByteArrayOutputStream()
         private var failMode = false
         private val outStream = object : OutputStream() {
@@ -192,4 +191,100 @@ class LiveWebSocketTransportStreamTest {
         override fun getInputStream(): InputStream = pin
         override fun close() { runCatching { pout.close() }; runCatching { pin.close() } }
     }
+
+    // An orphan CONTINUATION (no TEXT/BINARY started it) is an RFC 6455 sequence violation.
+    @Test
+    fun orphanContinuationFrame_isRejected() {
+        val server = startServer { out -> out.write(fragment(0x0, "x".toByteArray(), fin = true)) }
+        server.use {
+            assertThrows(WebSocketFrame.ProtocolException::class.java) {
+                runBlocking { withTimeout(5000) { transportTo(it.localPort).open("localhost", 443, "/x") {}.toList() } }
+            }
+        }
+    }
+
+    // A new data frame arriving while a fragmented message is still open is a sequence violation.
+    @Test
+    fun interleavedDataFrameDuringFragment_isRejected() {
+        val server = startServer { out ->
+            out.write(fragment(0x1, "a".toByteArray(), fin = false)) // open a TEXT fragment
+            out.write(fragment(0x1, "b".toByteArray(), fin = true))  // another TEXT before the first finished
+        }
+        server.use {
+            assertThrows(WebSocketFrame.ProtocolException::class.java) {
+                runBlocking { withTimeout(5000) { transportTo(it.localPort).open("localhost", 443, "/x") {}.toList() } }
+            }
+        }
+    }
+
+    // The aggregate of a fragmented message is capped (16 MiB) before appending — a fragment flood can't OOM.
+    @Test
+    fun fragmentedAggregateOverflow_isRejected() {
+        val oneMib = ByteArray(1024 * 1024)
+        val server = startServer { out ->
+            out.write(bigFrame(0x1, oneMib, fin = false))
+            repeat(17) { out.write(bigFrame(0x0, oneMib, fin = false)) } // > 16 MiB total, never FIN
+        }
+        server.use {
+            assertThrows(WebSocketFrame.ProtocolException::class.java) {
+                runBlocking { withTimeout(10000) { transportTo(it.localPort).open("localhost", 443, "/x") {}.toList() } }
+            }
+        }
+    }
+
+    // On a normal peer close the client echoes the received status back as its close-handshake reply.
+    @Test
+    fun peerClose_isEchoedWithSameStatus() {
+        val codeBox = arrayOfNulls<Int>(1)
+        val server = startServer(readClientClose = { codeBox[0] = it }) { out -> out.write(closeFrame(1001)) }
+        server.use {
+            runBlocking { withTimeout(5000) { transportTo(it.localPort).open("localhost", 443, "/x") {}.toList() } }
+        }
+        assertEquals(1001, codeBox[0])
+    }
+
+    // A peer protocol violation (masked server frame) makes the client reply with a 1002 close.
+    @Test
+    fun protocolViolation_closesWith1002() {
+        val codeBox = arrayOfNulls<Int>(1)
+        // Masked TEXT frame (mask bit set) is illegal from a server.
+        val masked = byteArrayOf(0x81.toByte(), 0x81.toByte(), 1, 2, 3, 4, 0x00)
+        val server = startServer(readClientClose = { codeBox[0] = it }) { out -> out.write(masked) }
+        server.use {
+            assertThrows(WebSocketFrame.ProtocolException::class.java) {
+                runBlocking { withTimeout(5000) { transportTo(it.localPort).open("localhost", 443, "/x") {}.toList() } }
+            }
+        }
+        assertEquals(1002, codeBox[0])
+    }
+
+    // Reads client→server frames (masked), returns the first CLOSE frame's status code.
+    private fun readClientCloseCode(input: InputStream): Int {
+        while (true) {
+            val b0 = input.read(); if (b0 < 0) throw IOException("eof before close")
+            val opcode = b0 and 0x0F
+            val b1 = input.read(); if (b1 < 0) throw IOException("eof")
+            val masked = b1 and 0x80 != 0
+            var len = b1 and 0x7F
+            if (len == 126) len = (input.read() shl 8) or input.read()
+            val mask = if (masked) ByteArray(4) { input.read().toByte() } else ByteArray(0)
+            val payload = ByteArray(len) { input.read().toByte() }
+            if (masked) for (i in payload.indices) payload[i] = (payload[i].toInt() xor mask[i % 4].toInt()).toByte()
+            if (opcode == 0x8) {
+                return if (payload.size >= 2) ((payload[0].toInt() and 0xFF) shl 8) or (payload[1].toInt() and 0xFF) else 1005
+            }
+        }
+    }
+
+    // Unmasked server frame with extended (16-bit) length for payloads >= 126 bytes.
+    private fun bigFrame(opcode: Int, payload: ByteArray, fin: Boolean): ByteArray =
+        ByteArrayOutputStream().apply {
+            write((if (fin) 0x80 else 0x00) or opcode)
+            when {
+                payload.size < 126 -> write(payload.size)
+                payload.size < 65536 -> { write(126); write(payload.size ushr 8); write(payload.size and 0xFF) }
+                else -> { write(127); for (s in 56 downTo 0 step 8) write((payload.size.toLong() ushr s and 0xFF).toInt()) }
+            }
+            write(payload)
+        }.toByteArray()
 }

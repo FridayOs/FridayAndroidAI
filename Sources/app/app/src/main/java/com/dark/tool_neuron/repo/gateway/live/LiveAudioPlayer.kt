@@ -11,6 +11,7 @@ import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
 import kotlinx.coroutines.launch
+import java.io.IOException
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -34,15 +35,38 @@ class LiveAudioPlayer @Inject constructor() : LiveAudioSink {
     // ~64 chunks of 24kHz PCM16 is a few seconds of buffered audio — enough headroom, bounded RAM.
     private companion object { const val QUEUE_CAPACITY = 64 }
 
+    @Volatile private var errored = false
+
     @Synchronized
-    override fun start() {
+    override fun start(onError: (Throwable) -> Unit) {
         if (playing.get()) return
+        val t = try {
+            buildTrack().also { it.play() }
+        } catch (t: Throwable) {
+            // A build/play failure is a terminal AUDIO fault, not a transport error — surface it once.
+            if (!errored) { errored = true; onError(t) }
+            return
+        }
+        track = t
+        playing.set(true)
+
+        // Bounded + DROP_OLDEST so a slow AudioTrack can't grow the queue without limit; newest audio wins.
+        val ch = Channel<Chunk>(QUEUE_CAPACITY, onBufferOverflow = BufferOverflow.DROP_OLDEST)
+        val sc = CoroutineScope(SupervisorJob() + Dispatchers.IO)
+        queue = ch
+        scope = sc
+        consumer = sc.launch {
+            for (chunk in ch) drain(chunk.pcm, chunk.gen, onError)
+        }
+    }
+
+    private fun buildTrack(): AudioTrack {
         val minBuf = AudioTrack.getMinBufferSize(
             LiveProtocol.OUTPUT_SAMPLE_RATE,
             AudioFormat.CHANNEL_OUT_MONO,
             AudioFormat.ENCODING_PCM_16BIT,
         ).coerceAtLeast(4096)
-        val t = AudioTrack.Builder()
+        return AudioTrack.Builder()
             .setAudioAttributes(
                 AudioAttributes.Builder()
                     .setUsage(AudioAttributes.USAGE_MEDIA)
@@ -59,18 +83,6 @@ class LiveAudioPlayer @Inject constructor() : LiveAudioSink {
             .setBufferSizeInBytes(minBuf * 4)
             .setTransferMode(AudioTrack.MODE_STREAM)
             .build()
-        track = t
-        t.play()
-        playing.set(true)
-
-        // Bounded + DROP_OLDEST so a slow AudioTrack can't grow the queue without limit; newest audio wins.
-        val ch = Channel<Chunk>(QUEUE_CAPACITY, onBufferOverflow = BufferOverflow.DROP_OLDEST)
-        val sc = CoroutineScope(SupervisorJob() + Dispatchers.IO)
-        queue = ch
-        scope = sc
-        consumer = sc.launch {
-            for (chunk in ch) drain(chunk.pcm, chunk.gen)
-        }
     }
 
     override fun currentGeneration(): Long = generation
@@ -82,13 +94,15 @@ class LiveAudioPlayer @Inject constructor() : LiveAudioSink {
     }
 
     // Blocking write on the consumer coroutine; abandons the chunk if a flush bumped the generation mid-write.
-    private fun drain(pcm: ByteArray, gen: Long) {
+    private fun drain(pcm: ByteArray, gen: Long, onError: (Throwable) -> Unit) {
         val t = track ?: return
         if (gen != generation) return
         var offset = 0
         while (offset < pcm.size && gen == generation && playing.get()) {
             val written = t.write(pcm, offset, pcm.size - offset, AudioTrack.WRITE_BLOCKING)
-            if (written <= 0) break
+            // A negative return is an AudioTrack error (dead object / invalid op) — surface AUDIO, don't stall silently.
+            if (written < 0) { if (!errored) { errored = true; onError(IOException("AudioTrack.write failed ($written)")) }; return }
+            if (written == 0) break
             offset += written
         }
     }
@@ -107,6 +121,7 @@ class LiveAudioPlayer @Inject constructor() : LiveAudioSink {
     @Synchronized
     override fun stop() {
         generation++
+        errored = false
         playing.set(false)
         queue?.close()
         queue = null

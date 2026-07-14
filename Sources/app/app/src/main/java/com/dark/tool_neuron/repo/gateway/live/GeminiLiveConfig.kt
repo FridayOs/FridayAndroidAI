@@ -19,8 +19,8 @@ data class GeminiLiveConfig(
 
     companion object {
         const val DEFAULT_HOST = "generativelanguage.googleapis.com"
-        // Official live model; gemini-2.0-flash-live-001 was shut down 2025-12-09 (Google deprecations).
-        const val DEFAULT_MODEL = "gemini-3.1-flash-live-preview"
+        // Current documented Gemini Live model on generativelanguage BidiGenerateContent (ai.google.dev docs).
+        const val DEFAULT_MODEL = "gemini-2.5-flash-native-audio-preview-12-2025"
         const val DEFAULT_VOICE = "Aoede"
         const val DEFAULT_PORT = 443
 

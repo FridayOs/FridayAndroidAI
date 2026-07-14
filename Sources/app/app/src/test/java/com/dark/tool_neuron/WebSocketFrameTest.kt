@@ -78,6 +78,33 @@ class WebSocketFrameTest {
     }
 
     @Test
+    fun parseClose_rejectsOneBytePayload() {
+        assertThrows(WebSocketFrame.ProtocolException::class.java) {
+            WebSocketFrame.parseClose(byteArrayOf(0x03))
+        }
+    }
+
+    @Test
+    fun parseClose_rejectsReservedStatusCode() {
+        // 1005 is a local no-status sentinel; a peer must never send it (nor 1006/1015) on the wire.
+        assertThrows(WebSocketFrame.ProtocolException::class.java) {
+            WebSocketFrame.parseClose(byteArrayOf((1005 shr 8).toByte(), (1005 and 0xFF).toByte()))
+        }
+        assertThrows(WebSocketFrame.ProtocolException::class.java) {
+            WebSocketFrame.parseClose(byteArrayOf((999 shr 8).toByte(), (999 and 0xFF).toByte()))
+        }
+    }
+
+    @Test
+    fun parseClose_rejectsInvalidUtf8Reason() {
+        // 1000 + a lone 0xFF continuation byte is not valid UTF-8.
+        val payload = byteArrayOf((1000 shr 8).toByte(), (1000 and 0xFF).toByte(), 0xFF.toByte())
+        assertThrows(WebSocketFrame.ProtocolException::class.java) {
+            WebSocketFrame.parseClose(payload)
+        }
+    }
+
+    @Test
     fun closePayload_encodesCode() {
         val payload = WebSocketFrame.closePayload(1000, "")
         assertEquals(1000, ((payload[0].toInt() and 0xFF) shl 8) or (payload[1].toInt() and 0xFF))

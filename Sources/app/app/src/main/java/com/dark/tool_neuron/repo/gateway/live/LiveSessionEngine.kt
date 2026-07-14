@@ -14,9 +14,14 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.callbackFlow
+import java.io.IOException
+import java.net.SocketTimeoutException
+import java.net.UnknownHostException
 import java.util.concurrent.atomic.AtomicBoolean
 import java.util.concurrent.atomic.AtomicLong
 import java.util.concurrent.atomic.AtomicReference
+import javax.net.ssl.SSLException
+import javax.net.ssl.SSLPeerUnverifiedException
 
 // Owns one Gemini Live session; audio never touches the brain (transcript bridges to brain_turn via FRI-553), and connected/ready is never faked.
 internal class LiveSessionEngine(
@@ -43,12 +48,18 @@ internal class LiveSessionEngine(
         sessionScope = scope
 
         var attempt = 0
+        var totalReconnects = 0
         try {
             while (!cancelled.get()) {
                 reachedConfigured = false
                 val outcome = connectOnce(config, scope) { trySend(it) }
                 if (cancelled.get() || outcome == null) break
                 if (!LiveRetryPolicy.retryable(outcome)) {
+                    emitState(LiveSessionState.ERROR) { trySend(it) }
+                    break
+                }
+                // Hard session-wide reconnect cap so a configure-then-drop peer can't reset the backoff budget forever.
+                if (++totalReconnects > MAX_TOTAL_RECONNECTS) {
                     emitState(LiveSessionState.ERROR) { trySend(it) }
                     break
                 }
@@ -84,6 +95,8 @@ internal class LiveSessionEngine(
         val serverFailure = AtomicReference<LiveErrorKind?>(null)
         // A mic runtime failure fired from the capture coroutine after a successful open (terminal AUDIO).
         val captureError = AtomicReference<LiveErrorKind?>(null)
+        // A client-side send failure surfaced by the transport — classified from its cause, not masked as EOF.
+        val sendFailure = AtomicReference<LiveErrorKind?>(null)
         var peerClose: PeerClose? = null
         val micDenied = AtomicBoolean(false)
         try {
@@ -103,9 +116,17 @@ internal class LiveSessionEngine(
                         peerClose = PeerClose(incoming.code)
                         ws.close()
                     }
+                    is LiveTransport.Incoming.TransportError -> {
+                        val kind = classifyTransport(incoming.cause)
+                        sendFailure.set(kind)
+                        emit(LiveEvent.Error(kind, GatewayErrorSanitizer.sanitize(incoming.cause.message, config.apiKey)))
+                        ws.close()
+                    }
                 }
             }
             serverFailure.get()?.let { return it }
+            // A client send that failed is a real transport fault (its classified cause), not a bare EOF/REMOTE_CLOSE.
+            sendFailure.get()?.let { return it }
             // A mic that died mid-session is terminal AUDIO, not a network drop — never loop it.
             captureError.get()?.let { return it }
             if (cancelled.get()) return null
@@ -119,6 +140,7 @@ internal class LiveSessionEngine(
             return null
         } catch (t: Throwable) {
             serverFailure.get()?.let { return it }
+            sendFailure.get()?.let { return it }
             captureError.get()?.let { return it }
             if (micDenied.get()) return LiveErrorKind.PERMISSION
             val kind = classifyTransport(t)
@@ -156,12 +178,13 @@ internal class LiveSessionEngine(
                         ws.close()
                         return null
                     }
+                    // Open playback now so a broken speaker ends the session as terminal AUDIO instead of failing silent.
+                    player.start(onError = { t -> failAudio(config, ws, emit, captureError, t) })
                 }
                 is LiveProtocol.ServerFrame.Audio -> {
                     val pcm = runCatching { Base64.decode(frame.base64Pcm, Base64.DEFAULT) }.getOrNull()
                     if (pcm != null && pcm.isNotEmpty()) {
                         if (_state.value != LiveSessionState.STREAMING) emitState(LiveSessionState.STREAMING, emit)
-                        player.start()
                         val gen = player.currentGeneration()
                         emit(LiveEvent.AudioDelta(pcm, audioSeq.getAndIncrement()))
                         player.enqueue(pcm, gen)
@@ -176,13 +199,28 @@ internal class LiveSessionEngine(
                 is LiveProtocol.ServerFrame.TurnComplete -> emit(LiveEvent.TurnComplete)
                 is LiveProtocol.ServerFrame.GoAway -> return LiveErrorKind.REMOTE_CLOSE
                 is LiveProtocol.ServerFrame.Failure -> {
-                    emit(LiveEvent.Error(frame.kind, GatewayErrorSanitizer.sanitize(frame.message)))
+                    // Pass the active key so a provider error echoing it is redacted before it reaches the UI.
+                    emit(LiveEvent.Error(frame.kind, GatewayErrorSanitizer.sanitize(frame.message, config.apiKey)))
                     return frame.kind
                 }
                 is LiveProtocol.ServerFrame.Unknown -> {}
             }
         }
         return null
+    }
+
+    // Records a terminal AUDIO fault once (mic or speaker) and closes the socket so connectOnce ends the attempt.
+    private fun failAudio(
+        config: GeminiLiveConfig,
+        ws: LiveTransport,
+        emit: (LiveEvent) -> Unit,
+        captureError: AtomicReference<LiveErrorKind?>,
+        cause: Throwable,
+    ) {
+        if (captureError.compareAndSet(null, LiveErrorKind.AUDIO)) {
+            emit(LiveEvent.Error(LiveErrorKind.AUDIO, GatewayErrorSanitizer.sanitize(cause.message, config.apiKey)))
+            ws.close()
+        }
     }
 
     // false = mic can't open (→ PERMISSION); a failure AFTER open arrives via onError → records AUDIO + closes the socket (no silent dead mic).
@@ -202,12 +240,7 @@ internal class LiveSessionEngine(
                 val b64 = Base64.encodeToString(chunk, Base64.NO_WRAP)
                 ws.sendText(LiveProtocol.audioFrame(b64))
             },
-            onError = { t ->
-                if (captureError.compareAndSet(null, LiveErrorKind.AUDIO)) {
-                    emit(LiveEvent.Error(LiveErrorKind.AUDIO, GatewayErrorSanitizer.sanitize(t.message, config.apiKey)))
-                    ws.close()
-                }
-            },
+            onError = { t -> failAudio(config, ws, emit, captureError, t) },
         )
         if (!started) {
             emit(LiveEvent.Error(LiveErrorKind.PERMISSION, "Microphone unavailable or permission denied"))
@@ -268,6 +301,9 @@ internal class LiveSessionEngine(
     }
 
     companion object {
+        // Session-wide reconnect ceiling regardless of CONFIGURED resets — bounds radio use on a configure/drop peer.
+        private const val MAX_TOTAL_RECONNECTS = 10
+
         // The Gemini BidiGenerateContent gRPC-web path, prefixed by any base path the user's endpoint carries.
         fun endpointPath(config: GeminiLiveConfig): String =
             "${config.basePath}/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent?key=${config.apiKey}"
@@ -282,11 +318,11 @@ internal class LiveSessionEngine(
             }
             // A malformed server frame (masked / RSV / bad control) is a protocol fault, not a network blip.
             is WebSocketFrame.ProtocolException -> LiveErrorKind.PROTOCOL
-            is javax.net.ssl.SSLPeerUnverifiedException -> LiveErrorKind.AUTH
-            is java.net.SocketTimeoutException -> LiveErrorKind.TIMEOUT
-            is java.net.UnknownHostException -> LiveErrorKind.NETWORK
-            is javax.net.ssl.SSLException -> LiveErrorKind.NETWORK
-            is java.io.IOException -> LiveErrorKind.NETWORK
+            is SSLPeerUnverifiedException -> LiveErrorKind.AUTH
+            is SocketTimeoutException -> LiveErrorKind.TIMEOUT
+            is UnknownHostException -> LiveErrorKind.NETWORK
+            is SSLException -> LiveErrorKind.NETWORK
+            is IOException -> LiveErrorKind.NETWORK
             else -> LiveErrorKind.PROTOCOL
         }
     }

@@ -23,9 +23,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-// Lifecycle-contract proof (FRI-548 owns transport/session teardown): audio focus loss, route change, background,
-// permission revoke, network recovery and rapid start/stop each drive the right capture/playback/socket response
-// with no leaked mic or socket. Runs off-device against fake transport + audio seams.
+// Lifecycle-contract proof: each device/app event drives the right capture/playback/socket response, no leaks.
 @OptIn(ExperimentalCoroutinesApi::class)
 class LiveSessionEngineLifecycleTest {
 
@@ -49,8 +47,9 @@ class LiveSessionEngineLifecycleTest {
         var startCount = 0
         var flushCount = 0
         var stopCount = 0
+        var failOnStart = false // simulate an AudioTrack build/play failure
         private var gen = 0L
-        override fun start() { startCount++ }
+        override fun start(onError: (Throwable) -> Unit) { startCount++; if (failOnStart) onError(IOException("audio track dead")) }
         override fun currentGeneration(): Long = gen
         override fun enqueue(pcm: ByteArray, gen: Long) {}
         override fun flush() { flushCount++; gen++ }
@@ -142,8 +141,7 @@ class LiveSessionEngineLifecycleTest {
         assertEquals(LiveSessionState.CLOSED, eng.state.value)
     }
 
-    // A real running session (transport reaches setupComplete, mic opens) started and torn down repeatedly:
-    // every cycle must release capture + playback + close the transport and end CLOSED, with no leak.
+    // A real running session started and torn down repeatedly: every cycle releases mic+player+transport, no leak.
     @Test
     fun rapidRunningSessionStartStop_noLeak() = runTest {
         repeat(5) {
@@ -165,8 +163,7 @@ class LiveSessionEngineLifecycleTest {
         }
     }
 
-    // Mic fails AFTER a successful open (yanked / dead object) mid-session: engine surfaces terminal AUDIO,
-    // not a silent socket, and never idles into a retry loop.
+    // Mic fails AFTER a successful open: engine surfaces terminal AUDIO, never a silent socket or retry loop.
     @Test
     fun micFailsAfterOpen_surfacesAudioError_notRetryLoop() = runTest {
         val src = FakeSource().apply { failAfterStart = true }
@@ -254,5 +251,66 @@ class LiveSessionEngineLifecycleTest {
         assertEquals(LiveErrorKind.PERMISSION, error?.kind)
         // PERMISSION is terminal — the socket must not idle into a TIMEOUT retry loop.
         assertTrue(events.none { it is LiveEvent.State && it.state == LiveSessionState.RECONNECTING })
+    }
+
+    // A peer that configures then abnormally drops in a loop must NOT reconnect forever — bounded, then terminal.
+    @Test
+    fun repeatedConfigureThenDrop_terminatesWithBoundedReconnects() = runTest {
+        val eng = engine {
+            FakeTransport(
+                frames = listOf(
+                    LiveTransport.Incoming.Text("""{"setupComplete":{}}"""),
+                    LiveTransport.Incoming.Closed(1011, ""),
+                ),
+            )
+        }
+        val events = eng.run(config()).toList()
+        assertTrue(
+            "a configure/drop loop terminates with ERROR",
+            events.any { it is LiveEvent.State && it.state == LiveSessionState.ERROR },
+        )
+        val reconnects = events.count { it is LiveEvent.State && it.state == LiveSessionState.RECONNECTING }
+        assertTrue("reconnects are bounded, not infinite", reconnects in 1..11)
+    }
+
+    // A playback build/play failure ends the session as terminal AUDIO, not a retry loop.
+    @Test
+    fun playbackStartFailure_surfacesAudio() = runTest {
+        val sink = FakeSink().apply { failOnStart = true }
+        val eng = engine(FakeSource(), sink) {
+            FakeTransport(frames = listOf(LiveTransport.Incoming.Text("""{"setupComplete":{}}""")))
+        }
+        val events = eng.run(config()).toList()
+        assertEquals(LiveErrorKind.AUDIO, events.filterIsInstance<LiveEvent.Error>().firstOrNull()?.kind)
+        assertTrue(events.none { it is LiveEvent.State && it.state == LiveSessionState.RECONNECTING })
+    }
+
+    // A client-side send failure surfaces a classified error (NETWORK), not a silent EOF/REMOTE_CLOSE.
+    @Test
+    fun transportSendFailure_isClassifiedNotSilent() = runTest {
+        val eng = engine {
+            FakeTransport(
+                frames = listOf(
+                    LiveTransport.Incoming.Text("""{"setupComplete":{}}"""),
+                    LiveTransport.Incoming.TransportError(IOException("broken pipe")),
+                ),
+            )
+        }
+        val events = eng.run(config()).toList()
+        assertTrue(
+            "the send failure is surfaced as a classified NETWORK error",
+            events.filterIsInstance<LiveEvent.Error>().any { it.kind == LiveErrorKind.NETWORK },
+        )
+    }
+
+    // A provider error echoing the api key must be redacted before it reaches the UI.
+    @Test
+    fun serverErrorEchoingKey_isSanitized() = runTest {
+        val eng = engine {
+            FakeTransport(frames = listOf(LiveTransport.Incoming.Text("""{"error":{"code":401,"message":"bad key sk-test in request"}}""")))
+        }
+        val events = eng.run(config()).toList()
+        val msg = events.filterIsInstance<LiveEvent.Error>().firstOrNull()?.message
+        assertTrue("error message must not leak the api key", msg != null && !msg.contains("sk-test"))
     }
 }

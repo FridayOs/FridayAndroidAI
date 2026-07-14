@@ -11,7 +11,8 @@ interface LiveAudioSource {
 }
 
 interface LiveAudioSink {
-    fun start()
+    // onError fires once if the track can't build/play or a write fails, so the engine surfaces a terminal AUDIO error.
+    fun start(onError: (Throwable) -> Unit)
     fun currentGeneration(): Long
     fun enqueue(pcm: ByteArray, gen: Long)
     // Barge-in / interrupt: drop the current turn's queued audio instantly.

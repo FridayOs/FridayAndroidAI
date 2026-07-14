@@ -4,21 +4,21 @@ import com.dark.tool_neuron.repo.gateway.GatewayEvent
 import com.dark.tool_neuron.repo.gateway.GatewayTurn
 import kotlinx.coroutines.flow.Flow
 import java.util.UUID
+import java.util.concurrent.atomic.AtomicReference
 
 // FRI-530 CloudBridge: hands the Live transcript (text, never audio) to the brain via brain_* ops; fresh correlation per turn, stale cancel/confirm dropped.
 class LiveCloudBridge(
     private val brain: LiveBrainGateway,
     val sessionId: String = UUID.randomUUID().toString(),
 ) {
-    // In-flight turn's correlation; null when idle. cancel/confirm target this.
-    @Volatile
-    var currentCorrelation: BrainCorrelation? = null
-        private set
+    // In-flight turn's correlation, held atomically so open() vs cancel() can't race to clear the wrong turn.
+    private val current = AtomicReference<BrainCorrelation?>(null)
 
-    val currentCorrelationId: String? get() = currentCorrelation?.turnId
+    val currentCorrelation: BrainCorrelation? get() = current.get()
+    val currentCorrelationId: String? get() = current.get()?.turnId
 
     private fun open(): BrainCorrelation =
-        BrainCorrelation(sessionId, UUID.randomUUID().toString()).also { currentCorrelation = it }
+        BrainCorrelation(sessionId, UUID.randomUUID().toString()).also { current.set(it) }
 
     // brain_turn: appends the transcript as the new user turn, mints a fresh correlation, streams the reply.
     fun brainTurn(history: List<GatewayTurn>, transcript: String): Flow<GatewayEvent> {
@@ -32,29 +32,26 @@ class LiveCloudBridge(
         return brain.brainContinue(correlation, history)
     }
 
-    // brain_cancel — stop the in-flight brain turn (barge-in / user cut-in). Forwards the current correlation.
+    // brain_cancel — atomically take the in-flight correlation and forward it (barge-in / user cut-in).
     fun brainCancel() {
-        val correlation = currentCorrelation ?: return
-        currentCorrelation = null
+        val correlation = current.getAndSet(null) ?: return
         brain.brainCancel(correlation)
     }
 
-    // Cancel a SPECIFIC turn; a stale correlation (not the active turn) is ignored.
+    // Cancel a SPECIFIC turn; CAS ensures a stale correlation (not the active turn) can't clear a newer one.
     fun cancelTurn(correlation: BrainCorrelation) {
-        if (correlation != currentCorrelation) return
-        currentCorrelation = null
-        brain.brainCancel(correlation)
+        if (current.compareAndSet(correlation, null)) brain.brainCancel(correlation)
     }
 
     // brain_confirm — resolve a confirmation gate the brain armed during the current turn. False if none active.
     fun brainConfirm(): Boolean {
-        val correlation = currentCorrelation ?: return false
+        val correlation = current.get() ?: return false
         return brain.brainConfirm(correlation)
     }
 
     // Confirm a SPECIFIC turn; a stale correlation is ignored so it can't resolve a newer turn's gate.
     fun confirmTurn(correlation: BrainCorrelation): Boolean {
-        if (correlation != currentCorrelation) return false
+        if (current.get() != correlation) return false
         return brain.brainConfirm(correlation)
     }
 

@@ -4,6 +4,10 @@ import com.dark.tool_neuron.repo.FridayConversationRepository
 import com.dark.tool_neuron.repo.FridayConvoStore
 import com.dark.tool_neuron.repo.GatewayConfigRepository
 import com.dark.tool_neuron.repo.gateway.live.BrainGatewayLiveAdapter
+import com.dark.tool_neuron.repo.gateway.live.LiveAudioCapture
+import com.dark.tool_neuron.repo.gateway.live.LiveAudioPlayer
+import com.dark.tool_neuron.repo.gateway.live.LiveAudioSink
+import com.dark.tool_neuron.repo.gateway.live.LiveAudioSource
 import com.dark.tool_neuron.repo.gateway.live.LiveBrainGateway
 import com.dark.tool_neuron.voice.VoiceIo
 import com.dark.tool_neuron.voice.VoiceModelManager
@@ -24,6 +28,14 @@ abstract class GatewayModule {
     @Binds
     @Singleton
     abstract fun bindLiveBrainGateway(impl: BrainGatewayLiveAdapter): LiveBrainGateway
+
+    @Binds
+    @Singleton
+    abstract fun bindLiveAudioSource(impl: LiveAudioCapture): LiveAudioSource
+
+    @Binds
+    @Singleton
+    abstract fun bindLiveAudioSink(impl: LiveAudioPlayer): LiveAudioSink
 
     @Binds
     @Singleton

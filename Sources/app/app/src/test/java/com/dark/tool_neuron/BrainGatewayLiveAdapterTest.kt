@@ -12,10 +12,7 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-// Production-adapter proof: the real BrainGatewayLiveAdapter over a fake of the app's real BrainBridge. The adapter
-// OWNS correlation (the underlying BrainBridge takes no id), so these assert cancel/confirm forward ONLY for the
-// active turn, a superseded turn is dropped, and a different-session correlation with the same turnId is dropped
-// (cross-session isolation via full BrainCorrelation, not just turnId).
+// Production-adapter proof: cancel/confirm forward only for the exact active correlation (cross-session isolation).
 class BrainGatewayLiveAdapterTest {
 
     private class FakeBrain : BrainBridge {

@@ -1,6 +1,11 @@
 package com.dark.tool_neuron.repo.gateway.live
 
+import java.io.EOFException
+import java.io.IOException
 import java.io.InputStream
+import java.nio.ByteBuffer
+import java.nio.charset.CharacterCodingException
+import java.nio.charset.CodingErrorAction
 import kotlin.random.Random
 
 // Pure RFC 6455 frame codec (repo has no WebSocket lib); encode/decode is unit-testable off-device, only the socket wiring touches Android.
@@ -59,12 +64,29 @@ internal object WebSocketFrame {
         return out
     }
 
-    // Empty close payload → 1005 (no status present), per RFC 6455 §7.1.5.
+    // Empty payload → 1005 (§7.1.5); 1-byte payload, non-wire status code, or invalid-UTF-8 reason → ProtocolException.
     fun parseClose(payload: ByteArray): Pair<Int, String> {
-        if (payload.size < 2) return 1005 to ""
+        if (payload.isEmpty()) return 1005 to ""
+        if (payload.size == 1) throw ProtocolException("close payload of 1 byte")
         val code = (payload[0].toInt() and 0xFF shl 8) or (payload[1].toInt() and 0xFF)
-        val reason = if (payload.size > 2) String(payload, 2, payload.size - 2, Charsets.UTF_8) else ""
+        if (!isValidReceivedCloseCode(code)) throw ProtocolException("invalid close code $code")
+        val reason = if (payload.size > 2) decodeStrictUtf8(payload, 2) else ""
         return code to reason
+    }
+
+    // Codes a peer may legitimately send (RFC 6455 §7.4). 1004/1005/1006/1015 and the reserved ranges are excluded.
+    fun isValidReceivedCloseCode(code: Int): Boolean =
+        code in intArrayOf(1000, 1001, 1002, 1003, 1007, 1008, 1009, 1010, 1011, 1012, 1013, 1014) || code in 3000..4999
+
+    private fun decodeStrictUtf8(bytes: ByteArray, offset: Int): String {
+        val decoder = Charsets.UTF_8.newDecoder()
+            .onMalformedInput(CodingErrorAction.REPORT)
+            .onUnmappableCharacter(CodingErrorAction.REPORT)
+        return try {
+            decoder.decode(ByteBuffer.wrap(bytes, offset, bytes.size - offset)).toString()
+        } catch (_: CharacterCodingException) {
+            throw ProtocolException("invalid UTF-8 in close reason")
+        }
     }
 
     // Read exactly one frame, validating RFC 6455 server-frame rules. Returns null on a clean stream end.
@@ -95,7 +117,7 @@ internal object WebSocketFrame {
         // Control-frame payloads are capped at 125 bytes (§5.5).
         if (isControl && len > 125) throw ProtocolException("control frame payload > 125")
         // Sanity cap: rejects a bogus/huge length (also guards Int overflow → negative → OOM) before allocating.
-        if (len < 0 || len > MAX_FRAME_BYTES) throw java.io.IOException("frame length out of range: $len")
+        if (len < 0 || len > MAX_FRAME_BYTES) throw IOException("frame length out of range: $len")
         val payload = readN(input, len.toInt())
         return Frame(fin, opcode, payload)
     }
@@ -105,7 +127,7 @@ internal object WebSocketFrame {
         var off = 0
         while (off < n) {
             val r = input.read(buf, off, n - off)
-            if (r < 0) throw java.io.EOFException("stream closed mid-frame")
+            if (r < 0) throw EOFException("stream closed mid-frame")
             off += r
         }
         return buf
@@ -113,7 +135,7 @@ internal object WebSocketFrame {
 
     private fun InputStream.readOrThrow(): Int {
         val v = read()
-        if (v < 0) throw java.io.EOFException("stream closed mid-frame")
+        if (v < 0) throw EOFException("stream closed mid-frame")
         return v
     }
 }

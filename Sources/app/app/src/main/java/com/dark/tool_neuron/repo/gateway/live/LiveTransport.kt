@@ -2,12 +2,9 @@ package com.dark.tool_neuron.repo.gateway.live
 
 import kotlinx.coroutines.flow.Flow
 
-// Transport seam so the session engine's connect → configure → stream → teardown flow is unit-testable off-device
-// against a fake that scripts inbound frames (a real TLS WebSocket can't run in a JVM test). LiveWebSocketTransport
-// is the hand-rolled RFC 6455 implementation over an SSLSocket.
+// Transport seam so the engine's connect/configure/stream/teardown flow is unit-testable against a scripted fake.
 interface LiveTransport {
-    // onReady fires once, right after a successful upgrade and before any server frame, so the caller sends the
-    // mandatory Gemini `setup` first frame. Emits every inbound message frame until close.
+    // onReady fires once after a successful upgrade, before any server frame, so the caller sends Gemini's `setup` first.
     fun open(host: String, port: Int, path: String, onReady: () -> Unit = {}): Flow<Incoming>
     fun sendText(text: String)
     fun close()
@@ -18,8 +15,10 @@ interface LiveTransport {
             override fun equals(other: Any?): Boolean = other is Binary && bytes.contentEquals(other.bytes)
             override fun hashCode(): Int = bytes.contentHashCode()
         }
-        // code follows RFC 6455 §7.4: 1000/1005 are clean ends; anything else is an abnormal drop.
+        // Only close code 1000 is a clean end; 1005 (no-status sentinel) and any other code are abnormal drops.
         data class Closed(val code: Int, val reason: String) : Incoming
+        // A client-side send failed (broken pipe): surfaced so the engine classifies the cause instead of a silent EOF.
+        data class TransportError(val cause: Throwable) : Incoming
     }
 
     // Carries the pre-upgrade HTTP status so the engine classifies 401/403/404/429 into the retry taxonomy.
