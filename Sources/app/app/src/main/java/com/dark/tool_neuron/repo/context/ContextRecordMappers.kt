@@ -6,8 +6,6 @@ import com.dark.tool_neuron.model.context.MemoryCategory
 import com.dark.tool_neuron.model.context.MemoryRecord
 import com.dark.tool_neuron.model.context.MemorySource
 
-// HXS tag namespaces for context_store_v1 collections. Each collection's
-// tags start at 1 (per-collection namespace, not global).
 internal object ContextTags {
     const val MEM_ID = 1
     const val MEM_CONTENT = 2

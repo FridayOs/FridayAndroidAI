@@ -5,10 +5,6 @@ import com.dark.tool_neuron.model.context.SummarySnippet
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 
-// Scoped BM25 lookup: memories are global (chatId="global"), summary
-// snippets are scoped to the exact conversationId being asked about. Never
-// queries a foreign chatId — that structural scoping is what prevents
-// cross-conversation leakage into a context package.
 class ContextRetriever(
     private val store: ContextStoreOps,
 ) {
@@ -21,10 +17,6 @@ class ContextRetriever(
         if (query.isBlank()) return@withContext RetrievedContext(emptyList(), emptyList())
 
         val memoryHits = store.queryBm25(query, GLOBAL_CHAT_ID, CANDIDATE_POOL).sortedWith(HIT_ORDER)
-        // Blank chatId matches ALL rows in the native BM25 index (rag_keyword
-        // treats empty chat_id as no filter) — querying with it would pull
-        // every conversation's summary snippets. Skip snippets entirely when
-        // there is no concrete conversationId.
         val snippetHits = if (conversationId.isBlank()) emptyList()
         else store.queryBm25(query, conversationId, CANDIDATE_POOL).sortedWith(HIT_ORDER)
 

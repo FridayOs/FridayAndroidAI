@@ -72,8 +72,6 @@ class FridayChatViewModelTest {
         override fun brainCancel() {}
     }
 
-    // Raw-window packaging (no memories/summary) — matches ContextEngine's degraded path shape,
-    // sufficient for VM-level tests since ContextEngine internals are covered by ContextEngineTest.
     private class FakeContextEngine(private val store: FridayConvoStore) : ContextHistorySource {
         val persistedTurns = mutableListOf<FridayTurn>()
         val completedConversations = mutableListOf<String>()

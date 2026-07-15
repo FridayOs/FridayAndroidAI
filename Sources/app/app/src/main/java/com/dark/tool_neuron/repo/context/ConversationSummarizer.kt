@@ -13,26 +13,16 @@ import org.json.JSONObject
 import javax.inject.Inject
 import javax.inject.Singleton
 
-// Seam over InferenceClient so ConversationSummarizer is unit-testable with a
-// hand-written fake (test conventions forbid mockk/robolectric). Production
-// impl below wraps InferenceClient.compactConversation.
 interface LocalSummaryModel {
     fun isLoaded(): Boolean
     suspend fun compact(messagesJson: String, maxTokens: Int): String?
 }
 
-// Wraps InferenceClient.compactConversation (InferenceClient.kt:517).
-// isLoaded() never triggers a load - summarizing is a background convenience,
-// not worth paging in a ~500MB model for.
 @Singleton
 class InferenceSummaryModel @Inject constructor() : LocalSummaryModel {
 
     override fun isLoaded(): Boolean = InferenceClient.isModelLoaded.value
 
-    // Collects the token stream into one string, same pattern as
-    // RagDocSummarizer.collectGeneration. Error event -> null so the caller
-    // always falls back to deterministic truncation, never a partial/garbled
-    // model summary.
     override suspend fun compact(messagesJson: String, maxTokens: Int): String? {
         val builder = StringBuilder()
         var failed = false
@@ -53,9 +43,6 @@ class InferenceSummaryModel @Inject constructor() : LocalSummaryModel {
     }
 }
 
-// Local-model summary of a conversation's older turns, with a deterministic
-// extractive fallback when the local model is unloaded, times out, or
-// returns nothing usable. Never invents content.
 class ConversationSummarizer @Inject constructor(
     private val model: LocalSummaryModel,
 ) {
@@ -107,8 +94,6 @@ class ConversationSummarizer @Inject constructor(
         return arr.toString()
     }
 
-    // Deterministic extractive digest: first user turn + last 2 exchanges.
-    // Every sentence is a verbatim excerpt - never an invented summary.
     private fun fallbackDigest(turns: List<FridayTurn>, locale: AppLanguage): String {
         val firstUser = turns.firstOrNull { it.role == ROLE_USER }
         val lastExchanges = turns.takeLast(EXCHANGE_TURN_COUNT)

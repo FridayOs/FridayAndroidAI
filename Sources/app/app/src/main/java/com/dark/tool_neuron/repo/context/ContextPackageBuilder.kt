@@ -7,17 +7,8 @@ import com.dark.tool_neuron.model.context.SummarySnippet
 import com.dark.tool_neuron.model.friday.FridayTurn
 import com.dark.tool_neuron.repo.gateway.GatewayTurn
 
-// chars/4 heuristic, established at InferenceCoordinator.computeRagBudget /
-// RagManager.buildAugmentedPrompt. Good enough for budgeting; no tokenizer
-// dependency needed.
 internal fun estimateTokens(s: String): Int = (s.length + 3) / 4
 
-// Pure: no I/O, no clock, no singletons - deterministic and unit-testable off
-// the JVM. Builds the MINIMAL package sent to the active Brain Gateway: one
-// system preamble turn (locale instruction + memories + summary + retrieval
-// snippets) plus a bounded window of the most recent raw turns. Full raw
-// history never crosses this boundary - this both bounds package size and is
-// the privacy guarantee (FRI-557 architecture decision 2).
 object ContextPackageBuilder {
 
     private const val RESPONSE_RESERVE = 1024
@@ -46,9 +37,6 @@ object ContextPackageBuilder {
         )
     }
 
-    // ---- system preamble block ----
-    // Trim lowest-priority-first when over budget: snippets -> summary ->
-    // memories. Preamble is never trimmed (it is a single short fixed line).
 
     private fun buildSystemBlock(input: PackageInput, budget: Int): Pair<String?, Int> {
         val preamble = ContextPrompts.localePreamble(input.locale)
@@ -83,7 +71,6 @@ object ContextPackageBuilder {
         return snippets.joinToString("\n") { "- ${it.text}" }
     }
 
-    // ---- recent raw turn window ----
 
     private class RawWindow(val turns: List<GatewayTurn>, val tokens: Int, val truncated: Boolean)
 
@@ -92,8 +79,6 @@ object ContextPackageBuilder {
 
         val lastUserTurn = turns.lastOrNull { it.role == ROLE_USER }
 
-        // Walk newest-to-oldest, include whole turns while they fit, stop at
-        // first overflow.
         val selected = mutableListOf<FridayTurn>()
         var used = 0
         for (i in turns.indices.reversed()) {
@@ -104,9 +89,6 @@ object ContextPackageBuilder {
             used += tokens
         }
 
-        // The last user turn must always be present, even if the walk above
-        // never reached it (or it alone overflows the remaining budget) -
-        // truncate its content tail to fit rather than dropping it.
         var truncated = false
         val hasLastUser = lastUserTurn != null && selected.any { it.id == lastUserTurn.id }
         if (lastUserTurn != null && !hasLastUser) {

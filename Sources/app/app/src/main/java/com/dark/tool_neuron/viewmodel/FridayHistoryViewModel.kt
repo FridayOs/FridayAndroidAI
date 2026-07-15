@@ -22,8 +22,6 @@ class FridayHistoryViewModel @Inject constructor(
 
     fun delete(id: String) {
         convoRepo.deleteConversation(id)
-        // Also drop the conversation's summary + BM25 doc from
-        // context_store_v1 so no summary content outlives its transcript.
         contextEngine.clearForConversation(id)
     }
 }

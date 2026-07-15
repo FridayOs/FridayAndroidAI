@@ -20,9 +20,6 @@ class LocalModelCapabilitiesTest {
         providerType = ProviderType.GGUF,
     )
 
-    // Join key under test: ModelInfo.id is built by ModelCatalog.kt as
-    // "${HFRepository.id}__<filename>" and carried unchanged through install
-    // (ModelStoreViewModel.kt). See LocalModelCapabilities.kt doc comment.
 
     @Test
     fun `qwen3-0_6b supports Vietnamese`() {
@@ -63,11 +60,6 @@ class LocalModelCapabilitiesTest {
         assertNull(LocalModelCapabilities.supportsLanguage(model, AppLanguage.SYSTEM))
     }
 
-    // ---- HFRepository languages serde (backward-compat) ----
-    // No existing RepositoryDataStoreTest; serde coverage lives here per
-    // phase-05 spec since RepositoryDataStore's toJson/toRepo are private
-    // instance extension functions with no public seam, so these exercise
-    // the same JSON shape RepositoryDataStore reads/writes directly.
 
     @Test
     fun `catalog marks qwen and gemma families as en,vi and others as en only`() {
@@ -84,8 +76,6 @@ class LocalModelCapabilitiesTest {
 
     @Test
     fun `repo JSON without languages field decodes to en-only default (backward compat)`() {
-        // Simulates a repositories.json persisted before this phase's
-        // languages field existed.
         val legacyJson = JSONObject().apply {
             put("id", "legacy-model")
             put("name", "Legacy Model")

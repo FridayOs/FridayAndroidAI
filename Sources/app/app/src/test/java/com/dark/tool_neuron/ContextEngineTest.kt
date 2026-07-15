@@ -1,6 +1,7 @@
 package com.dark.tool_neuron
 
 import com.dark.tool_neuron.model.AppLanguage
+import com.dark.tool_neuron.model.context.ConversationSummary
 import com.dark.tool_neuron.model.context.MemoryCategory
 import com.dark.tool_neuron.model.context.MemoryRecord
 import com.dark.tool_neuron.model.context.MemorySource
@@ -31,10 +32,6 @@ import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.util.concurrent.atomic.AtomicInteger
 
-// Hand-written fakes only (repo convention forbids mockk/robolectric). Mirrors
-// the ContextEngineStore/ContextStoreOps seam rationale documented in
-// ContextEngine.kt: LanguageController and ContextStore are HXS-vault-backed
-// and cannot be constructed in a plain JVM unit test.
 private class FakeContextEngineStore(
     private val bm25Hits: Map<String, List<ContextBm25Hit>> = emptyMap(),
     initialMemories: Map<String, MemoryRecord> = emptyMap(),
@@ -44,7 +41,7 @@ private class FakeContextEngineStore(
     private val _memories = MutableStateFlow(memoryMap.values.toList())
     override val memories: StateFlow<List<MemoryRecord>> get() = _memories
 
-    val summaries = mutableMapOf<String, com.dark.tool_neuron.model.context.ConversationSummary>()
+    val summaries = mutableMapOf<String, ConversationSummary>()
     val clearForConversationCalls = mutableListOf<String>()
     var clearContextAndMemoryCalled = false
     var getSummaryThreadName: String? = null
@@ -78,13 +75,13 @@ private class FakeContextEngineStore(
         _memories.value = memoryMap.values.toList()
     }
 
-    override fun getSummary(conversationId: String): com.dark.tool_neuron.model.context.ConversationSummary? {
+    override fun getSummary(conversationId: String): ConversationSummary? {
         getSummaryThreadName = Thread.currentThread().name
         getSummaryError?.let { throw it() }
         return summaries[conversationId]
     }
 
-    override fun putSummary(summary: com.dark.tool_neuron.model.context.ConversationSummary) {
+    override fun putSummary(summary: ConversationSummary) {
         summaries[summary.conversationId] = summary
     }
 
@@ -129,11 +126,6 @@ private class FakeLocaleSource(initial: AppLanguage = AppLanguage.EN) : LocaleSo
     override val selected: StateFlow<AppLanguage> = MutableStateFlow(initial)
 }
 
-// Wraps in the real ConversationSummarizer (concrete, not an interface) - only
-// its LocalSummaryModel dependency is faked, per phase-04's "summarizer seam".
-// Named distinctly from ConversationSummarizerTest's own fake: Kotlin file-
-// private top-level classes still collide at the JVM class-name level within
-// the same package, so a plain "FakeLocalSummaryModel" here would redeclare.
 private class FakeEngineSummaryModel(
     private val loaded: Boolean,
     private val gate: CompletableDeferred<Unit>? = null,

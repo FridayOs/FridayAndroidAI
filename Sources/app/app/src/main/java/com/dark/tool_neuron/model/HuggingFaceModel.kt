@@ -28,9 +28,6 @@ data class HuggingFaceModel(
     val generationSize: Int = 512,
 )
 
-// languages: declarative capability config (FRI-557 phase 5), not a
-// download/runtime signal - default "en" only; multilingual GGUF families
-// (Qwen3/3.5, Gemma3) are marked "en","vi" in RepositoryDataStore's catalog.
 data class HFRepository(
     val id: String,
     val name: String,

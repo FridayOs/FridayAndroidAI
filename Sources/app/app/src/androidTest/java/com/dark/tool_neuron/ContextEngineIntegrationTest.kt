@@ -28,13 +28,6 @@ import org.junit.runner.RunWith
 import java.io.File
 import java.util.UUID
 
-// FRI-557 phase 6: full-stack VI memory E2E through the real ContextEngine -
-// real ContextStore + real FridayConversationRepository + real
-// ContextPackageBuilder, only the local inference model is faked ("fake
-// brain": ConversationSummarizer never needs a loaded model for this flow).
-// Proves the explicit VI marker "nhớ rằng ..." survives extraction,
-// encrypted persistence, a vault restart, and BM25 retrieval back into the
-// packaged system turn with diacritics byte-exact.
 @RunWith(AndroidJUnit4::class)
 class ContextEngineIntegrationTest {
 
@@ -85,7 +78,6 @@ class ContextEngineIntegrationTest {
     fun vietnameseMarkerMemorySurvivesRestartAndRetrievesIntoPackage() = runBlocking {
         val viMessage = "nhớ rằng tôi tên là Hùng"
 
-        // ── session A: extract + persist ──
         val convoRepoA = newConvoRepo()
         val convo = convoRepoA.createConversation("gw-vi")
         val turn = FridayTurn(
@@ -103,7 +95,6 @@ class ContextEngineIntegrationTest {
         assertEquals("marker extraction must fire exactly once", 1, engineA.memories.value.size)
         assertEquals("tôi tên là Hùng", engineA.memories.value.first().content)
 
-        // ── restart: close encrypted vaults, reopen fresh instances ──
         HexStorage().close()
 
         val convoRepoB = newConvoRepo()
@@ -116,7 +107,6 @@ class ContextEngineIntegrationTest {
             engineB.memories.value.first().content,
         )
 
-        // ── retrieval: build the minimal package sent to the gateway ──
         val history = engineB.buildHistory(convo.id)
 
         assertTrue("package must include a system preamble turn", history.isNotEmpty())

@@ -6,7 +6,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-// Pure planRegeneration tests: pending turns fed to ContextEngine.buildHistory exclude the answer being replaced.
 class FridayChatRegeneratePlanTest {
 
     private fun user(text: String) = FridayTurn(

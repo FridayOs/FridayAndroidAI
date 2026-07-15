@@ -16,7 +16,6 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-// Hand-written fake (repo convention forbids mockk).
 private class FakeLocalSummaryModel(
     private val loaded: Boolean = true,
     private val result: String? = "fake model summary",
@@ -100,7 +99,6 @@ class ConversationSummarizerTest {
         val second = (summarizer.summarize(input, AppLanguage.EN) as SummaryResult.Success).summary.content
 
         assertEquals(first, second)
-        // first user turn ("message 1") + last 2 exchanges (t9..t12) verbatim excerpts, never invented.
         assertTrue(first.contains("message 1"))
         assertTrue(first.contains("message 9"))
         assertTrue(first.contains("message 12"))
@@ -124,7 +122,6 @@ class ConversationSummarizerTest {
         val deferred = async {
             summarizer.summarize(turns(ConversationSummarizer.MIN_TURNS_TO_SUMMARIZE), AppLanguage.EN)
         }
-        // Let the coroutine reach the in-flight compact() call, then cancel it.
         advanceTimeBy(1)
         deferred.cancel()
 

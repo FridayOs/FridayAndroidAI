@@ -32,11 +32,6 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import java.io.File
 
-// FRI-557 phase 6: proves the three-vault clear semantics are actually
-// independent with all vaults live simultaneously (context_store_v1,
-// friday_store_v1, gateway_store_v1) driven through the real ContextEngine -
-// not just ContextStore in isolation (see ContextStoreTest for the
-// vault-only variant).
 @RunWith(AndroidJUnit4::class)
 class ContextClearIndependenceTest {
 
@@ -99,7 +94,6 @@ class ContextClearIndependenceTest {
         val engine = newEngine(convoRepo)
         engine.createMemory("Prefers dark mode", MemoryCategory.PREFERENCE, MemorySource.EXPLICIT_USER, "en")
 
-        // seed a summary directly on the store seam the engine wraps
         val store2 = ContextStore(context, AppKeyStore(context), encryptor)
         store2.putSummary(ConversationSummary(convo.id, "turn-1", "Summary text", 10, System.currentTimeMillis()))
 

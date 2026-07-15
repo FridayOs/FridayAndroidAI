@@ -232,8 +232,6 @@ class FridayChatViewModel @Inject constructor(
     }
 
     companion object {
-        // Turns preceding the last assistant answer (that answer, if present, is the turn to replace).
-        // Packaged through ContextEngine.buildHistory(pendingTurns = ...), not mapped raw.
         fun planRegeneration(turns: List<FridayTurn>): Pair<List<FridayTurn>, FridayTurn?> {
             val idx = turns.indexOfLast { it.role == "assistant" }
             val source = if (idx >= 0) turns.subList(0, idx) else turns

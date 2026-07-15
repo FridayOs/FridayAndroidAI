@@ -12,8 +12,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
-// Hand-written fake (repo convention forbids mockk). Scoped exactly like the
-// real ContextStoreOps: queryBm25 results depend on the requested chatId.
 private class FakeContextStoreOps(
     private val hitsByChat: Map<String, List<ContextBm25Hit>>,
     private val memories: Map<String, MemoryRecord> = emptyMap(),

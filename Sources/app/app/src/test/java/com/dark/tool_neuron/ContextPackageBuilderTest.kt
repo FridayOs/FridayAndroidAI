@@ -81,9 +81,6 @@ class ContextPackageBuilderTest {
 
     @Test
     fun `system block trims snippets before summary when over its 40 percent cap`() {
-        // available = tokenBudget - RESPONSE_RESERVE(1024) = 1000; systemBudget = 400.
-        // memory(~5 tok) + summary(~75 tok) = ~80 tok, comfortably under 400.
-        // memory + summary + snippet(~750 tok) = ~830 tok, well over 400.
         val memories = listOf(memory(id = "m1", content = "M", createdAt = 1L))
         val summary = ConversationSummary("c1", "t0", "S".repeat(300), 0, 0L)
         val snippets = listOf(SummarySnippet(conversationId = "c1", chunkIndex = 0, text = "N".repeat(3000), rank = 1.0))
@@ -101,7 +98,6 @@ class ContextPackageBuilderTest {
         val memories = listOf(memory(id = "m1", content = "M".repeat(200), createdAt = 1L))
         val summary = ConversationSummary("c1", "t0", "S".repeat(200), 0, 0L)
         val snippets = listOf(SummarySnippet(conversationId = "c1", chunkIndex = 0, text = "N".repeat(200), rank = 1.0))
-        // available = 10, systemBudget = 4 -> nothing fits even after trimming snippets+summary+memories.
         val input = baseInput(memories = memories, summary = summary, snippets = snippets, tokenBudget = 1034)
 
         val pkg = ContextPackageBuilder.build(input)
@@ -115,7 +111,6 @@ class ContextPackageBuilderTest {
             turn("t1", "assistant", "an older short message", ts = 1L),
             turn("t2", "user", "x".repeat(5000), ts = 2L),
         )
-        // available = historyBudget = 50 tokens -> charBudget for forced turn = 200 chars.
         val input = baseInput(turns = turns, tokenBudget = 1074)
 
         val pkg = ContextPackageBuilder.build(input)

@@ -12,12 +12,6 @@ data class ExtractionResult(
     val locale: String,
 )
 
-// Deterministic explicit-marker memory extraction. Fires ONLY on a fixed set
-// of user-authored markers anchored at the very start of the (trimmed, NFC
-// normalized) input — never on assistant output, never a free-form scan.
-// Same input always produces the same output: no LLM, no randomness, no
-// clock reads. This is the whole "no auto-writing sensitive facts outside
-// policy" guarantee, enforced structurally.
 object MemoryExtractor {
 
     private const val MAX_CONTENT_LENGTH = 500

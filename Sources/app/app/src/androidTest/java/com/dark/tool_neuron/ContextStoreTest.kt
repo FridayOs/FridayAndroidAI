@@ -129,7 +129,6 @@ class ContextStoreTest {
         assertEquals(memory.id, store.getMemory(memory.id)!!.id)
     }
 
-    // Native rag_keyword tags are fixed by hxs/src/main/cpp/rag_keyword.h: TAG_DOC_ID = 1.
     @Test
     fun bm25GlobalQueryNeverReturnsSummaryRows() {
         val store = newContextStore()

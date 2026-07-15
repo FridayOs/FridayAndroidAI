@@ -18,10 +18,6 @@ import java.util.UUID
 import javax.inject.Inject
 import javax.inject.Singleton
 
-// context_store_v1: signer-bound HXS vault for explicit/extracted memories +
-// per-conversation summaries + their BM25 index. Independent of
-// friday_store_v1 so "Clear context & memory" never touches transcripts and
-// "Clear conversations" never touches memories.
 @Singleton
 class ContextStore @Inject constructor(
     @param:ApplicationContext private val context: Context,
@@ -67,7 +63,6 @@ class ContextStore @Inject constructor(
             .sortedByDescending { it.updatedAt }
     }
 
-    // ── Memory CRUD ──
 
     override fun createMemory(
         content: String,
@@ -122,7 +117,6 @@ class ContextStore @Inject constructor(
         storage.flush(COL_BM25)
     }
 
-    // ── BM25 read seam (ContextStoreOps) ──
 
     override fun queryBm25(query: String, chatId: String, topK: Int): List<ContextBm25Hit> {
         if (query.isBlank() || topK <= 0) return emptyList()
@@ -139,7 +133,6 @@ class ContextStore @Inject constructor(
         }
     }
 
-    // ── Summary (replace-on-write, one active per conversation) ──
 
     override fun getSummary(conversationId: String): ConversationSummary? =
         storage.queryString(COL_SUMMARIES, ContextTags.SUM_CONVO_ID, conversationId).firstOrNull()?.toSummary()
@@ -158,7 +151,6 @@ class ContextStore @Inject constructor(
         storage.flush(COL_BM25)
     }
 
-    // ── Clear operations (independent from friday_store_v1 / gateway_store_v1) ──
 
     override fun clearContextAndMemory() {
         storage.getAll(COL_MEMORIES).forEach { storage.delete(COL_MEMORIES, it.id) }
