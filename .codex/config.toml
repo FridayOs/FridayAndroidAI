@@ -1,0 +1,5 @@
+# Project-level Codex config for friday-android.
+# Overrides ~/.codex/config.toml for this repo only (code review via /codex:adversarial-review).
+model = "gpt-review"
+model_provider = "9router"
+model_reasoning_effort = "high"
