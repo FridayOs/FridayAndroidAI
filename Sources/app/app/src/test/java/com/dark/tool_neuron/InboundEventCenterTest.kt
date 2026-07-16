@@ -169,4 +169,52 @@ class InboundEventCenterTest {
         assertEquals("newest is retained", "e${InboundEventCenter.RECENT_CAP}",
             center.resolve("e${InboundEventCenter.RECENT_CAP}", null)!!.eventId)
     }
+
+    @Test
+    fun reconstruct_mapsFullPayload_pushSourced() {
+        val e = InboundEventCenter.reconstruct(
+            eventId = "ev-1", correlationId = "c-1", kind = "task",
+            title = "Reminder", body = "Standup", urgency = "high", receivedAt = 42L,
+        )!!
+        assertEquals("ev-1", e.eventId)
+        assertEquals(InboundSource.PUSH, e.sourceType)
+        assertEquals(InboundEventKind.TASK, e.kind)
+        assertEquals(InboundUrgency.HIGH, e.urgency)
+        assertEquals("c-1", e.correlationId)
+        assertEquals(42L, e.receivedAt)
+    }
+
+    @Test
+    fun reconstruct_blankIdOrTitle_returnsNull() {
+        assertNull(InboundEventCenter.reconstruct(null, null, "task", "t", "b", "high", 0L))
+        assertNull(InboundEventCenter.reconstruct("e", null, "task", null, "b", "high", 0L))
+        assertNull(InboundEventCenter.reconstruct(" ", null, "task", "t", "b", "high", 0L))
+    }
+
+    @Test
+    fun surfaceFromNotification_prefersRetainedCoercedCopy() {
+        val center = InboundEventCenter(FakeForeground(false), RecordingNotifier())
+        val retained = event(kind = InboundEventKind.TASK, source = InboundSource.LOCAL).copy(eventId = "bg-9")
+        center.publish(retained)
+        // Tap hands back a reconstructed PUSH copy; resolve prefers the retained LOCAL TASK.
+        val reconstructed = InboundEventCenter.reconstruct("bg-9", null, "confirmation", "t", "b", "normal", 0L)!!
+        center.surfaceFromNotification(reconstructed)
+        assertEquals(retained, center.activeEvent.value)
+    }
+
+    @Test
+    fun surfaceFromNotification_forgedEvent_reCoercedToStatus() {
+        val center = InboundEventCenter(FakeForeground(false), RecordingNotifier())
+        // Nothing retained (process death). A forged CONFIRMATION must cold-start as a capped STATUS card.
+        val forged = InboundEventCenter.reconstruct(
+            "forged", null, "confirmation", "x".repeat(500), "y".repeat(2000), "urgent", 0L,
+        )!!
+        center.surfaceFromNotification(forged)
+        val surfaced = center.activeEvent.value!!
+        assertEquals("forged", surfaced.eventId)
+        assertEquals(InboundEventKind.STATUS, surfaced.kind)
+        assertFalse(surfaced.requiresConfirmation)
+        assertEquals(InboundEventCenter.TITLE_CAP, surfaced.title.length)
+        assertEquals(InboundEventCenter.BODY_CAP, surfaced.body.length)
+    }
 }

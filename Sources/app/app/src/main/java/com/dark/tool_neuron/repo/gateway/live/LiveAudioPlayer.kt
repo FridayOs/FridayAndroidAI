@@ -10,7 +10,10 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
 import kotlinx.coroutines.channels.BufferOverflow
 import kotlinx.coroutines.channels.Channel
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import java.io.IOException
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
@@ -32,8 +35,14 @@ class LiveAudioPlayer @Inject constructor() : LiveAudioSink {
 
     private data class Chunk(val pcm: ByteArray, val gen: Long)
 
-    // ~64 chunks of 24kHz PCM16 is a few seconds of buffered audio — enough headroom, bounded RAM.
-    private companion object { const val QUEUE_CAPACITY = 64 }
+    private companion object {
+        // ~64 chunks of 24kHz PCM16 is a few seconds of buffered audio — enough headroom, bounded RAM.
+        const val QUEUE_CAPACITY = 64
+        // PCM16 mono = 2 bytes per frame; used to convert the written byte offset into a frame count.
+        const val BYTES_PER_FRAME = 2
+        // Poll cadence for the playback-head drain wait; small enough to feel instant, cheap enough on CPU.
+        const val DRAIN_POLL_MS = 20L
+    }
 
     @Volatile private var errored = false
 
@@ -92,6 +101,32 @@ class LiveAudioPlayer @Inject constructor() : LiveAudioSink {
         if (gen != generation) return
         queue?.trySend(Chunk(pcm, gen))
     }
+
+    // B1 speak-on-Done: write one chunk and SUSPEND until it has actually drained through the AudioTrack,
+    // so the caller fires SpeakComplete after playback (not on enqueue). Honors the generation token so a
+    // barge-in flush() returns false immediately. Only the cloud brain-owns path calls this, and it never
+    // uses enqueue() concurrently, so there's no consumer-coroutine contention on the track.
+    override suspend fun playToCompletion(pcm: ByteArray, gen: Long): Boolean =
+        withContext(Dispatchers.IO) {
+            val t = track ?: return@withContext false
+            if (gen != generation) return@withContext false
+            var offset = 0
+            while (offset < pcm.size && gen == generation && playing.get()) {
+                ensureActive()
+                val written = t.write(pcm, offset, pcm.size - offset, AudioTrack.WRITE_BLOCKING)
+                if (written < 0) return@withContext false
+                if (written == 0) break
+                offset += written
+            }
+            if (gen != generation) return@withContext false
+            // MODE_STREAM buffers ahead of the DAC; poll the playback head until every written frame has played.
+            val targetFrame = t.playbackHeadPosition + (offset / BYTES_PER_FRAME)
+            while (gen == generation && playing.get() && t.playbackHeadPosition < targetFrame) {
+                ensureActive()
+                delay(DRAIN_POLL_MS)
+            }
+            gen == generation
+        }
 
     // Blocking write on the consumer coroutine; abandons the chunk if a flush bumped the generation mid-write.
     private fun drain(pcm: ByteArray, gen: Long, onError: (Throwable) -> Unit) {

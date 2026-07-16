@@ -35,6 +35,7 @@ class GeminiLiveVoiceAdapter @Inject constructor(
             session.cloudBridge.brainTurn(history, transcript)
         override fun brainCancel() = session.cloudBridge.brainCancel()
         override fun brainConfirm(): Boolean = session.cloudBridge.brainConfirm()
-        override suspend fun speak(text: String) = session.speak(text)
+        override fun resumeUserTurn(): Boolean = session.resumeUserTurn()
+        override suspend fun speak(text: String): SpeakOutcome = session.speak(text)
     }
 }

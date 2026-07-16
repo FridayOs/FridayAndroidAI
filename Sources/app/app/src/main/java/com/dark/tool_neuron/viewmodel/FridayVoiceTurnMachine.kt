@@ -50,6 +50,9 @@ sealed interface VoiceTurnEffect {
     data class StartLocalRecording(val epoch: Int) : VoiceTurnEffect
     data class StopLocalRecordingAndRecognize(val epoch: Int) : VoiceTurnEffect
     data object CancelBrainTurn : VoiceTurnEffect
+    // Cloud barge-in: re-open the mic for a fresh user turn on the SAME live session (the prior turn's
+    // endUserTurn stopped capture). The VM falls back to a fresh session if the handle can't resume.
+    data class ResumeCloudUserTurn(val epoch: Int, val bargeIn: Boolean) : VoiceTurnEffect
     data class RunBrainTurn(val epoch: Int, val transcript: String) : VoiceTurnEffect
     data class SpeakLocal(val epoch: Int, val text: String) : VoiceTurnEffect
     // Cloud route: vocalize the Brain answer through the Voice Gateway (Gemini TTS), then dispatch SpeakComplete.
@@ -140,10 +143,10 @@ object FridayVoiceTurnMachine {
                     ),
                 )
             }
-            // Barge-in: tap during SPEAKING. bargeIn=true -> cancel current output, start new listen turn
-            // under a fresh epoch (kills stale deltas from the interrupted turn). Cloud mic capture is
-            // continuous inside the engine, so no explicit "resume" effect is needed beyond cancelling
-            // the brain turn — only local route needs an explicit StartLocalRecording.
+            // Barge-in: tap during SPEAKING. bargeIn=true -> cancel current output, start a new listen turn
+            // under a fresh epoch (kills stale deltas from the interrupted turn). endUserTurn stopped the
+            // cloud mic when this turn began, so the cloud route needs an explicit ResumeCloudUserTurn to
+            // re-open capture on the same socket; the local route re-records via StartLocalRecording.
             VoiceUiState.Speaking -> if (event.bargeIn) {
                 val epoch = state.epoch + 1
                 val effects = buildList {
@@ -151,6 +154,8 @@ object FridayVoiceTurnMachine {
                     if (state.route == VoiceTurnRoute.LOCAL) {
                         add(VoiceTurnEffect.StopLocalSpeaking)
                         add(VoiceTurnEffect.StartLocalRecording(epoch))
+                    } else {
+                        add(VoiceTurnEffect.ResumeCloudUserTurn(epoch, state.bargeIn))
                     }
                 }
                 VoiceTurnResult(state.copy(ui = VoiceUiState.Listening, epoch = epoch, transcript = ""), effects)

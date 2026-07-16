@@ -8,6 +8,7 @@ import com.dark.tool_neuron.repo.gateway.live.LiveEvent
 import com.dark.tool_neuron.repo.gateway.live.LiveSessionState
 import com.dark.tool_neuron.repo.gateway.live.LiveVoiceAdapter
 import com.dark.tool_neuron.repo.gateway.live.LiveVoiceHandle
+import com.dark.tool_neuron.repo.gateway.live.SpeakOutcome
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -41,7 +42,8 @@ class LiveVoiceAdapterContractTest {
             flow { emit(GatewayEvent.Delta("part")); emit(GatewayEvent.Done("part answer")) }
         override fun brainCancel() {}
         override fun brainConfirm(): Boolean = true
-        override suspend fun speak(text: String) { spoken += text }
+        override fun resumeUserTurn(): Boolean = true
+        override suspend fun speak(text: String): SpeakOutcome { spoken += text; return SpeakOutcome.Completed }
     }
 
     private class SeamAdapter : LiveVoiceAdapter {
@@ -91,7 +93,7 @@ class LiveVoiceAdapterContractTest {
         assertEquals(listOf(GatewayEvent.Delta("part"), GatewayEvent.Done("part answer")), brainEvents)
 
         // B1: the Brain answer is vocalized through the same seam (Voice Gateway TTS), never Gemini's own audio.
-        handle.speak("brain final answer")
+        assertEquals(SpeakOutcome.Completed, handle.speak("brain final answer"))
         assertEquals(listOf("brain final answer"), seamAdapter.handle.spoken)
 
         handle.cancel()

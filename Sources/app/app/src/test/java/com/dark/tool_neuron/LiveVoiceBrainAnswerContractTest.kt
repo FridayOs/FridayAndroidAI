@@ -13,6 +13,8 @@ import com.dark.tool_neuron.repo.gateway.live.LiveSessionEngine
 import com.dark.tool_neuron.repo.gateway.live.LiveTransport
 import com.dark.tool_neuron.repo.gateway.live.LiveVoiceSession
 import com.dark.tool_neuron.repo.gateway.live.LiveVoiceSynthesizer
+import com.dark.tool_neuron.repo.gateway.live.SpeakOutcome
+import com.dark.tool_neuron.repo.gateway.live.SynthResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.flow.Flow
@@ -32,10 +34,13 @@ class LiveVoiceBrainAnswerContractTest {
 
     private class RecordingSink : LiveAudioSink {
         val enqueued = mutableListOf<ByteArray>()
+        val played = mutableListOf<ByteArray>()
         private var gen = 0L
         override fun start(onError: (Throwable) -> Unit) {}
         override fun currentGeneration(): Long = gen
         override fun enqueue(pcm: ByteArray, gen: Long) { enqueued += pcm }
+        // Brain-owns-answer path plays TTS PCM to completion in the same sink; record it distinctly.
+        override suspend fun playToCompletion(pcm: ByteArray, gen: Long): Boolean { played += pcm; return true }
         override fun flush() { gen++ }
         override fun stop() {}
     }
@@ -49,8 +54,8 @@ class LiveVoiceBrainAnswerContractTest {
     // Maps text -> its UTF-8 bytes so the test can assert exactly which Brain text reached the sink.
     private class FakeSynthesizer : LiveVoiceSynthesizer {
         var lastText: String? = null
-        var result: (String) -> ByteArray? = { it.toByteArray(Charsets.UTF_8) }
-        override suspend fun synthesize(config: GeminiLiveConfig, text: String): ByteArray? {
+        var result: (String) -> SynthResult = { SynthResult.Audio(it.toByteArray(Charsets.UTF_8)) }
+        override suspend fun synthesize(config: GeminiLiveConfig, text: String): SynthResult {
             lastText = text
             return result(text)
         }
@@ -124,18 +129,19 @@ class LiveVoiceBrainAnswerContractTest {
             sink = sink,
         )
 
-        session.speak("HELLO")
+        val outcome = session.speak("HELLO")
 
+        assertEquals(SpeakOutcome.Completed, outcome)
         assertEquals("HELLO", synth.lastText)
-        assertEquals(1, sink.enqueued.size)
-        assertEquals("HELLO", String(sink.enqueued.first(), Charsets.UTF_8))
+        assertEquals(1, sink.played.size)
+        assertEquals("HELLO", String(sink.played.first(), Charsets.UTF_8))
     }
 
-    // A null synthesis (blank text / provider miss) enqueues nothing — the turn degrades honestly, no silence-as-audio.
+    // An empty synthesis (blank text / provider miss) plays nothing — the turn degrades honestly, no silence-as-audio.
     @Test
-    fun nullSynthesis_enqueuesNothing() = runTest {
+    fun emptySynthesis_playsNothing() = runTest {
         val sink = RecordingSink()
-        val synth = FakeSynthesizer().apply { result = { null } }
+        val synth = FakeSynthesizer().apply { result = { SynthResult.Empty } }
         val session = LiveVoiceSession(
             engine = LiveSessionEngine({ FakeTransport(emptyList()) }, NoopSource(), sink),
             config = config(brainOwnsAnswer = true),
@@ -145,8 +151,30 @@ class LiveVoiceBrainAnswerContractTest {
             sink = sink,
         )
 
-        session.speak("")
+        val outcome = session.speak("")
 
-        assertTrue(sink.enqueued.isEmpty())
+        assertEquals(SpeakOutcome.Empty, outcome)
+        assertTrue(sink.played.isEmpty())
+    }
+
+    // A provider failure surfaces as a typed Failed outcome (sanitized) — never faked as success, never silent.
+    @Test
+    fun failedSynthesis_returnsFailedOutcome_playsNothing() = runTest {
+        val sink = RecordingSink()
+        val synth = FakeSynthesizer().apply { result = { SynthResult.Failed("HTTP 429") } }
+        val session = LiveVoiceSession(
+            engine = LiveSessionEngine({ FakeTransport(emptyList()) }, NoopSource(), sink),
+            config = config(brainOwnsAnswer = true),
+            sessionId = "s1",
+            cloudBridge = LiveCloudBridge(FakeBrainGateway(), "s1"),
+            synthesizer = synth,
+            sink = sink,
+        )
+
+        val outcome = session.speak("boom")
+
+        assertTrue(outcome is SpeakOutcome.Failed)
+        assertEquals("HTTP 429", (outcome as SpeakOutcome.Failed).message)
+        assertTrue(sink.played.isEmpty())
     }
 }

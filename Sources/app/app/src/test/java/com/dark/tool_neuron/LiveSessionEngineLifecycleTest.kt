@@ -52,6 +52,7 @@ class LiveSessionEngineLifecycleTest {
         override fun start(onError: (Throwable) -> Unit) { startCount++; if (failOnStart) onError(IOException("audio track dead")) }
         override fun currentGeneration(): Long = gen
         override fun enqueue(pcm: ByteArray, gen: Long) {}
+        override suspend fun playToCompletion(pcm: ByteArray, gen: Long): Boolean = true
         override fun flush() { flushCount++; gen++ }
         override fun stop() { stopCount++ }
     }

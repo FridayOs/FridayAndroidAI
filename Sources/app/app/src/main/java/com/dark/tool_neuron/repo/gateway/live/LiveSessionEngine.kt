@@ -39,6 +39,11 @@ internal class LiveSessionEngine(
     @Volatile private var reachedConfigured = false
     private val transport = AtomicReference<LiveTransport?>(null)
     @Volatile private var sessionScope: CoroutineScope? = null
+    // Retained from the active attempt so a cloud barge-in can re-open the mic on the SAME socket without
+    // reconnecting. Null outside a live attempt (before connect / after teardown).
+    @Volatile private var activeConfig: GeminiLiveConfig? = null
+    @Volatile private var emitter: ((LiveEvent) -> Unit)? = null
+    private val captureErrorRef = AtomicReference<LiveErrorKind?>(null)
 
     // Runs the full session as a cold flow. Collecting starts it; cancelling the collector tears everything down.
     fun run(config: GeminiLiveConfig): Flow<LiveEvent> = callbackFlow {
@@ -90,11 +95,14 @@ internal class LiveSessionEngine(
     ): LiveErrorKind? {
         val ws = transportFactory()
         transport.set(ws)
+        // Retain for resumeUserTurn (cloud barge-in re-opens the mic on this same socket).
+        activeConfig = config
+        emitter = emit
+        captureErrorRef.set(null)
+        val captureError = captureErrorRef
         emitState(LiveSessionState.CONNECTING, emit)
         // Captured out of the collect lambda since a non-local return from collect is illegal.
         val serverFailure = AtomicReference<LiveErrorKind?>(null)
-        // A mic runtime failure fired from the capture coroutine after a successful open (terminal AUDIO).
-        val captureError = AtomicReference<LiveErrorKind?>(null)
         // A client-side send failure surfaced by the transport — classified from its cause, not masked as EOF.
         val sendFailure = AtomicReference<LiveErrorKind?>(null)
         var peerClose: PeerClose? = null
@@ -267,6 +275,19 @@ internal class LiveSessionEngine(
         if (!bargeIn) ws.sendText(LiveProtocol.activityEndFrame()) else ws.sendText(LiveProtocol.audioStreamEndFrame())
     }
 
+    // Cloud barge-in: re-open the mic for a fresh user turn on the SAME live socket (endUserTurn stopped
+    // capture). Flushes any queued Gemini audio first, then restarts mic streaming. Returns false when the
+    // session isn't live (cancelled / no transport / torn down) so the VM opens a fresh session instead.
+    fun resumeUserTurn(): Boolean {
+        if (cancelled.get()) return false
+        val ws = transport.get() ?: return false
+        val scope = sessionScope ?: return false
+        val config = activeConfig ?: return false
+        val emit = emitter ?: return false
+        player.flush()
+        return startMicStreaming(config, ws, scope, emit, captureErrorRef)
+    }
+
     // Lifecycle contract (FRI-548 owns teardown; FRI-562's UI wires the OS callbacks) — mic/socket never outlive the reason to hold them.
 
     // Focus loss / background: full teardown, since we must not hold the mic while backgrounded.
@@ -297,6 +318,8 @@ internal class LiveSessionEngine(
         runCatching { transport.getAndSet(null)?.close() }
         sessionScope?.cancel()
         sessionScope = null
+        activeConfig = null
+        emitter = null
         // Don't mask a terminal ERROR with CLOSED — a UI observing only state must still see the failure.
         if (_state.value != LiveSessionState.ERROR) _state.value = LiveSessionState.CLOSED
     }

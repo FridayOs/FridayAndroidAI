@@ -18,6 +18,7 @@ import com.dark.tool_neuron.repo.gateway.live.LiveEvent
 import com.dark.tool_neuron.repo.gateway.live.LiveSessionState
 import com.dark.tool_neuron.repo.gateway.live.LiveVoiceAdapter
 import com.dark.tool_neuron.repo.gateway.live.LiveVoiceHandle
+import com.dark.tool_neuron.repo.gateway.live.SpeakOutcome
 import android.media.AudioDeviceCallback
 import android.media.AudioManager
 import androidx.lifecycle.LifecycleEventObserver
@@ -116,6 +117,8 @@ class FridayVoiceViewModelTest {
         val events = MutableSharedFlow<LiveEvent>(extraBufferCapacity = 8)
         var endUserTurnCalls = 0
         var cancelCalls = 0
+        var resumeUserTurnCalls = 0
+        var resumeUserTurnResult = true
         var brainConfirmResult = true
         var brainTurnFactory: (List<GatewayTurn>, String) -> Flow<GatewayEvent> =
             { _, _ -> flow { emit(GatewayEvent.Done("")) } }
@@ -136,7 +139,8 @@ class FridayVoiceViewModelTest {
         }
         override fun brainCancel() {}
         override fun brainConfirm(): Boolean = brainConfirmResult
-        override suspend fun speak(text: String) { spokenTexts += text }
+        override fun resumeUserTurn(): Boolean { resumeUserTurnCalls++; return resumeUserTurnResult }
+        override suspend fun speak(text: String): SpeakOutcome { spokenTexts += text; return SpeakOutcome.Completed }
     }
 
     private class FakeLiveVoiceAdapter(private var supportsResult: Boolean = true) : LiveVoiceAdapter {
@@ -551,5 +555,63 @@ class FridayVoiceViewModelTest {
         // LiveCloudBridge appends the transcript itself; the VM drops the trailing duplicate.
         assertEquals(listOf(GatewayTurn("system", "ctx")), adapter.handle.lastBrainTurnHistory)
         assertEquals("hi", adapter.handle.lastBrainTurnTranscript)
+    }
+
+    // C2: a cloud barge-in re-opens the mic on the SAME socket (endUserTurn stopped capture), and the
+    // resumed-turn transcript must pass the epoch guard (the socket collector reads the live sessionEpoch).
+    @Test
+    fun cloudBargeIn_resumesMicOnSameSocket_andResumedTranscriptPassesEpochGuard() = runTest {
+        val adapter = FakeLiveVoiceAdapter(supportsResult = true)
+        val prefs = FakeVoicePrefsPort(fridayVoiceBargeIn = true)
+        val route = FakeRoute(VoiceRouter.Route.CloudBridge(cloudGateway(), cloudGateway()))
+        val model = vm(route = route, adapter = adapter, prefs = prefs)
+
+        model.onMicTap()
+        adapter.handle.events.tryEmit(LiveEvent.State(LiveSessionState.CONFIGURED))
+        adapter.handle.events.tryEmit(LiveEvent.InputTranscript("hi"))
+        advanceUntilIdle()
+        assertEquals("hi", model.question.value)
+
+        // Brain answers with a delta then hangs, so we sit in Speaking for the barge-in.
+        adapter.handle.brainTurnFactory = { _, _ -> flow { emit(GatewayEvent.Delta("part")); awaitCancellation() } }
+        model.onMicTap()
+        advanceUntilIdle()
+        assertEquals(VoiceUiState.Speaking, model.uiState.value)
+
+        // Barge-in tap: re-open the mic on the SAME socket (no new open), back to Listening.
+        model.onMicTap()
+        advanceUntilIdle()
+        assertEquals("no new session on barge-in", 1, adapter.openCalls)
+        assertEquals("mic re-opened on the same socket", 1, adapter.handle.resumeUserTurnCalls)
+        assertEquals(VoiceUiState.Listening, model.uiState.value)
+
+        // The resumed-turn transcript must land (epoch guard sees the live sessionEpoch, not a stale one).
+        adapter.handle.events.tryEmit(LiveEvent.InputTranscript("again"))
+        advanceUntilIdle()
+        assertEquals("again", model.question.value)
+    }
+
+    // C2: if the socket can't resume (handle returns false), the VM falls back to a fresh session.
+    @Test
+    fun cloudBargeIn_whenResumeFails_opensFreshSession() = runTest {
+        val adapter = FakeLiveVoiceAdapter(supportsResult = true).apply { handle.resumeUserTurnResult = false }
+        val prefs = FakeVoicePrefsPort(fridayVoiceBargeIn = true)
+        val route = FakeRoute(VoiceRouter.Route.CloudBridge(cloudGateway(), cloudGateway()))
+        val model = vm(route = route, adapter = adapter, prefs = prefs)
+
+        model.onMicTap()
+        adapter.handle.events.tryEmit(LiveEvent.State(LiveSessionState.CONFIGURED))
+        adapter.handle.events.tryEmit(LiveEvent.InputTranscript("hi"))
+        advanceUntilIdle()
+
+        adapter.handle.brainTurnFactory = { _, _ -> flow { emit(GatewayEvent.Delta("part")); awaitCancellation() } }
+        model.onMicTap()
+        advanceUntilIdle()
+        assertEquals(VoiceUiState.Speaking, model.uiState.value)
+
+        model.onMicTap()
+        advanceUntilIdle()
+        assertEquals("failed resume falls back to a fresh open", 2, adapter.openCalls)
+        assertEquals(1, adapter.handle.resumeUserTurnCalls)
     }
 }

@@ -34,6 +34,18 @@ class FridayEventsViewModelTest {
         receivedAt = 0L,
     )
 
+    // What a tapped notification hands back: a PUSH-sourced event reconstructed from intent extras.
+    private fun pushEvent(id: String, correlationId: String? = null, kind: InboundEventKind = InboundEventKind.STATUS) = InboundEvent(
+        eventId = id,
+        sourceType = InboundSource.PUSH,
+        correlationId = correlationId,
+        kind = kind,
+        title = "t",
+        body = "b",
+        urgency = InboundUrgency.NORMAL,
+        receivedAt = 0L,
+    )
+
     private class FakeForeground(val fg: Boolean) : com.dark.tool_neuron.repo.ForegroundSignal {
         override fun isForeground(): Boolean = fg
     }
@@ -45,26 +57,32 @@ class FridayEventsViewModelTest {
     private fun center() = InboundEventCenter(FakeForeground(false), NoopNotifier())
 
     @Test
-    fun pendingId_resolvesRetainedEvent_intoActiveEvent() = runTest {
+    fun pendingEvent_resurfacesRetainedCopy_intoActiveEvent() = runTest {
         val center = center()
         val pending = PendingInboundEvent()
-        val e = localEvent("e1")
-        center.publish(e)
+        val retained = localEvent("e1")
+        center.publish(retained)
         assertNull("background publish must not auto-surface", center.activeEvent.value)
         val vm = FridayEventsViewModel(center, pending)
-        pending.set("e1", null)
+        // Notification tap hands back a reconstructed PUSH copy; resolve prefers the retained LOCAL one.
+        pending.set(pushEvent("e1"))
         advanceUntilIdle()
-        assertEquals(e, vm.activeEvent.value)
+        assertEquals(retained, vm.activeEvent.value)
     }
 
     @Test
-    fun unknownPendingId_leavesActiveEventNull() = runTest {
+    fun forgedPendingEvent_coldStartsAsCappedStatusCard() = runTest {
+        // Process death cleared `recent`, so resolve() misses; the reconstructed (attacker-reachable)
+        // extras are re-coerced — a forged CONFIRMATION surfaces only as a non-actionable STATUS card.
         val center = center()
         val pending = PendingInboundEvent()
         val vm = FridayEventsViewModel(center, pending)
-        pending.set("forged", null)
+        pending.set(pushEvent("forged", kind = InboundEventKind.CONFIRMATION))
         advanceUntilIdle()
-        assertNull(vm.activeEvent.value)
+        val surfaced = vm.activeEvent.value
+        assertEquals("forged", surfaced!!.eventId)
+        assertEquals(InboundEventKind.STATUS, surfaced.kind)
+        assertNull("re-coerced card is never actionable", surfaced.requiresConfirmation.takeIf { it })
     }
 
     @Test
@@ -73,7 +91,7 @@ class FridayEventsViewModelTest {
         val pending = PendingInboundEvent()
         center.publish(localEvent("e1"))
         val vm = FridayEventsViewModel(center, pending)
-        pending.set("e1", null)
+        pending.set(pushEvent("e1"))
         advanceUntilIdle()
         assertEquals("e1", vm.activeEvent.value!!.eventId)
         vm.dismiss()

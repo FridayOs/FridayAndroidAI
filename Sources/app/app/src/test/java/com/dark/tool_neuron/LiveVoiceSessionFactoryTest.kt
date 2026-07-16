@@ -12,6 +12,7 @@ import com.dark.tool_neuron.repo.gateway.live.GeminiLiveConfig
 import com.dark.tool_neuron.repo.gateway.live.LiveSessionState
 import com.dark.tool_neuron.repo.gateway.live.LiveVoiceSessionFactory
 import com.dark.tool_neuron.repo.gateway.live.LiveVoiceSynthesizer
+import com.dark.tool_neuron.repo.gateway.live.SynthResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
@@ -34,6 +35,7 @@ class LiveVoiceSessionFactoryTest {
         override fun start(onError: (Throwable) -> Unit) {}
         override fun currentGeneration(): Long = 0
         override fun enqueue(pcm: ByteArray, gen: Long) {}
+        override suspend fun playToCompletion(pcm: ByteArray, gen: Long): Boolean = true
         override fun flush() {}
         override fun stop() { stopCount++ }
     }
@@ -47,7 +49,7 @@ class LiveVoiceSessionFactoryTest {
     }
 
     private class FakeSynthesizer : LiveVoiceSynthesizer {
-        override suspend fun synthesize(config: GeminiLiveConfig, text: String): ByteArray? = null
+        override suspend fun synthesize(config: GeminiLiveConfig, text: String): SynthResult = SynthResult.Empty
     }
 
     private fun geminiConfig() = GatewayConfig(

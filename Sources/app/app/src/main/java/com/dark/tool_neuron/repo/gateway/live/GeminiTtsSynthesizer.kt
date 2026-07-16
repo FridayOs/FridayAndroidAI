@@ -20,9 +20,9 @@ import javax.inject.Singleton
 @Singleton
 class GeminiTtsSynthesizer @Inject constructor() : LiveVoiceSynthesizer {
 
-    override suspend fun synthesize(config: GeminiLiveConfig, text: String): ByteArray? =
+    override suspend fun synthesize(config: GeminiLiveConfig, text: String): SynthResult =
         withContext(Dispatchers.IO) {
-            if (text.isBlank()) return@withContext null
+            if (text.isBlank()) return@withContext SynthResult.Empty
             val payload = buildPayload(text, config.voice)
             // Direct to the user's own Gemini host — same base as the Live socket, never a proxy.
             val url = "https://${config.baseHost}/v1beta/models/${GeminiLiveConfig.DEFAULT_TTS_MODEL}:generateContent?key=${config.apiKey}"
@@ -35,16 +35,19 @@ class GeminiTtsSynthesizer @Inject constructor() : LiveVoiceSynthesizer {
                     val err = conn.errorStream?.use {
                         BufferedReader(InputStreamReader(it, Charsets.UTF_8)).readText()
                     }.orEmpty().take(ERROR_BODY_CAP)
-                    // Sanitize so a provider echo of the key never leaks; null lets the VM surface the miss honestly.
-                    throw TtsException(sanitizeError("HTTP $status: $err", config.apiKey))
+                    // Sanitize so a provider echo of the key never leaks; the VM surfaces the miss as Error.
+                    return@withContext SynthResult.Failed(sanitizeError("HTTP $status: $err", config.apiKey))
                 }
                 val body = BufferedReader(InputStreamReader(conn.inputStream, Charsets.UTF_8)).readText()
-                decodePcm(body)
+                val pcm = decodePcm(body)
+                // A non-blank answer that yields no audio is a real synthesis failure, not benign-empty.
+                if (pcm == null) SynthResult.Failed("Voice synthesis returned no audio")
+                else SynthResult.Audio(pcm)
             } catch (ce: CancellationException) {
                 throw ce
-            } catch (_: Throwable) {
-                // Never leak the key on any transport/parse failure — a null return degrades gracefully.
-                null
+            } catch (t: Throwable) {
+                // Never leak the key on any transport/parse failure — surface a sanitized message.
+                SynthResult.Failed(sanitizeError(t.message, config.apiKey))
             } finally {
                 conn?.disconnect()
             }
@@ -89,8 +92,6 @@ class GeminiTtsSynthesizer @Inject constructor() : LiveVoiceSynthesizer {
             instanceFollowRedirects = false
             setRequestProperty("Content-Type", "application/json")
         }
-
-    private class TtsException(message: String) : Exception(message)
 
     companion object {
         // Pure so the error path is unit-testable off-device (mirrors DirectGatewayClientErrorTest): no key leak.

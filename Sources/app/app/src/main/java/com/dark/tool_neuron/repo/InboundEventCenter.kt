@@ -78,6 +78,14 @@ class InboundEventCenter internal constructor(
 
     fun surface(event: InboundEvent) { _activeEvent.value = event }
 
+    // A tapped notification hands back the event reconstructed from its full-payload extras. Prefer the
+    // retained (already-coerced) copy; if `recent` was cleared (process death), re-coerce the reconstructed
+    // one so the card still surfaces. Re-coercion is why the extras being attacker-reachable on the exported
+    // activity is safe: a forged CONFIRMATION cold-starts only as a capped, non-actionable STATUS card.
+    fun surfaceFromNotification(reconstructed: InboundEvent) {
+        surface(resolve(reconstructed.eventId, reconstructed.correlationId) ?: coercePush(reconstructed))
+    }
+
     fun dismiss() { _activeEvent.value = null }
 
     companion object {
@@ -111,26 +119,54 @@ class InboundEventCenter internal constructor(
         fun fromPushData(data: Map<String, String>): InboundEvent? {
             val eventId = data["eventId"]?.takeIf { it.isNotBlank() } ?: return null
             val title = data["title"]?.takeIf { it.isNotBlank() } ?: return null
-            val kind = when (data["kind"]?.uppercase()) {
-                "TASK" -> InboundEventKind.TASK
-                "CONFIRMATION" -> InboundEventKind.CONFIRMATION
-                else -> InboundEventKind.STATUS
-            }
-            val urgency = when (data["urgency"]?.uppercase()) {
-                "HIGH" -> InboundUrgency.HIGH
-                "URGENT" -> InboundUrgency.URGENT
-                else -> InboundUrgency.NORMAL
-            }
             return InboundEvent(
                 eventId = eventId,
                 sourceType = InboundSource.PUSH,
                 correlationId = data["correlationId"],
-                kind = kind,
+                kind = parseKind(data["kind"]),
                 title = title,
                 body = data["body"].orEmpty(),
-                urgency = urgency,
+                urgency = parseUrgency(data["urgency"]),
                 receivedAt = 0L,
             )
+        }
+
+        // Rebuild an event from a tapped notification's full-payload extras (see AndroidEventNotifier).
+        // sourceType=PUSH because intent extras are attacker-reachable on the exported activity, so
+        // surfaceFromNotification re-coerces the result. Null when id/title are blank.
+        fun reconstruct(
+            eventId: String?,
+            correlationId: String?,
+            kind: String?,
+            title: String?,
+            body: String?,
+            urgency: String?,
+            receivedAt: Long,
+        ): InboundEvent? {
+            val id = eventId?.takeIf { it.isNotBlank() } ?: return null
+            val realTitle = title?.takeIf { it.isNotBlank() } ?: return null
+            return InboundEvent(
+                eventId = id,
+                sourceType = InboundSource.PUSH,
+                correlationId = correlationId,
+                kind = parseKind(kind),
+                title = realTitle,
+                body = body.orEmpty(),
+                urgency = parseUrgency(urgency),
+                receivedAt = receivedAt,
+            )
+        }
+
+        private fun parseKind(raw: String?): InboundEventKind = when (raw?.uppercase()) {
+            "TASK" -> InboundEventKind.TASK
+            "CONFIRMATION" -> InboundEventKind.CONFIRMATION
+            else -> InboundEventKind.STATUS
+        }
+
+        private fun parseUrgency(raw: String?): InboundUrgency = when (raw?.uppercase()) {
+            "HIGH" -> InboundUrgency.HIGH
+            "URGENT" -> InboundUrgency.URGENT
+            else -> InboundUrgency.NORMAL
         }
     }
 }
@@ -150,6 +186,11 @@ private class AndroidEventNotifier(private val context: Context) : EventNotifier
             action = MainActivity.ACTION_OPEN_EVENT
             putExtra(MainActivity.EXTRA_OPEN_EVENT_ID, event.eventId)
             putExtra(MainActivity.EXTRA_OPEN_EVENT_CORRELATION, event.correlationId)
+            putExtra(MainActivity.EXTRA_OPEN_EVENT_KIND, event.kind.name)
+            putExtra(MainActivity.EXTRA_OPEN_EVENT_TITLE, event.title)
+            putExtra(MainActivity.EXTRA_OPEN_EVENT_BODY, event.body)
+            putExtra(MainActivity.EXTRA_OPEN_EVENT_URGENCY, event.urgency.name)
+            putExtra(MainActivity.EXTRA_OPEN_EVENT_RECEIVED_AT, event.receivedAt)
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
         val pi = PendingIntent.getActivity(

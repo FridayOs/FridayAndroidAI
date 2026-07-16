@@ -2,14 +2,13 @@ package com.dark.tool_neuron.repo.gateway.live
 
 import com.dark.tool_neuron.model.gateway.GatewayConfig
 import com.dark.tool_neuron.model.gateway.GatewayWireFormat
-import kotlinx.coroutines.Job
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlin.coroutines.coroutineContext
 
 // A Gemini Live session paired with its Brain Gateway bridge; both share one sessionId so audio and reasoning stay correlated.
 class LiveVoiceSession internal constructor(
@@ -24,16 +23,26 @@ class LiveVoiceSession internal constructor(
 
     fun run(): Flow<LiveEvent> = engine.run(config)
     fun endUserTurn() = engine.endUserTurn()
+    fun resumeUserTurn(): Boolean = engine.resumeUserTurn()
 
-    // B1: vocalize the Brain Gateway's answer. Synthesize the text (direct to the user's Gemini host) and enqueue
-    // the PCM into the SAME sink the engine's playback uses — in brain-owns-answer mode Gemini's own audio is
-    // discarded, so only this TTS PCM is ever played. A cancelled speak coroutine (barge-in/reset) flushes the sink.
-    suspend fun speak(text: String) {
+    // B1: vocalize the Brain Gateway's answer. Synthesize the text (direct to the user's Gemini host) and play
+    // the PCM to completion in the SAME sink the engine uses — in brain-owns-answer mode Gemini's own audio is
+    // discarded, so only this TTS PCM is ever played. Capturing the generation BEFORE synthesis means a
+    // barge-in flush during the network call bumps the token and playToCompletion returns Superseded. A
+    // cancelled speak coroutine (barge-in/reset) flushes the sink and rethrows.
+    suspend fun speak(text: String): SpeakOutcome {
+        val gen = sink.currentGeneration()
         try {
-            val pcm = synthesizer.synthesize(config, text) ?: return
-            sink.enqueue(pcm, sink.currentGeneration())
-        } finally {
-            if (coroutineContext[Job]?.isActive == false) sink.flush()
+            return when (val result = synthesizer.synthesize(config, text)) {
+                is SynthResult.Empty -> SpeakOutcome.Empty
+                is SynthResult.Failed -> SpeakOutcome.Failed(result.message)
+                is SynthResult.Audio ->
+                    if (sink.playToCompletion(result.pcm, gen)) SpeakOutcome.Completed
+                    else SpeakOutcome.Superseded
+            }
+        } catch (ce: CancellationException) {
+            sink.flush()
+            throw ce
         }
     }
 

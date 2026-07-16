@@ -15,6 +15,11 @@ interface LiveAudioSink {
     fun start(onError: (Throwable) -> Unit)
     fun currentGeneration(): Long
     fun enqueue(pcm: ByteArray, gen: Long)
+    // B1 speak-on-Done: play one chunk and SUSPEND until the audio has actually drained, so the caller can
+    // fire the terminal SpeakComplete only after playback finished (not the moment it was queued). Returns
+    // false when a flush bumped the generation mid-playback (superseded turn). Used only by the cloud
+    // brain-owns-answer path, where enqueue() is never called — so no consumer-coroutine contention.
+    suspend fun playToCompletion(pcm: ByteArray, gen: Long): Boolean
     // Barge-in / interrupt: drop the current turn's queued audio instantly.
     fun flush()
     fun stop()

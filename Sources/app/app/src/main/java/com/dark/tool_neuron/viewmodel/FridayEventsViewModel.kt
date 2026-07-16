@@ -11,8 +11,9 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 // Thin bridge from the singleton InboundEventCenter to the Friday screens' in-app event card. Also
-// consumes a tapped-notification one-shot (PendingInboundEvent): resolve the retained event by its
-// display keys and surface its card. Unknown/expired id -> nothing (no crash, no card).
+// consumes a tapped-notification one-shot (PendingInboundEvent): surface the tapped event via
+// surfaceFromNotification, which prefers the retained (already-coerced) copy and otherwise re-coerces
+// the reconstructed extras so a forged intent can only cold-start a capped, non-actionable STATUS card.
 @HiltViewModel
 class FridayEventsViewModel @Inject constructor(
     private val center: InboundEventCenter,
@@ -25,8 +26,8 @@ class FridayEventsViewModel @Inject constructor(
         viewModelScope.launch {
             pendingInboundEvent.pending.collect { pending ->
                 if (pending == null) return@collect
-                val (id, correlationId) = pendingInboundEvent.consume() ?: return@collect
-                center.resolve(id, correlationId)?.let { center.surface(it) }
+                val event = pendingInboundEvent.consume() ?: return@collect
+                center.surfaceFromNotification(event)
             }
         }
     }

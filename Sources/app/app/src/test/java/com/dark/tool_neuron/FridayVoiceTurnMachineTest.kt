@@ -99,12 +99,18 @@ class FridayVoiceTurnMachineTest {
     }
 
     @Test
-    fun micTap_duringSpeaking_bargeInTrue_cloud_onlyCancelsBrainTurn() {
+    fun micTap_duringSpeaking_bargeInTrue_cloud_cancelsBrainTurnAndResumesMic() {
+        // C2: endUserTurn stopped cloud capture when the turn began, so a cloud barge-in must re-open the
+        // mic on the SAME socket (ResumeCloudUserTurn), not just cancel the brain turn.
         val state = VoiceTurnState(ui = VoiceUiState.Speaking, epoch = 2, route = VoiceTurnRoute.CLOUD, bargeIn = true)
         val result = reduce(state, VoiceTurnEvent.MicTap(VoiceTurnRoute.CLOUD, bargeIn = true))
         assertEquals(VoiceUiState.Listening, result.state.ui)
         assertEquals(3, result.state.epoch)
-        assertEquals(listOf(VoiceTurnEffect.CancelBrainTurn), result.effects)
+        assertEquals("", result.state.transcript)
+        assertEquals(
+            listOf(VoiceTurnEffect.CancelBrainTurn, VoiceTurnEffect.ResumeCloudUserTurn(3, bargeIn = true)),
+            result.effects,
+        )
     }
 
     @Test

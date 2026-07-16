@@ -19,6 +19,7 @@ import com.dark.tool_neuron.repo.gateway.live.GeminiLiveConfig
 import com.dark.tool_neuron.repo.gateway.live.LiveEvent
 import com.dark.tool_neuron.repo.gateway.live.LiveVoiceAdapter
 import com.dark.tool_neuron.repo.gateway.live.LiveVoiceHandle
+import com.dark.tool_neuron.repo.gateway.live.SpeakOutcome
 import com.dark.tool_neuron.service.voice.VoiceSessionForegroundService
 import com.dark.tool_neuron.ui.screens.friday.components.VoiceAnimation
 import com.dark.tool_neuron.voice.AttachedSession
@@ -156,6 +157,10 @@ class FridayVoiceViewModel internal constructor(
     private var sessionJob: Job? = null
     private var brainTurnJob: Job? = null
     private var speakJob: Job? = null
+    // The socket collector outlives a single turn (one live session spans barge-ins), so it tags events
+    // with the CURRENT turn epoch read here — not a per-open captured value that would go stale after a
+    // barge-in bumped the epoch and cause the resumed mic's transcript to be dropped by the epoch guard.
+    @Volatile private var sessionEpoch = 0
 
     fun clearSelectorRequest() { _selectorRequest.value = null }
 
@@ -254,6 +259,7 @@ class FridayVoiceViewModel internal constructor(
                 speakJob = null
                 handle?.brainCancel() ?: bridge.brainCancel()
             }
+            is VoiceTurnEffect.ResumeCloudUserTurn -> resumeCloudUserTurn(effect.epoch, effect.bargeIn)
             is VoiceTurnEffect.RunBrainTurn -> runBrainTurn(effect.epoch, effect.transcript)
             is VoiceTurnEffect.SpeakLocal -> speakLocal(effect.epoch, effect.text)
             is VoiceTurnEffect.SpeakCloud -> speakCloud(effect.epoch, effect.text)
@@ -269,6 +275,7 @@ class FridayVoiceViewModel internal constructor(
             dispatch(VoiceTurnEvent.BrainError(epoch, "Live voice isn't supported for this provider yet."))
             return
         }
+        sessionEpoch = epoch
         val h = adapter.open(voiceCfg, GeminiLiveConfig.DEFAULT_VOICE, locale(), bargeIn)
         handle = h
         if (!lifecycleHost.attach(cloudAttachedSession(h))) {
@@ -283,11 +290,21 @@ class FridayVoiceViewModel internal constructor(
         if (prefs.foregroundContinue) foregroundService.start()
         sessionJob = viewModelScope.launch {
             h.run().collect { ev ->
-                if (ev is LiveEvent.InputTranscript && epochCurrent(epoch)) _question.value = ev.text
-                if (ev is LiveEvent.OutputTranscript && epochCurrent(epoch)) _answer.value += ev.text
-                dispatch(VoiceTurnEvent.SessionEvent(epoch, ev))
+                // Read the live epoch (not the captured one) so events after a barge-in tag the new turn.
+                val e = sessionEpoch
+                if (ev is LiveEvent.InputTranscript && epochCurrent(e)) _question.value = ev.text
+                if (ev is LiveEvent.OutputTranscript && epochCurrent(e)) _answer.value += ev.text
+                dispatch(VoiceTurnEvent.SessionEvent(e, ev))
             }
         }
+    }
+
+    // Cloud barge-in: re-open the mic on the existing live socket. Advance sessionEpoch first so the still-
+    // running collector tags the resumed turn's events with the new epoch; fall back to a fresh session if the
+    // handle can't resume (closed/cancelled).
+    private fun resumeCloudUserTurn(epoch: Int, bargeIn: Boolean) {
+        sessionEpoch = epoch
+        if (handle?.resumeUserTurn() != true) openCloudSession(epoch, bargeIn)
     }
 
     private fun startLocalRecording(epoch: Int) {
@@ -404,8 +421,16 @@ class FridayVoiceViewModel internal constructor(
             return
         }
         speakJob = viewModelScope.launch {
-            h.speak(text)
-            if (epochCurrent(epoch)) dispatch(VoiceTurnEvent.SpeakComplete(epoch))
+            // speak() suspends until the PCM has actually finished playing, so SpeakComplete (→ terminal Done
+            // + ReleaseSession) only fires after playback — not the moment audio is queued. A synthesis
+            // failure surfaces as Error; a barge-in that superseded the turn drops silently.
+            when (val outcome = h.speak(text)) {
+                is SpeakOutcome.Failed ->
+                    if (epochCurrent(epoch)) dispatch(VoiceTurnEvent.BrainError(epoch, outcome.message))
+                SpeakOutcome.Completed, SpeakOutcome.Empty ->
+                    if (epochCurrent(epoch)) dispatch(VoiceTurnEvent.SpeakComplete(epoch))
+                SpeakOutcome.Superseded -> Unit
+            }
         }
     }
 
