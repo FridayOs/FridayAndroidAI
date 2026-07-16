@@ -155,6 +155,7 @@ class FridayVoiceViewModel internal constructor(
     private var handle: LiveVoiceHandle? = null
     private var sessionJob: Job? = null
     private var brainTurnJob: Job? = null
+    private var speakJob: Job? = null
 
     fun clearSelectorRequest() { _selectorRequest.value = null }
 
@@ -245,13 +246,17 @@ class FridayVoiceViewModel internal constructor(
             is VoiceTurnEffect.StartLocalRecording -> startLocalRecording(effect.epoch)
             is VoiceTurnEffect.StopLocalRecordingAndRecognize -> stopLocalRecording(effect.epoch)
             VoiceTurnEffect.CancelBrainTurn -> {
-                // Also cancel the collect job so a cancelled cloud turn stops streaming/persisting.
+                // Also cancel the collect + speak jobs so a cancelled/barged-in cloud turn stops streaming,
+                // persisting, and vocalizing (a cancelled speak flushes the sink so stale TTS PCM stops).
                 brainTurnJob?.cancel()
                 brainTurnJob = null
+                speakJob?.cancel()
+                speakJob = null
                 handle?.brainCancel() ?: bridge.brainCancel()
             }
             is VoiceTurnEffect.RunBrainTurn -> runBrainTurn(effect.epoch, effect.transcript)
             is VoiceTurnEffect.SpeakLocal -> speakLocal(effect.epoch, effect.text)
+            is VoiceTurnEffect.SpeakCloud -> speakCloud(effect.epoch, effect.text)
             VoiceTurnEffect.StopLocalSpeaking -> voiceManager.stopSpeaking()
             VoiceTurnEffect.TeardownAll -> teardownAll()
             VoiceTurnEffect.ReleaseSession -> releaseSession()
@@ -266,7 +271,13 @@ class FridayVoiceViewModel internal constructor(
         }
         val h = adapter.open(voiceCfg, GeminiLiveConfig.DEFAULT_VOICE, locale(), bargeIn)
         handle = h
-        lifecycleHost.attach(cloudAttachedSession(h))
+        if (!lifecycleHost.attach(cloudAttachedSession(h))) {
+            // Audio focus denied: tear down the just-opened session before any mic stream / FGS starts.
+            h.cancel()
+            handle = null
+            dispatch(VoiceTurnEvent.BrainError(epoch, FOCUS_DENIED_MESSAGE))
+            return
+        }
         lifecycleHost.setContinuationActive(prefs.foregroundContinue)
         serviceGate.setSessionActive(true)
         if (prefs.foregroundContinue) foregroundService.start()
@@ -280,10 +291,14 @@ class FridayVoiceViewModel internal constructor(
     }
 
     private fun startLocalRecording(epoch: Int) {
-        if (voiceManager.startRecording()) {
-            lifecycleHost.attach(localAttachedSession())
-        } else {
+        if (!voiceManager.startRecording()) {
             dispatch(VoiceTurnEvent.BrainError(epoch, voiceManager.error.value ?: "Could not start recording"))
+            return
+        }
+        if (!lifecycleHost.attach(localAttachedSession())) {
+            // Audio focus denied: don't leave the recorder running.
+            voiceManager.cancelRecording()
+            dispatch(VoiceTurnEvent.BrainError(epoch, FOCUS_DENIED_MESSAGE))
         }
     }
 
@@ -379,12 +394,29 @@ class FridayVoiceViewModel internal constructor(
         }
     }
 
+    // B1: vocalize the Brain answer through the Voice Gateway (Gemini TTS) — audio never touches the brain,
+    // only the final text does. speak() suspends until the PCM is synthesized + enqueued (single-chunk
+    // speak-on-Done); then SpeakComplete drives the terminal Done + ReleaseSession. A stale epoch (barge-in
+    // superseded the turn) is dropped so it can't complete a turn that no longer exists.
+    private fun speakCloud(epoch: Int, text: String) {
+        val h = handle ?: run {
+            dispatch(VoiceTurnEvent.SpeakComplete(epoch))
+            return
+        }
+        speakJob = viewModelScope.launch {
+            h.speak(text)
+            if (epochCurrent(epoch)) dispatch(VoiceTurnEvent.SpeakComplete(epoch))
+        }
+    }
+
     // Terminal-state resource release: mic/session/FGS go away, but question/answer text and the
     // Done/Error surface stay for the user to read. TeardownAll (mid-turn cancel) also resets UI.
     // Deliberately does NOT stopSpeaking — local Done keeps TTS playing.
     private fun releaseSession() {
         brainTurnJob?.cancel()
         brainTurnJob = null
+        speakJob?.cancel()
+        speakJob = null
         sessionJob?.cancel()
         sessionJob = null
         handle?.cancel()
@@ -409,6 +441,7 @@ class FridayVoiceViewModel internal constructor(
 
     override fun onCleared() {
         brainTurnJob?.cancel()
+        speakJob?.cancel()
         sessionJob?.cancel()
         handle?.cancel()
         voiceManager.cancelRecording()
@@ -420,5 +453,7 @@ class FridayVoiceViewModel internal constructor(
 
     internal companion object {
         const val KEY_FRIDAY_LANGUAGE = "friday_language"
+        // Stable, provider-free copy shown when audio focus can't be acquired (another app holds it).
+        const val FOCUS_DENIED_MESSAGE = "Couldn't get audio focus. Close other audio apps and try again."
     }
 }

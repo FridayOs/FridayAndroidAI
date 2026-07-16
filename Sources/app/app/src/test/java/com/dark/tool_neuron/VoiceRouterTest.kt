@@ -61,22 +61,13 @@ class VoiceRouterTest {
         assertEquals(brain, route.brain)
     }
 
-    @Test
-    fun openaiVoiceIsCloudBridgeToBrain() {
-        val voice = config(GatewayProvider.OPENAI, voiceRoute = VoiceRoute.CLOUD)
-        val brain = config(GatewayProvider.ANTHROPIC)
-        val route = VoiceRouter.decide(voice, brain)
-        assertTrue(route is VoiceRouter.Route.CloudBridge)
-        assertEquals(brain, (route as VoiceRouter.Route.CloudBridge).brain)
-    }
-
     // Every voice mode bridges to a direct Cloud/Local brain route — never a FRIDAY-API call.
+    // (OpenAI cloud-voice is deferred; Gemini covers the CLOUD bridge path.)
     @Test
     fun everyVoiceModeBridgesToBrain_neverFridayApi() {
         val brain = config(GatewayProvider.OPENAI)
         listOf(
             config(GatewayProvider.GEMINI, VoiceRoute.CLOUD),
-            config(GatewayProvider.OPENAI, VoiceRoute.CLOUD),
             config(GatewayProvider.LOCAL, VoiceRoute.LOCAL),
         ).forEach { voice ->
             val route = VoiceRouter.decide(voice, brain)

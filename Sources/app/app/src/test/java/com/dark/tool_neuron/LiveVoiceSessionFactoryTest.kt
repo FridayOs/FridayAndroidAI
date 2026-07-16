@@ -8,8 +8,10 @@ import com.dark.tool_neuron.repo.gateway.live.BrainCorrelation
 import com.dark.tool_neuron.repo.gateway.live.LiveAudioSink
 import com.dark.tool_neuron.repo.gateway.live.LiveAudioSource
 import com.dark.tool_neuron.repo.gateway.live.LiveBrainGateway
+import com.dark.tool_neuron.repo.gateway.live.GeminiLiveConfig
 import com.dark.tool_neuron.repo.gateway.live.LiveSessionState
 import com.dark.tool_neuron.repo.gateway.live.LiveVoiceSessionFactory
+import com.dark.tool_neuron.repo.gateway.live.LiveVoiceSynthesizer
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.emptyFlow
@@ -44,6 +46,10 @@ class LiveVoiceSessionFactoryTest {
         override fun brainAwaitingConfirmation(): Boolean = false
     }
 
+    private class FakeSynthesizer : LiveVoiceSynthesizer {
+        override suspend fun synthesize(config: GeminiLiveConfig, text: String): ByteArray? = null
+    }
+
     private fun geminiConfig() = GatewayConfig(
         id = "g1", provider = GatewayProvider.GEMINI, label = "Gemini",
         baseUrl = "", apiKey = "sk-live", model = "", createdAt = 0, updatedAt = 0,
@@ -52,7 +58,7 @@ class LiveVoiceSessionFactoryTest {
     @Test
     fun creatingASecondSession_supersedesTheFirst() {
         val src = FakeSource(); val sink = FakeSink()
-        val factory = LiveVoiceSessionFactory(src, sink, FakeBrain())
+        val factory = LiveVoiceSessionFactory(src, sink, FakeBrain(), FakeSynthesizer())
 
         val a = factory.create(geminiConfig())
         val b = factory.create(geminiConfig())

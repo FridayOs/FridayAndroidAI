@@ -10,6 +10,7 @@ import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.runtime.getValue
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dark.tool_neuron.data.AppCompatLocaleWrapper
+import com.dark.tool_neuron.data.PendingInboundEvent
 import com.dark.tool_neuron.data.ThemeController
 import com.dark.tool_neuron.ui.screens.system_ui.AppScaffold
 import com.dark.tool_neuron.ui.theme.ToolNeuronTheme
@@ -24,6 +25,8 @@ import javax.inject.Inject
 class MainActivity : ComponentActivity() {
 
     @Inject lateinit var themeController: ThemeController
+
+    @Inject lateinit var pendingInboundEvent: PendingInboundEvent
 
     @EntryPoint
     @InstallIn(SingletonComponent::class)
@@ -41,6 +44,7 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        handleEventIntent(intent)
         // Inference service binding is owned by TNApplication so background
         // work (RAG ingest, SD pipeline, scheduled jobs) doesn't lose the
         // service the moment MainActivity is recreated or finishes.
@@ -63,6 +67,16 @@ class MainActivity : ComponentActivity() {
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
+        handleEventIntent(intent)
+    }
+
+    // ACTION_OPEN_EVENT carries only display-lookup keys (event id/correlation). The Friday events VM
+    // resolves them against events the InboundEventCenter already retained, so a forged extra resolves
+    // to null. Not a trust boundary; the assist flag stays in-process (never via an Intent extra).
+    private fun handleEventIntent(intent: Intent?) {
+        if (intent?.action != ACTION_OPEN_EVENT) return
+        val id = intent.getStringExtra(EXTRA_OPEN_EVENT_ID)?.takeIf { it.isNotBlank() } ?: return
+        pendingInboundEvent.set(id, intent.getStringExtra(EXTRA_OPEN_EVENT_CORRELATION))
     }
 
     // The assist one-shot flag is set in-process by FridayVoiceInteractionSession (never via an

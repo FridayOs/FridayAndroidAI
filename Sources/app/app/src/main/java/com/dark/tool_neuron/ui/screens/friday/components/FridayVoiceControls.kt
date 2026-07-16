@@ -25,7 +25,7 @@ import com.dark.tool_neuron.viewmodel.VoiceUiState
 @Composable
 fun FridayVoiceControls(
     uiState: VoiceUiState,
-    onEditClick: () -> Unit,
+    onToChat: () -> Unit,
     onMicClick: () -> Unit,
     onReset: () -> Unit,
 ) {
@@ -36,7 +36,7 @@ fun FridayVoiceControls(
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        DashedCircleButton(TnIcons.Edit, onClick = onEditClick)
+        DashedCircleButton(TnIcons.MessageCircle, onClick = onToChat)
         Spacer(Modifier.size(40.dp))
         Box(
             modifier = Modifier

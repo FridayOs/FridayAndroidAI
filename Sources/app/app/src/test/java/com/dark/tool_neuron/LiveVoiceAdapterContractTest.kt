@@ -29,6 +29,7 @@ class LiveVoiceAdapterContractTest {
         val events = MutableSharedFlow<LiveEvent>(extraBufferCapacity = 8)
         var endUserTurnCalls = 0
         var cancelCalls = 0
+        val spoken = mutableListOf<String>()
         override fun run(): Flow<LiveEvent> = events
         override fun endUserTurn() { endUserTurnCalls++ }
         override fun onAudioFocusLost() {}
@@ -40,6 +41,7 @@ class LiveVoiceAdapterContractTest {
             flow { emit(GatewayEvent.Delta("part")); emit(GatewayEvent.Done("part answer")) }
         override fun brainCancel() {}
         override fun brainConfirm(): Boolean = true
+        override suspend fun speak(text: String) { spoken += text }
     }
 
     private class SeamAdapter : LiveVoiceAdapter {
@@ -87,6 +89,10 @@ class LiveVoiceAdapterContractTest {
         handle.endUserTurn()
         val brainEvents = handle.brainTurn(emptyList(), "seam transcript").toList()
         assertEquals(listOf(GatewayEvent.Delta("part"), GatewayEvent.Done("part answer")), brainEvents)
+
+        // B1: the Brain answer is vocalized through the same seam (Voice Gateway TTS), never Gemini's own audio.
+        handle.speak("brain final answer")
+        assertEquals(listOf("brain final answer"), seamAdapter.handle.spoken)
 
         handle.cancel()
         assertEquals(1, seamAdapter.handle.endUserTurnCalls)

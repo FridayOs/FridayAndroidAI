@@ -30,8 +30,9 @@ class GatewayProviderRoleTest {
     fun voice_role_excludes_brain_only_providers() {
         val voices = GatewayProvider.forRole(GatewayRole.VOICE)
         assertTrue(voices.contains(GatewayProvider.GEMINI))
-        assertTrue(voices.contains(GatewayProvider.OPENAI))
         assertTrue(voices.contains(GatewayProvider.LOCAL))
+        // OpenAI Realtime voice is deferred (seam kept, no production adapter) → brain-only for now.
+        assertFalse(voices.contains(GatewayProvider.OPENAI))
         // Anthropic / DeepSeek / OpenClaw / Hermes / Custom are brain-only.
         assertFalse(voices.contains(GatewayProvider.ANTHROPIC))
         assertFalse(voices.contains(GatewayProvider.DEEPSEEK))

@@ -25,4 +25,7 @@ interface LiveVoiceHandle {
     fun brainTurn(history: List<GatewayTurn>, transcript: String): Flow<GatewayEvent>
     fun brainCancel()
     fun brainConfirm(): Boolean
+    // B1: vocalize the Brain Gateway's final answer through the Voice Gateway (suspends until the PCM is
+    // synthesized + enqueued; single-chunk speak-on-Done). Text only ever crosses here — never audio.
+    suspend fun speak(text: String)
 }

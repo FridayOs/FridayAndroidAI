@@ -50,14 +50,33 @@ class InboundEventCenter internal constructor(
     private val _activeEvent = MutableStateFlow<InboundEvent?>(null)
     val activeEvent: StateFlow<InboundEvent?> = _activeEvent.asStateFlow()
 
+    // Bounded in-memory retention so a background event tap can re-surface its (already-coerced) card.
+    // LRU access-order, capped — no persistence (FRI-555 owns durable delivery), no content logging.
+    private val recent = object : LinkedHashMap<String, InboundEvent>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, InboundEvent>): Boolean =
+            size > RECENT_CAP
+    }
+
     override fun publish(event: InboundEvent) {
         val safe = if (event.sourceType == InboundSource.PUSH) coercePush(event) else event
+        synchronized(recent) { recent[safe.eventId] = safe }
         if (foreground.isForeground()) {
             _activeEvent.value = safe
         } else {
             notifier.notify(safe, channelIdFor(safe.urgency))
         }
     }
+
+    // Look up a retained event by its notification's display keys. Correlation is checked only when
+    // both sides carry one; a forged/unknown id (never published by us) returns null. No auth here —
+    // resolution only re-surfaces an event we already published and coerced.
+    fun resolve(eventId: String, correlationId: String?): InboundEvent? {
+        val event = synchronized(recent) { recent[eventId] } ?: return null
+        if (correlationId != null && event.correlationId != null && event.correlationId != correlationId) return null
+        return event
+    }
+
+    fun surface(event: InboundEvent) { _activeEvent.value = event }
 
     fun dismiss() { _activeEvent.value = null }
 
@@ -67,6 +86,7 @@ class InboundEventCenter internal constructor(
         const val CHANNEL_URGENT = "friday_events_urgent"
         const val TITLE_CAP = 120
         const val BODY_CAP = 400
+        const val RECENT_CAP = 32
 
         fun channelIdFor(urgency: InboundUrgency): String = when (urgency) {
             InboundUrgency.NORMAL -> CHANNEL_NORMAL

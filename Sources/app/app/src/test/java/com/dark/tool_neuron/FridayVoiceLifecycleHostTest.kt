@@ -17,6 +17,7 @@ import org.junit.Test
 class FridayVoiceLifecycleHostTest {
 
     private class RecordingHooks : SystemHooks {
+        var focusGranted = true
         var focusListener: AudioManager.OnAudioFocusChangeListener? = null
         var routeCallback: AudioDeviceCallback? = null
         var lifecycleObserver: LifecycleEventObserver? = null
@@ -26,7 +27,7 @@ class FridayVoiceLifecycleHostTest {
 
         override fun registerFocus(listener: AudioManager.OnAudioFocusChangeListener): Boolean {
             focusListener = listener
-            return true
+            return focusGranted
         }
         override fun abandonFocus() { abandonCalls++ }
         override fun registerRouteCallback(callback: AudioDeviceCallback) { routeCallback = callback }
@@ -150,6 +151,29 @@ class FridayVoiceLifecycleHostTest {
         hooks.focusListener!!.onAudioFocusChange(AudioManager.AUDIOFOCUS_LOSS)
         assertEquals(0, first.focusLost)
         assertEquals(1, second.focusLost)
+    }
+
+    @Test
+    fun focusDenied_attachReturnsFalse_andRollsBackRegistrations() {
+        val hooks = RecordingHooks().apply { focusGranted = false }
+        val session = RecordingSession()
+        val host = VoiceSessionLifecycleHost(hooks)
+        assertEquals(false, host.attach(session))
+        // Focus-first gating: route/lifecycle listeners are never left registered on denial.
+        assertNull(hooks.routeCallback)
+        assertNull(hooks.lifecycleObserver)
+        assertEquals("focus rolled back", 1, hooks.abandonCalls)
+        // Session detached: a stray focus callback forwards nothing.
+        hooks.focusListener?.onAudioFocusChange(AudioManager.AUDIOFOCUS_LOSS)
+        assertEquals(0, session.focusLost)
+    }
+
+    @Test
+    fun focusGranted_attachReturnsTrue_registersRouteAndLifecycle() {
+        val hooks = RecordingHooks()
+        assertEquals(true, VoiceSessionLifecycleHost(hooks).attach(RecordingSession()))
+        assertNotNull(hooks.routeCallback)
+        assertNotNull(hooks.lifecycleObserver)
     }
 
     @Test

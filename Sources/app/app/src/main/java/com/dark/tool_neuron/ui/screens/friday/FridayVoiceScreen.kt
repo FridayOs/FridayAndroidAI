@@ -43,8 +43,8 @@ import com.dark.tool_neuron.ui.screens.friday.components.ConfirmationCard
 import com.dark.tool_neuron.ui.screens.friday.components.FridayVoiceAnimation
 import com.dark.tool_neuron.ui.screens.friday.components.FridayVoiceControls
 import com.dark.tool_neuron.ui.screens.friday.components.FridayVoiceHeader
-import com.dark.tool_neuron.ui.screens.friday.components.FridayVoiceProviderStatusPill
 import com.dark.tool_neuron.ui.screens.friday.components.FridayVoiceRing
+import com.dark.tool_neuron.ui.screens.friday.components.FridayThinkingRow
 import com.dark.tool_neuron.ui.screens.friday.components.FridayVoiceSelectorPrompt
 import com.dark.tool_neuron.ui.screens.friday.components.InboundEventCard
 import com.dark.tool_neuron.ui.util.FridayPalette
@@ -120,7 +120,14 @@ fun FridayVoiceScreen(
             .padding(innerPadding)
             .padding(horizontal = 22.dp, vertical = 6.dp),
     ) {
-        FridayVoiceHeader(onOpenMenu = onOpenMenu, onToChat = onToChat)
+        FridayVoiceHeader(
+            onOpenMenu = onOpenMenu,
+            onToChat = onToChat,
+            brainConfigured = brainConfigured,
+            gatewayLabel = voiceGateway?.label,
+            ready = voiceGateway?.status == GatewayStatus.READY,
+            onProviderClick = onOpenMenu,
+        )
 
         Spacer(Modifier.height(18.dp))
         Text(
@@ -140,14 +147,6 @@ fun FridayVoiceScreen(
             FridayVoiceAnimation(animation = voiceAnimation, active = active)
         }
 
-        Spacer(Modifier.height(10.dp))
-        FridayVoiceProviderStatusPill(
-            brainConfigured = brainConfigured,
-            gatewayLabel = voiceGateway?.label,
-            ready = voiceGateway?.status == GatewayStatus.READY,
-            onClick = onOpenMenu,
-        )
-
         Column(
             modifier = Modifier
                 .weight(1f)
@@ -156,6 +155,9 @@ fun FridayVoiceScreen(
                 .padding(top = 16.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            if (uiState is VoiceUiState.Thinking) {
+                FridayThinkingRow(modifier = Modifier.padding(bottom = 14.dp))
+            }
             if (question.isNotEmpty()) {
                 Text(
                     text = question,
@@ -227,7 +229,7 @@ fun FridayVoiceScreen(
 
         FridayVoiceControls(
             uiState = uiState,
-            onEditClick = onOpenMenu,
+            onToChat = onToChat,
             onMicClick = { if (!micGranted) viewModel.onMicNeedsPermission() else viewModel.onMicTap() },
             onReset = viewModel::reset,
         )

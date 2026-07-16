@@ -2,12 +2,14 @@ package com.dark.tool_neuron.repo.gateway.live
 
 import com.dark.tool_neuron.model.gateway.GatewayConfig
 import com.dark.tool_neuron.model.gateway.GatewayWireFormat
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.StateFlow
 import java.util.UUID
 import java.util.concurrent.atomic.AtomicReference
 import javax.inject.Inject
 import javax.inject.Singleton
+import kotlin.coroutines.coroutineContext
 
 // A Gemini Live session paired with its Brain Gateway bridge; both share one sessionId so audio and reasoning stay correlated.
 class LiveVoiceSession internal constructor(
@@ -15,11 +17,25 @@ class LiveVoiceSession internal constructor(
     private val config: GeminiLiveConfig,
     val sessionId: String,
     val cloudBridge: LiveCloudBridge,
+    private val synthesizer: LiveVoiceSynthesizer,
+    private val sink: LiveAudioSink,
 ) {
     val state: StateFlow<LiveSessionState> get() = engine.state
 
     fun run(): Flow<LiveEvent> = engine.run(config)
     fun endUserTurn() = engine.endUserTurn()
+
+    // B1: vocalize the Brain Gateway's answer. Synthesize the text (direct to the user's Gemini host) and enqueue
+    // the PCM into the SAME sink the engine's playback uses — in brain-owns-answer mode Gemini's own audio is
+    // discarded, so only this TTS PCM is ever played. A cancelled speak coroutine (barge-in/reset) flushes the sink.
+    suspend fun speak(text: String) {
+        try {
+            val pcm = synthesizer.synthesize(config, text) ?: return
+            sink.enqueue(pcm, sink.currentGeneration())
+        } finally {
+            if (coroutineContext[Job]?.isActive == false) sink.flush()
+        }
+    }
 
     // Device/app lifecycle passthroughs the host (FRI-562) wires to audio-focus/route/foreground/permission callbacks.
     fun onAudioFocusLost() = engine.onAudioFocusLost()
@@ -30,9 +46,10 @@ class LiveVoiceSession internal constructor(
         engine.onPermissionRevoked()
     }
 
-    // Tearing the session down also cancels any in-flight brain turn — audio and reasoning stop together.
+    // Tearing the session down also cancels any in-flight brain turn and drops pending TTS — everything stops together.
     fun cancel() {
         cloudBridge.brainCancel()
+        sink.flush()
         engine.cancel()
     }
 }
@@ -43,6 +60,7 @@ class LiveVoiceSessionFactory @Inject constructor(
     private val capture: LiveAudioSource,
     private val player: LiveAudioSink,
     private val brain: LiveBrainGateway,
+    private val synthesizer: LiveVoiceSynthesizer,
 ) {
     private val active = AtomicReference<LiveVoiceSession?>(null)
 
@@ -66,6 +84,8 @@ class LiveVoiceSessionFactory @Inject constructor(
             config = GeminiLiveConfig.from(config, voice, locale, bargeIn),
             sessionId = sessionId,
             cloudBridge = LiveCloudBridge(brain, sessionId),
+            synthesizer = synthesizer,
+            sink = player,
         )
         active.getAndSet(session)?.cancel()
         return session

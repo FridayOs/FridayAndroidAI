@@ -10,7 +10,9 @@ import com.dark.tool_neuron.repo.gateway.live.LiveAudioSink
 import com.dark.tool_neuron.repo.gateway.live.LiveAudioSource
 import com.dark.tool_neuron.repo.gateway.live.LiveBrainGateway
 import com.dark.tool_neuron.repo.gateway.live.GeminiLiveVoiceAdapter
+import com.dark.tool_neuron.repo.gateway.live.GeminiTtsSynthesizer
 import com.dark.tool_neuron.repo.gateway.live.LiveVoiceAdapter
+import com.dark.tool_neuron.repo.gateway.live.LiveVoiceSynthesizer
 import com.dark.tool_neuron.viewmodel.GatewayConfigVoiceGatewayStatePort
 import com.dark.tool_neuron.viewmodel.VoiceGatewayStatePort
 import com.dark.tool_neuron.voice.VoiceIo
@@ -64,6 +66,10 @@ abstract class GatewayModule {
     @Binds
     @Singleton
     abstract fun bindLiveVoiceAdapter(impl: GeminiLiveVoiceAdapter): LiveVoiceAdapter
+
+    @Binds
+    @Singleton
+    abstract fun bindLiveVoiceSynthesizer(impl: GeminiTtsSynthesizer): LiveVoiceSynthesizer
 
     @Binds
     @Singleton

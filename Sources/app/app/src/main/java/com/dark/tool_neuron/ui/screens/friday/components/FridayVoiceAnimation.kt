@@ -102,6 +102,12 @@ private fun FridayVoiceOrbVideo(assetName: String, active: Boolean, modifier: Mo
 
 @Composable
 private fun FridayVoiceGifAnimation(assetName: String, active: Boolean, modifier: Modifier) {
+    AssetGif(assetName = assetName, active = active, modifier = modifier)
+}
+
+// Shared animated-GIF-from-assets render path (decode once, drive AnimatedImageDrawable by `active`).
+@Composable
+fun AssetGif(assetName: String, active: Boolean, modifier: Modifier = Modifier) {
     val context = LocalContext.current
     val drawable = remember(assetName) {
         runCatching {

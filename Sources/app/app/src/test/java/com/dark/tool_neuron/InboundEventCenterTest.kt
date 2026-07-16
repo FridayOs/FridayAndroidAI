@@ -129,4 +129,44 @@ class InboundEventCenterTest {
         center.publish(event(kind = InboundEventKind.CONFIRMATION, source = InboundSource.PUSH))
         assertEquals(InboundEventKind.STATUS, center.activeEvent.value!!.kind)
     }
+
+    @Test
+    fun resolve_returnsRetainedBackgroundEvent_thenSurface() {
+        val center = InboundEventCenter(FakeForeground(false), RecordingNotifier())
+        val e = event(source = InboundSource.LOCAL).copy(eventId = "bg-1")
+        center.publish(e)
+        assertNull("background publish must not auto-surface a card", center.activeEvent.value)
+        val resolved = center.resolve("bg-1", null)
+        assertEquals(e, resolved)
+        center.surface(resolved!!)
+        assertEquals(e, center.activeEvent.value)
+    }
+
+    @Test
+    fun resolve_unknownId_returnsNull() {
+        val center = InboundEventCenter(FakeForeground(false), RecordingNotifier())
+        center.publish(event(source = InboundSource.LOCAL).copy(eventId = "known"))
+        assertNull(center.resolve("forged", null))
+    }
+
+    @Test
+    fun resolve_correlationMismatch_returnsNull_matchReturnsEvent() {
+        val center = InboundEventCenter(FakeForeground(false), RecordingNotifier())
+        val e = event(source = InboundSource.LOCAL).copy(eventId = "c-evt", correlationId = "corr-A")
+        center.publish(e)
+        assertNull("wrong correlation must not resolve", center.resolve("c-evt", "corr-B"))
+        assertEquals(e, center.resolve("c-evt", "corr-A"))
+        assertEquals("id-only lookup still resolves", e, center.resolve("c-evt", null))
+    }
+
+    @Test
+    fun recent_evictsOldestPastCap() {
+        val center = InboundEventCenter(FakeForeground(false), RecordingNotifier())
+        repeat(InboundEventCenter.RECENT_CAP + 1) { i ->
+            center.publish(event(source = InboundSource.LOCAL).copy(eventId = "e$i"))
+        }
+        assertNull("eldest entry past cap is evicted", center.resolve("e0", null))
+        assertEquals("newest is retained", "e${InboundEventCenter.RECENT_CAP}",
+            center.resolve("e${InboundEventCenter.RECENT_CAP}", null)!!.eventId)
+    }
 }

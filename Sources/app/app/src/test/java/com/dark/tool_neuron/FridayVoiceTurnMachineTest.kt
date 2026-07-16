@@ -262,12 +262,14 @@ class FridayVoiceTurnMachineTest {
         assertEquals(VoiceUiState.Speaking, reduce(state, VoiceTurnEvent.SessionEvent(1, LiveEvent.AudioDelta(ByteArray(0), 0))).state.ui)
     }
 
+    // B1: Gemini's TurnComplete is only ITS own discarded-turn boundary — the Brain Gateway owns the answer,
+    // so it's benign: no move to Done, no session release. The turn ends on SpeakComplete after TTS.
     @Test
-    fun sessionEvent_turnComplete_movesToDone() {
+    fun sessionEvent_turnComplete_isBenignNonTerminal() {
         val state = VoiceTurnState(ui = VoiceUiState.Speaking, epoch = 1)
         val result = reduce(state, VoiceTurnEvent.SessionEvent(1, LiveEvent.TurnComplete))
-        assertEquals(VoiceUiState.Done, result.state.ui)
-        assertEquals(listOf(VoiceTurnEffect.ReleaseSession), result.effects)
+        assertEquals(state, result.state)
+        assertTrue(result.effects.isEmpty())
     }
 
     @Test
@@ -308,12 +310,30 @@ class FridayVoiceTurnMachineTest {
         assertEquals(listOf(VoiceTurnEffect.SpeakLocal(1, "the answer")), result.effects)
     }
 
+    // B1: cloud BrainDone is NOT terminal — the Brain answer must still be vocalized via the Voice Gateway.
+    // Move to Speaking + SpeakCloud; the terminal Done + ReleaseSession fires on SpeakComplete after playback.
     @Test
-    fun brainDone_cloud_movesToDoneAndReleasesSession() {
+    fun brainDone_cloud_movesToSpeakingAndSpeaksCloud() {
         val state = VoiceTurnState(ui = VoiceUiState.Thinking, epoch = 1, route = VoiceTurnRoute.CLOUD)
         val result = reduce(state, VoiceTurnEvent.BrainDone(1, "the answer"))
+        assertEquals(VoiceUiState.Speaking, result.state.ui)
+        assertEquals(listOf(VoiceTurnEffect.SpeakCloud(1, "the answer")), result.effects)
+    }
+
+    @Test
+    fun speakComplete_movesToDoneAndReleasesSession() {
+        val state = VoiceTurnState(ui = VoiceUiState.Speaking, epoch = 1, route = VoiceTurnRoute.CLOUD)
+        val result = reduce(state, VoiceTurnEvent.SpeakComplete(1))
         assertEquals(VoiceUiState.Done, result.state.ui)
         assertEquals(listOf(VoiceTurnEffect.ReleaseSession), result.effects)
+    }
+
+    @Test
+    fun speakComplete_staleEpoch_isDroppedVerbatim() {
+        val state = VoiceTurnState(ui = VoiceUiState.Speaking, epoch = 5, route = VoiceTurnRoute.CLOUD)
+        val result = reduce(state, VoiceTurnEvent.SpeakComplete(4))
+        assertEquals(state, result.state)
+        assertTrue(result.effects.isEmpty())
     }
 
     @Test

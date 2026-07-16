@@ -67,12 +67,20 @@ class VoiceSessionLifecycleHost internal constructor(
         }
     }
 
-    fun attach(attached: AttachedSession) {
+    // Returns whether audio focus was granted. Focus is requested FIRST; route/lifecycle listeners are
+    // registered only on grant, so a denied focus never leaves a dangling listener or a held mic. On
+    // denial the just-made session is rolled back via detach() (idempotent). The VM is the teardown
+    // owner (host stays forward-only), so it inspects this result and tears the turn down on false.
+    fun attach(attached: AttachedSession): Boolean {
         if (session != null) detach()
         session = attached
-        hooks.registerFocus(focusListener)
+        if (!hooks.registerFocus(focusListener)) {
+            detach()
+            return false
+        }
         hooks.registerRouteCallback(routeCallback)
         hooks.addLifecycleObserver(lifecycleObserver)
+        return true
     }
 
     fun setContinuationActive(active: Boolean) {

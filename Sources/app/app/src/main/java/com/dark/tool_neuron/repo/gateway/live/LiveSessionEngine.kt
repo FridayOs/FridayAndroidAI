@@ -182,15 +182,21 @@ internal class LiveSessionEngine(
                     player.start(onError = { t -> failAudio(config, ws, emit, captureError, t) })
                 }
                 is LiveProtocol.ServerFrame.Audio -> {
-                    val pcm = runCatching { Base64.decode(frame.base64Pcm, Base64.DEFAULT) }.getOrNull()
-                    if (pcm != null && pcm.isNotEmpty()) {
-                        if (_state.value != LiveSessionState.STREAMING) emitState(LiveSessionState.STREAMING, emit)
-                        val gen = player.currentGeneration()
-                        emit(LiveEvent.AudioDelta(pcm, audioSeq.getAndIncrement()))
-                        player.enqueue(pcm, gen)
+                    // B1 brain-owns-answer: Gemini's own generated audio is discarded — never enqueued, never
+                    // surfaced. The spoken answer is the Brain Gateway's text vocalized via TTS into the same sink.
+                    if (!config.brainOwnsAnswer) {
+                        val pcm = runCatching { Base64.decode(frame.base64Pcm, Base64.DEFAULT) }.getOrNull()
+                        if (pcm != null && pcm.isNotEmpty()) {
+                            if (_state.value != LiveSessionState.STREAMING) emitState(LiveSessionState.STREAMING, emit)
+                            val gen = player.currentGeneration()
+                            emit(LiveEvent.AudioDelta(pcm, audioSeq.getAndIncrement()))
+                            player.enqueue(pcm, gen)
+                        }
                     }
                 }
-                is LiveProtocol.ServerFrame.OutputText -> emit(LiveEvent.OutputTranscript(frame.text))
+                // Discard Gemini's own answer text in brain-owns-answer mode; the Brain Gateway owns the answer.
+                is LiveProtocol.ServerFrame.OutputText ->
+                    if (!config.brainOwnsAnswer) emit(LiveEvent.OutputTranscript(frame.text))
                 is LiveProtocol.ServerFrame.InputText -> emit(LiveEvent.InputTranscript(frame.text))
                 is LiveProtocol.ServerFrame.Interrupted -> {
                     player.flush()

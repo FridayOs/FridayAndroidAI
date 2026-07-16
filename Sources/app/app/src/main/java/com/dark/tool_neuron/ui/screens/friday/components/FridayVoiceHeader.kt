@@ -5,6 +5,7 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -16,9 +17,29 @@ import androidx.compose.ui.unit.dp
 import com.dark.tool_neuron.ui.icons.TnIcons
 
 @Composable
-fun FridayVoiceHeader(onOpenMenu: () -> Unit, onToChat: () -> Unit) {
-    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+fun FridayVoiceHeader(
+    onOpenMenu: () -> Unit,
+    onToChat: () -> Unit,
+    brainConfigured: Boolean,
+    gatewayLabel: String?,
+    ready: Boolean,
+    onProviderClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
         HeaderIconButton(TnIcons.Menu, onOpenMenu)
+        FridayVoiceProviderStatusPill(
+            brainConfigured = brainConfigured,
+            gatewayLabel = gatewayLabel,
+            ready = ready,
+            onClick = onProviderClick,
+            modifier = Modifier
+                .weight(1f)
+                .padding(horizontal = 8.dp),
+        )
         HeaderIconButton(TnIcons.MessageCircle, onToChat)
     }
 }

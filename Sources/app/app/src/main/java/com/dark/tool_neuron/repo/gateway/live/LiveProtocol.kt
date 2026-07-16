@@ -9,6 +9,10 @@ object LiveProtocol {
     const val OUTPUT_SAMPLE_RATE = 24000
     const val INPUT_SAMPLE_RATE = 16000
 
+    // B1: native-audio Gemini can't be forced into pure-STT mode, but a terse instruction shrinks the
+    // wasted own-answer generation the engine discards anyway. The Brain Gateway owns the real answer.
+    const val BRAIN_OWNS_ANSWER_INSTRUCTION = "You transcribe only; do not answer."
+
     // First frame, sent once. responseModalities=AUDIO; manual activity control when barge-in is off.
     fun setupFrame(config: GeminiLiveConfig): String {
         val voiceConfig = LiveJson.obj(
@@ -27,6 +31,15 @@ object LiveProtocol {
         setup["generationConfig"] = generationConfig
         setup["outputAudioTranscription"] = LiveJson.obj()
         setup["inputAudioTranscription"] = LiveJson.obj()
+        // Brain owns the answer => nudge Gemini toward transcription-only; responseModalities stays AUDIO
+        // (native-audio requirement) and the engine discards Gemini's own generated audio/text regardless.
+        if (config.brainOwnsAnswer) {
+            setup["systemInstruction"] = LiveJson.obj(
+                "parts" to LiveJson.arr(
+                    LiveJson.obj("text" to LiveJson.str(BRAIN_OWNS_ANSWER_INSTRUCTION))
+                )
+            )
+        }
         // Barge-in off => disable Gemini's automatic VAD so the client owns turn boundaries.
         if (!config.bargeIn) {
             setup["realtimeInputConfig"] = LiveJson.obj(

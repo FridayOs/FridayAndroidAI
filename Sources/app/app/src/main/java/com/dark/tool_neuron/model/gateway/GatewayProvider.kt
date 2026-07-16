@@ -15,7 +15,8 @@ enum class GatewayProvider(
     val roles: Set<GatewayRole>,
 ) {
     GEMINI("Gemini", GatewayWireFormat.GEMINI, "https://generativelanguage.googleapis.com", "gemini-2.0-flash", true, needsKey = true, urlRequired = false, isLocal = false, roles = setOf(GatewayRole.BRAIN, GatewayRole.VOICE)),
-    OPENAI("OpenAI", GatewayWireFormat.OPENAI, "https://api.openai.com", "gpt-4o-mini", true, needsKey = true, urlRequired = false, isLocal = false, roles = setOf(GatewayRole.BRAIN, GatewayRole.VOICE)),
+    // OpenAI Realtime (Live voice) is deferred; LiveVoiceAdapter seam/contract is kept, so OpenAI is BRAIN-only until a production Realtime voice adapter ships.
+    OPENAI("OpenAI", GatewayWireFormat.OPENAI, "https://api.openai.com", "gpt-4o-mini", true, needsKey = true, urlRequired = false, isLocal = false, roles = setOf(GatewayRole.BRAIN)),
     ANTHROPIC("Anthropic", GatewayWireFormat.ANTHROPIC, "https://api.anthropic.com", "claude-sonnet-4-5", true, needsKey = true, urlRequired = false, isLocal = false, roles = setOf(GatewayRole.BRAIN)),
     DEEPSEEK("DeepSeek", GatewayWireFormat.OPENAI, "https://api.deepseek.com", "deepseek-chat", true, needsKey = true, urlRequired = false, isLocal = false, roles = setOf(GatewayRole.BRAIN)),
     OPENCLAW("OpenClaw", GatewayWireFormat.OPENAI, "", "", true, needsKey = true, urlRequired = true, isLocal = false, roles = setOf(GatewayRole.BRAIN)),

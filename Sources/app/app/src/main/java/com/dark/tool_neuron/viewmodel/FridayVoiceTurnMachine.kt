@@ -38,6 +38,8 @@ sealed interface VoiceTurnEvent {
     data class BrainDelta(val epoch: Int, val text: String) : VoiceTurnEvent
     data class BrainDone(val epoch: Int, val text: String) : VoiceTurnEvent
     data class BrainError(val epoch: Int, val message: String) : VoiceTurnEvent
+    // Cloud route: fired after the Brain answer has been vocalized via TTS (SpeakCloud) — the terminal signal.
+    data class SpeakComplete(val epoch: Int) : VoiceTurnEvent
     data class TeardownComplete(val epoch: Int) : VoiceTurnEvent
 }
 
@@ -50,6 +52,8 @@ sealed interface VoiceTurnEffect {
     data object CancelBrainTurn : VoiceTurnEffect
     data class RunBrainTurn(val epoch: Int, val transcript: String) : VoiceTurnEffect
     data class SpeakLocal(val epoch: Int, val text: String) : VoiceTurnEffect
+    // Cloud route: vocalize the Brain answer through the Voice Gateway (Gemini TTS), then dispatch SpeakComplete.
+    data class SpeakCloud(val epoch: Int, val text: String) : VoiceTurnEffect
     data object StopLocalSpeaking : VoiceTurnEffect
     data object TeardownAll : VoiceTurnEffect
     // Releases live-session resources (cloud handle, session job, FGS, lifecycle host) on terminal
@@ -84,6 +88,11 @@ object FridayVoiceTurnMachine {
                 state.copy(ui = VoiceUiState.Error(event.message)),
                 listOf(VoiceTurnEffect.ReleaseSession),
             )
+            // Cloud terminal: the Brain answer finished playing through the Voice Gateway.
+            is VoiceTurnEvent.SpeakComplete -> VoiceTurnResult(
+                state.copy(ui = VoiceUiState.Done),
+                listOf(VoiceTurnEffect.ReleaseSession),
+            )
             is VoiceTurnEvent.TeardownComplete -> VoiceTurnResult(
                 VoiceTurnState(ui = VoiceUiState.Idle, epoch = state.epoch),
             )
@@ -96,6 +105,7 @@ object FridayVoiceTurnMachine {
         is VoiceTurnEvent.BrainDelta -> event.epoch
         is VoiceTurnEvent.BrainDone -> event.epoch
         is VoiceTurnEvent.BrainError -> event.epoch
+        is VoiceTurnEvent.SpeakComplete -> event.epoch
         is VoiceTurnEvent.TeardownComplete -> event.epoch
         else -> null
     }
@@ -207,12 +217,10 @@ object FridayVoiceTurnMachine {
         is LiveEvent.InputTranscript -> VoiceTurnResult(state.copy(transcript = event.text))
         is LiveEvent.OutputTranscript -> VoiceTurnResult(state.copy(ui = VoiceUiState.Speaking))
         is LiveEvent.AudioDelta -> VoiceTurnResult(state.copy(ui = VoiceUiState.Speaking))
-        // Per-turn cloud session model: Done means the mic is released; a next tap reopens via the
-        // factory (which supersedes any prior session).
-        LiveEvent.TurnComplete -> VoiceTurnResult(
-            state.copy(ui = VoiceUiState.Done),
-            listOf(VoiceTurnEffect.ReleaseSession),
-        )
+        // B1: Gemini's TurnComplete is only ITS discarded own-turn boundary — NOT the end of our answer.
+        // The Brain Gateway owns the answer, so this is benign: don't move to Done, don't release the session.
+        // The turn ends on SpeakComplete after the Brain answer is vocalized via the Voice Gateway.
+        LiveEvent.TurnComplete -> VoiceTurnResult(state)
         LiveEvent.Interrupted -> VoiceTurnResult(state.copy(ui = VoiceUiState.Listening, transcript = ""))
         is LiveEvent.Error -> VoiceTurnResult(
             state.copy(ui = VoiceUiState.Error(event.message)),
@@ -227,12 +235,19 @@ object FridayVoiceTurnMachine {
             VoiceTurnResult(state, listOf(VoiceTurnEffect.RunBrainTurn(state.epoch, event.text)))
         }
 
-    // LOCAL keeps SpeakLocal only (TTS still needs the lifecycle host attached); non-LOCAL is
-    // terminal, so the session resources release while the Done surface stays visible.
+    // LOCAL: Done + SpeakLocal (on-device TTS; still needs the lifecycle host attached).
+    // CLOUD: NOT terminal here — the Brain answer must still be vocalized via the Voice Gateway. Move to
+    // Speaking + SpeakCloud; the terminal Done + ReleaseSession fires on SpeakComplete after playback.
     private fun onBrainDone(state: VoiceTurnState, event: VoiceTurnEvent.BrainDone): VoiceTurnResult =
-        VoiceTurnResult(
-            state.copy(ui = VoiceUiState.Done),
-            if (state.route == VoiceTurnRoute.LOCAL) listOf(VoiceTurnEffect.SpeakLocal(state.epoch, event.text))
-            else listOf(VoiceTurnEffect.ReleaseSession),
-        )
+        if (state.route == VoiceTurnRoute.LOCAL) {
+            VoiceTurnResult(
+                state.copy(ui = VoiceUiState.Done),
+                listOf(VoiceTurnEffect.SpeakLocal(state.epoch, event.text)),
+            )
+        } else {
+            VoiceTurnResult(
+                state.copy(ui = VoiceUiState.Speaking),
+                listOf(VoiceTurnEffect.SpeakCloud(state.epoch, event.text)),
+            )
+        }
 }

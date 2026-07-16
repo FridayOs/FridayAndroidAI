@@ -12,13 +12,14 @@ import org.junit.Test
 // Pure Gemini Live codec proof off-device: setup/audio/end framing, server-frame parsing + ordering, error taxonomy.
 class LiveProtocolTest {
 
-    private fun config(bargeIn: Boolean = true) = GeminiLiveConfig(
+    private fun config(bargeIn: Boolean = true, brainOwnsAnswer: Boolean = true) = GeminiLiveConfig(
         apiKey = "sk-secret",
         model = "gemini-2.0-flash-live-001",
         voice = "Aoede",
         locale = "en-US",
         bargeIn = bargeIn,
         baseHost = GeminiLiveConfig.DEFAULT_HOST,
+        brainOwnsAnswer = brainOwnsAnswer,
     )
 
     @Test
@@ -32,6 +33,24 @@ class LiveProtocolTest {
         assertEquals("AUDIO", (modalities[0] as LiveJson.JsonValue.Str).value)
         val voice = gen.obj("speechConfig")!!.obj("voiceConfig")!!.obj("prebuiltVoiceConfig")!!
         assertEquals("Aoede", voice.str("voiceName"))
+    }
+
+    // B1: when the Brain Gateway owns the answer, Gemini Live is STT-only — a systemInstruction tells it not to answer.
+    @Test
+    fun setupFrame_brainOwnsAnswerCarriesTranscribeOnlySystemInstruction() {
+        val root = LiveJson.parse(LiveProtocol.setupFrame(config(brainOwnsAnswer = true))) as LiveJson.JsonValue.Obj
+        val setup = root.obj("setup")!!
+        val text = setup.obj("systemInstruction")!!.arr("parts")!!.items
+            .filterIsInstance<LiveJson.JsonValue.Obj>().first().str("text")
+        assertEquals(LiveProtocol.BRAIN_OWNS_ANSWER_INSTRUCTION, text)
+        // Audio modality stays — the Live socket is still an audio transport; we simply discard its answer audio.
+        assertEquals("AUDIO", (setup.obj("generationConfig")!!.arr("responseModalities")!!.items[0] as LiveJson.JsonValue.Str).value)
+    }
+
+    @Test
+    fun setupFrame_brainOwnsAnswerOffOmitsSystemInstruction() {
+        val root = LiveJson.parse(LiveProtocol.setupFrame(config(brainOwnsAnswer = false))) as LiveJson.JsonValue.Obj
+        assertFalse(root.obj("setup")!!.has("systemInstruction"))
     }
 
     @Test

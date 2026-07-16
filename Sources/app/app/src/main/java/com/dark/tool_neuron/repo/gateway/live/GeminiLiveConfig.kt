@@ -13,6 +13,9 @@ data class GeminiLiveConfig(
     val baseHost: String,
     val basePort: Int = DEFAULT_PORT,
     val basePath: String = "",
+    // B1: the SELECTED Brain Gateway owns the spoken answer. Gemini's own generated audio/text is discarded
+    // by the engine; the Brain's final text is vocalized via the Voice Gateway (Gemini TTS) into the same sink.
+    val brainOwnsAnswer: Boolean = true,
 ) {
     // model must be "models/<id>" on the wire.
     val wireModel: String get() = if (model.startsWith("models/")) model else "models/$model"
@@ -23,6 +26,9 @@ data class GeminiLiveConfig(
         const val DEFAULT_MODEL = "gemini-3.1-flash-live-preview"
         const val DEFAULT_VOICE = "Aoede"
         const val DEFAULT_PORT = 443
+        // Dedicated Gemini TTS model (generateContent) that recites the Brain answer verbatim; preview string,
+        // so a Google rotation is one edit here. Returns PCM16 mono 24kHz — same format as LiveAudioSink.
+        const val DEFAULT_TTS_MODEL = "gemini-2.5-flash-preview-tts"
 
         fun from(config: GatewayConfig, voice: String = DEFAULT_VOICE, locale: String = "en-US", bargeIn: Boolean = true): GeminiLiveConfig {
             val endpoint = parseEndpoint(config.baseUrl)
@@ -35,6 +41,7 @@ data class GeminiLiveConfig(
                 baseHost = endpoint.host,
                 basePort = endpoint.port,
                 basePath = endpoint.path,
+                brainOwnsAnswer = true,
             )
         }
 

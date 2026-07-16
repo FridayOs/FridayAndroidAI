@@ -87,12 +87,13 @@ class FridayVoiceViewModelTest {
         var recognizedTranscript: String? = "hello"
         var speakResult = true
         var startRecordingCalls = 0
+        var cancelRecordingCalls = 0
         var speakCalls = mutableListOf<String>()
         override val error: StateFlow<String?> = MutableStateFlow(null)
         override val recordingAmplitude: StateFlow<Float> = MutableStateFlow(0f)
         override fun startRecording(): Boolean { startRecordingCalls++; return startRecordingResult }
         override suspend fun stopRecordingAndRecognize(): String? = recognizedTranscript
-        override fun cancelRecording() {}
+        override fun cancelRecording() { cancelRecordingCalls++ }
         override fun stopSpeaking() {}
         override suspend fun speak(messageId: String, text: String): Boolean { speakCalls += text; return speakResult }
     }
@@ -120,6 +121,7 @@ class FridayVoiceViewModelTest {
             { _, _ -> flow { emit(GatewayEvent.Done("")) } }
         var lastBrainTurnHistory: List<GatewayTurn>? = null
         var lastBrainTurnTranscript: String? = null
+        val spokenTexts = mutableListOf<String>()
         override fun run(): Flow<LiveEvent> = events
         override fun endUserTurn() { endUserTurnCalls++ }
         override fun onAudioFocusLost() {}
@@ -134,6 +136,7 @@ class FridayVoiceViewModelTest {
         }
         override fun brainCancel() {}
         override fun brainConfirm(): Boolean = brainConfirmResult
+        override suspend fun speak(text: String) { spokenTexts += text }
     }
 
     private class FakeLiveVoiceAdapter(private var supportsResult: Boolean = true) : LiveVoiceAdapter {
@@ -160,8 +163,8 @@ class FridayVoiceViewModelTest {
         override fun voiceAnim(): String = "orb"
     }
 
-    private class FakeSystemHooks : SystemHooks {
-        override fun registerFocus(listener: AudioManager.OnAudioFocusChangeListener): Boolean = true
+    private class FakeSystemHooks(private val focusGranted: Boolean = true) : SystemHooks {
+        override fun registerFocus(listener: AudioManager.OnAudioFocusChangeListener): Boolean = focusGranted
         override fun abandonFocus() {}
         override fun registerRouteCallback(callback: AudioDeviceCallback) {}
         override fun unregisterRouteCallback(callback: AudioDeviceCallback) {}
@@ -202,10 +205,11 @@ class FridayVoiceViewModelTest {
         gatewayState: FakeVoiceGatewayStatePort = FakeVoiceGatewayStatePort(),
         foregroundService: FakeForegroundServicePort = FakeForegroundServicePort(),
         pendingAssist: PendingAssistInvocation = PendingAssistInvocation(),
+        lifecycleHost: VoiceSessionLifecycleHost = VoiceSessionLifecycleHost(FakeSystemHooks()),
     ): FridayVoiceViewModel =
         FridayVoiceViewModel(
             route, VoiceBridge(brain), convoStore, voiceIo, contextEngine, adapter, prefs, gatewayState,
-            VoiceSessionLifecycleHost(FakeSystemHooks()), VoiceSessionServiceGate(), foregroundService,
+            lifecycleHost, VoiceSessionServiceGate(), foregroundService,
             pendingAssist,
         )
 
@@ -302,7 +306,76 @@ class FridayVoiceViewModelTest {
 
         assertEquals(1, adapter.handle.endUserTurnCalls)
         assertEquals("hi", adapter.handle.lastBrainTurnTranscript)
+        // B1: the Brain answer is vocalized via the Voice Gateway (handle.speak), NOT Gemini's own audio; the
+        // terminal Done fires only after SpeakComplete once TTS playback is enqueued.
+        assertEquals(listOf("hi back"), adapter.handle.spokenTexts)
         assertEquals(VoiceUiState.Done, model.uiState.value)
+    }
+
+    // B3: audio focus denied on a cloud turn tears the just-opened session down before any mic stream /
+    // FGS starts, cancels the handle, and surfaces a stable Error.
+    @Test
+    fun cloudRoute_focusDenied_cancelsSession_surfacesError_andNeverStartsFgs() = runTest {
+        val adapter = FakeLiveVoiceAdapter(supportsResult = true)
+        val route = FakeRoute(VoiceRouter.Route.CloudBridge(cloudGateway(), cloudGateway()))
+        val prefs = FakeVoicePrefsPort(foregroundContinue = true)
+        val fgs = FakeForegroundServicePort()
+        val deniedHost = VoiceSessionLifecycleHost(FakeSystemHooks(focusGranted = false))
+        val model = vm(route = route, adapter = adapter, prefs = prefs, foregroundService = fgs, lifecycleHost = deniedHost)
+
+        model.onMicTap()
+        advanceUntilIdle()
+
+        assertEquals("opened session must be cancelled on focus denial", 1, adapter.handle.cancelCalls)
+        assertEquals("mic-FGS must not start on a denied session", 0, fgs.startCalls)
+        val ui = model.uiState.value
+        assertTrue("focus denial surfaces an Error, got $ui", ui is VoiceUiState.Error)
+        assertEquals(FridayVoiceViewModel.FOCUS_DENIED_MESSAGE, (ui as VoiceUiState.Error).message)
+    }
+
+    // B3: audio focus denied on a local turn stops the recorder and surfaces the same stable Error.
+    @Test
+    fun localRoute_focusDenied_stopsRecording_surfacesError() = runTest {
+        val voiceIo = FakeVoiceIo()
+        val route = FakeRoute(VoiceRouter.Route.LocalBridge(localGateway(), localGateway()))
+        val deniedHost = VoiceSessionLifecycleHost(FakeSystemHooks(focusGranted = false))
+        val model = vm(route = route, voiceIo = voiceIo, lifecycleHost = deniedHost)
+
+        model.onMicTap()
+        advanceUntilIdle()
+
+        assertEquals(1, voiceIo.startRecordingCalls)
+        assertTrue("recording must be cancelled on focus denial", voiceIo.cancelRecordingCalls >= 1)
+        val ui = model.uiState.value
+        assertTrue("focus denial surfaces an Error, got $ui", ui is VoiceUiState.Error)
+        assertEquals(FridayVoiceViewModel.FOCUS_DENIED_MESSAGE, (ui as VoiceUiState.Error).message)
+    }
+
+    // B1: Gemini's own TurnComplete (its discarded-answer boundary) must NOT end our turn — only the Brain
+    // answer, vocalized via TTS, does. A TurnComplete mid-Thinking is benign: the session stays alive.
+    @Test
+    fun cloudRoute_geminiTurnComplete_beforeBrainDone_doesNotReleaseSession() = runTest {
+        val adapter = FakeLiveVoiceAdapter(supportsResult = true)
+        val route = FakeRoute(VoiceRouter.Route.CloudBridge(cloudGateway(), cloudGateway()))
+        val model = vm(route = route, adapter = adapter)
+
+        model.onMicTap()
+        adapter.handle.events.tryEmit(LiveEvent.State(LiveSessionState.CONFIGURED))
+        adapter.handle.events.tryEmit(LiveEvent.InputTranscript("hi"))
+        advanceUntilIdle()
+
+        // Brain hangs, so we sit in Thinking; Gemini's TurnComplete arrives and must be ignored.
+        adapter.handle.brainTurnFactory = { _, _ -> flow { awaitCancellation() } }
+        model.onMicTap()
+        advanceUntilIdle()
+        assertEquals(VoiceUiState.Thinking, model.uiState.value)
+
+        adapter.handle.events.tryEmit(LiveEvent.TurnComplete)
+        advanceUntilIdle()
+
+        assertEquals("Gemini TurnComplete must not end the turn", VoiceUiState.Thinking, model.uiState.value)
+        assertEquals("session must stay alive", 0, adapter.handle.cancelCalls)
+        assertTrue("nothing vocalized yet", adapter.handle.spokenTexts.isEmpty())
     }
 
     @Test
