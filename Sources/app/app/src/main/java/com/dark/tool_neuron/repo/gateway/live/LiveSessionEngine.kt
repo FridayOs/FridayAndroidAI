@@ -53,7 +53,10 @@ internal class LiveSessionEngine(
     // resume finishes its (non-blocking) start before the clear proceeds.
     private val resumeLock = Any()
 
-    private class LiveLease(val ws: LiveTransport) { val active = AtomicBoolean(true) }
+    private class LiveLease(val ws: LiveTransport) {
+        val active = AtomicBoolean(true)       // authorizes mic capture send for this socket; revoked on any close
+        val resumable = AtomicBoolean(false)   // resume-ready ONLY after player.start() completes without failure (F1)
+    }
 
     // Runs the full session as a cold flow. Collecting starts it; cancelling the collector tears everything down.
     fun run(config: GeminiLiveConfig): Flow<LiveEvent> = callbackFlow {
@@ -191,10 +194,8 @@ internal class LiveSessionEngine(
                 is LiveProtocol.ServerFrame.SetupComplete -> {
                     reachedConfigured = true
                     emitState(LiveSessionState.CONFIGURED, emit)
-                    // Publish the resumable + capture lease for THIS socket BEFORE the mic opens; any startup
-                    // failure below routes through closeLive → invalidateResume, which revokes it permanently.
-                    // There is deliberately no re-arm after player.start (F1): a synchronous playback-start
-                    // failure must leave the session non-resumable.
+                    // Authorize mic capture for THIS socket (active) but NOT resume yet: resumability is granted
+                    // only after player.start() succeeds, so a resume racing the startup window can't win (F1).
                     synchronized(resumeLock) { lease = LiveLease(ws) }
                     // Mic denial is terminal — close so connectOnce returns PERMISSION instead of idling into a timeout retry.
                     if (!startMicStreaming(config, ws, scope, emit, captureError)) {
@@ -204,6 +205,13 @@ internal class LiveSessionEngine(
                     }
                     // Open playback now so a broken speaker ends the session as terminal AUDIO instead of failing silent.
                     player.start(onError = { t -> failAudio(config, ws, emit, captureError, t) })
+                    // Grant resume-readiness ONLY now, after player.start returned. A synchronous playback-start
+                    // failure already routed through closeLive → invalidateResume (lease null/inactive), so this
+                    // no-ops and the session stays non-resumable (F1). Guarded so a concurrent close can't be
+                    // clobbered: only the still-current, still-active lease for this socket becomes resumable.
+                    synchronized(resumeLock) {
+                        lease?.takeIf { it.ws === ws && it.active.get() }?.resumable?.set(true)
+                    }
                 }
                 is LiveProtocol.ServerFrame.Audio -> {
                     // B1 brain-owns-answer: Gemini's own generated audio is discarded — never enqueued, never
@@ -267,13 +275,18 @@ internal class LiveSessionEngine(
             scope,
             onChunk = onChunk@{ chunk ->
                 if (cancelled.get()) return@onChunk
-                // Gate on the live lease: after closeLive/invalidateResume revoked it (or a newer socket took
-                // over), never send this mic frame into a dying/superseded socket (F2 close-before-finally window).
-                val l = lease
-                if (l == null || !l.active.get() || l.ws !== ws) return@onChunk
-                // java.util encoder is JVM-testable + matches android NO_WRAP; android.util.Base64 stays for decode
-                val b64 = java.util.Base64.getEncoder().encodeToString(chunk)
-                ws.sendText(LiveProtocol.audioFrame(b64))
+                // Encode outside the lock (pure CPU, no shared state). java.util encoder is JVM-testable + matches
+                // android NO_WRAP; android.util.Base64 stays for decode.
+                val frame = LiveProtocol.audioFrame(java.util.Base64.getEncoder().encodeToString(chunk))
+                // Validate the live lease AND send atomically under resumeLock (F2): a concurrent
+                // invalidateResume/close cannot revoke+close between the check and sendText. Every close path
+                // revokes under this same lock BEFORE ws.close(), so a send that passes the check lands on a live
+                // socket; a send that loses the lock to a revoke sees active=false and drops the frame.
+                synchronized(resumeLock) {
+                    val l = lease
+                    if (l == null || !l.active.get() || l.ws !== ws) return@onChunk
+                    ws.sendText(frame)
+                }
             },
             onError = { t -> failAudio(config, ws, emit, captureError, t) },
         )
@@ -299,7 +312,7 @@ internal class LiveSessionEngine(
     // Clear the resume gate atomically w.r.t. resumeUserTurn(); every socket close goes through this first.
     private fun invalidateResume() {
         synchronized(resumeLock) {
-            lease?.active?.set(false)   // set BEFORE nulling: an in-flight onChunk that grabbed this lease sees active=false
+            lease?.let { it.resumable.set(false); it.active.set(false) }   // revoke both under the lock, then drop it
             lease = null
         }
     }
@@ -315,8 +328,8 @@ internal class LiveSessionEngine(
     // waits until this resume finishes (no blocking/network call happens under the lock).
     fun resumeUserTurn(): Boolean = synchronized(resumeLock) {
         if (cancelled.get()) return@synchronized false
-        val l = lease ?: return@synchronized false            // only a live+configured socket holds a lease
-        if (!l.active.get()) return@synchronized false          // revoked lease → not resumable
+        val l = lease ?: return@synchronized false               // only a live+configured socket holds a lease
+        if (!l.active.get() || !l.resumable.get()) return@synchronized false   // resume-ready ONLY after startup succeeded (F1)
         val scope = sessionScope ?: return@synchronized false
         val config = activeConfig ?: return@synchronized false
         val emit = emitter ?: return@synchronized false

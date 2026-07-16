@@ -10,17 +10,24 @@ import com.dark.tool_neuron.repo.gateway.live.LiveSessionState
 import com.dark.tool_neuron.repo.gateway.live.LiveTransport
 import com.dark.tool_neuron.repo.gateway.live.PlaybackResult
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
 import kotlinx.coroutines.flow.toList
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.test.advanceUntilIdle
 import kotlinx.coroutines.test.runTest
+import kotlinx.coroutines.withTimeout
 import java.io.IOException
+import java.util.concurrent.CountDownLatch
 import java.util.concurrent.atomic.AtomicInteger
+import java.util.concurrent.atomic.AtomicReference
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -51,8 +58,13 @@ class LiveSessionEngineLifecycleTest {
         var flushCount = 0
         var stopCount = 0
         var failOnStart = false // simulate an AudioTrack build/play failure
+        var onStart: (() -> Unit)? = null // fires at the top of start(), BEFORE the failOnStart branch (F1 window probe)
         private var gen = 0L
-        override fun start(onError: (Throwable) -> Unit) { startCount++; if (failOnStart) onError(IOException("audio track dead")) }
+        override fun start(onError: (Throwable) -> Unit) {
+            startCount++
+            onStart?.invoke()
+            if (failOnStart) onError(IOException("audio track dead"))
+        }
         override fun currentGeneration(): Long = gen
         override fun enqueue(pcm: ByteArray, gen: Long) {}
         override suspend fun playToCompletion(pcm: ByteArray, gen: Long): PlaybackResult = PlaybackResult.Completed
@@ -68,6 +80,8 @@ class LiveSessionEngineLifecycleTest {
     ) : LiveTransport {
         var closeCount = 0
         var sent = mutableListOf<String>()
+        @Volatile var closed = false
+        @Volatile var sentAfterClose = false
         override fun open(host: String, port: Int, path: String, onReady: () -> Unit): Flow<LiveTransport.Incoming> = callbackFlow {
             throwOnOpen?.let { throw it }
             onReady()
@@ -75,8 +89,11 @@ class LiveSessionEngineLifecycleTest {
             if (!keepOpen) close()
             awaitClose { }
         }
-        override fun sendText(text: String) { sent += text }
-        override fun close() { closeCount++ }
+        override fun sendText(text: String) {
+            if (closed) sentAfterClose = true
+            sent += text
+        }
+        override fun close() { closeCount++; closed = true }
     }
 
     private fun config() = GeminiLiveConfig(
@@ -508,5 +525,58 @@ class LiveSessionEngineLifecycleTest {
         resumedChunk.invoke(ByteArray(320))
         assertEquals("no mic frame may be sent after the lease is revoked", afterRevoke, transport.sent.size)
         eng.cancel()
+    }
+
+    // F1 round-7: resume racing the startup window (lease active, not yet resumable) must return false — player.start
+    // has not returned yet, so resumability has not been granted.
+    @Test
+    fun resumeUserTurn_duringStartupWindow_beforeResumable_returnsFalse() = runTest {
+        val src = FakeSource()
+        val sink = FakeSink()
+        val transport = FakeTransport(
+            frames = listOf(LiveTransport.Incoming.Text("""{"setupComplete":{}}""")),
+            keepOpen = true,
+        )
+        val eng = engine(src, sink) { transport }
+        val resumeInWindow = AtomicReference<Boolean?>(null)
+        // player.start runs AFTER the lease is published (active) but BEFORE resumability is granted; a resume
+        // racing this window must return false (F1). onStart fires synchronously inside player.start.
+        sink.onStart = { resumeInWindow.set(eng.resumeUserTurn()) }
+        val events = mutableListOf<LiveEvent>()
+        val job = launch { eng.run(config()).collect { events += it } }
+        advanceUntilIdle()
+        assertEquals("resume in the startup window (pre-resumable) must be false", false, resumeInWindow.get())
+        assertEquals("no capture restart from a startup-window resume", 1, src.startCount)
+        assertEquals(
+            "no second LISTENING from a startup-window resume",
+            1,
+            events.count { it is LiveEvent.State && it.state == LiveSessionState.LISTENING },
+        )
+        job.cancel(); job.join(); eng.cancel()
+    }
+
+    // F2 round-7: real threads exercise the check/send-vs-revoke/close interleaving. The invariant is deterministic:
+    // with check+send under resumeLock and every close revoking under that lock before ws.close(), sendText can
+    // never run after the transport is closed, regardless of scheduling. (Pre-fix, this flips true.)
+    @Test
+    fun concurrentMicSendAndClose_neverSendsAfterTransportClosed() = runBlocking {
+        repeat(20) {
+            val src = FakeSource()
+            val transport = FakeTransport(
+                frames = listOf(LiveTransport.Incoming.Text("""{"setupComplete":{}}""")),
+                keepOpen = true,
+            )
+            val eng = engine(src, FakeSink()) { transport }
+            val job = launch(Dispatchers.Default) { eng.run(config()).collect {} }
+            withTimeout(5_000) { while (src.lastOnChunk == null) delay(1) }
+            val chunk = src.lastOnChunk!!
+            val gate = CountDownLatch(1)
+            val sender = Thread { gate.await(); repeat(300) { chunk.invoke(ByteArray(320)) } }
+            val closer = Thread { gate.await(); eng.cancel() }
+            sender.start(); closer.start(); gate.countDown()
+            sender.join(); closer.join()
+            assertFalse("mic frame sent AFTER transport close (stale send)", transport.sentAfterClose)
+            job.cancel(); job.join()
+        }
     }
 }
