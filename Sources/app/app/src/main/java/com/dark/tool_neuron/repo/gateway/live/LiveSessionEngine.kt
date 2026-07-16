@@ -44,14 +44,16 @@ internal class LiveSessionEngine(
     @Volatile private var activeConfig: GeminiLiveConfig? = null
     @Volatile private var emitter: ((LiveEvent) -> Unit)? = null
     private val captureErrorRef = AtomicReference<LiveErrorKind?>(null)
-    // The currently live+configured socket; only this is resumable. Cleared in connectOnce's finally BEFORE the
-    // socket closes (and again in teardown, belt-and-suspenders) so resumeUserTurn() can't race a closing/reconnecting
-    // session into sending frames on a dead socket.
-    private val liveGate = AtomicReference<LiveTransport?>(null)
+    // Per-connection lease authorizing mic capture + resume for exactly ONE live socket. Revoked once on any
+    // close/teardown/cancel; a revoked lease is never re-armed, and every outbound mic chunk is gated on it so
+    // no frame is sent into a closing socket (close-before-finally window).
+    @Volatile private var lease: LiveLease? = null
     // Serializes every gate clear against resumeUserTurn()'s check+start so a close on any path can never race a
     // resume that already read a live gate: the loser of the lock either sees the gate already cleared, or the
     // resume finishes its (non-blocking) start before the clear proceeds.
     private val resumeLock = Any()
+
+    private class LiveLease(val ws: LiveTransport) { val active = AtomicBoolean(true) }
 
     // Runs the full session as a cold flow. Collecting starts it; cancelling the collector tears everything down.
     fun run(config: GeminiLiveConfig): Flow<LiveEvent> = callbackFlow {
@@ -189,6 +191,11 @@ internal class LiveSessionEngine(
                 is LiveProtocol.ServerFrame.SetupComplete -> {
                     reachedConfigured = true
                     emitState(LiveSessionState.CONFIGURED, emit)
+                    // Publish the resumable + capture lease for THIS socket BEFORE the mic opens; any startup
+                    // failure below routes through closeLive → invalidateResume, which revokes it permanently.
+                    // There is deliberately no re-arm after player.start (F1): a synchronous playback-start
+                    // failure must leave the session non-resumable.
+                    synchronized(resumeLock) { lease = LiveLease(ws) }
                     // Mic denial is terminal — close so connectOnce returns PERMISSION instead of idling into a timeout retry.
                     if (!startMicStreaming(config, ws, scope, emit, captureError)) {
                         micDenied.set(true)
@@ -197,8 +204,6 @@ internal class LiveSessionEngine(
                     }
                     // Open playback now so a broken speaker ends the session as terminal AUDIO instead of failing silent.
                     player.start(onError = { t -> failAudio(config, ws, emit, captureError, t) })
-                    // Mic + player are fully up and the session is live: only now is this socket resumable.
-                    liveGate.set(ws)
                 }
                 is LiveProtocol.ServerFrame.Audio -> {
                     // B1 brain-owns-answer: Gemini's own generated audio is discarded — never enqueued, never
@@ -262,6 +267,10 @@ internal class LiveSessionEngine(
             scope,
             onChunk = onChunk@{ chunk ->
                 if (cancelled.get()) return@onChunk
+                // Gate on the live lease: after closeLive/invalidateResume revoked it (or a newer socket took
+                // over), never send this mic frame into a dying/superseded socket (F2 close-before-finally window).
+                val l = lease
+                if (l == null || !l.active.get() || l.ws !== ws) return@onChunk
                 // java.util encoder is JVM-testable + matches android NO_WRAP; android.util.Base64 stays for decode
                 val b64 = java.util.Base64.getEncoder().encodeToString(chunk)
                 ws.sendText(LiveProtocol.audioFrame(b64))
@@ -288,7 +297,12 @@ internal class LiveSessionEngine(
     }
 
     // Clear the resume gate atomically w.r.t. resumeUserTurn(); every socket close goes through this first.
-    private fun invalidateResume() { synchronized(resumeLock) { liveGate.set(null) } }
+    private fun invalidateResume() {
+        synchronized(resumeLock) {
+            lease?.active?.set(false)   // set BEFORE nulling: an in-flight onChunk that grabbed this lease sees active=false
+            lease = null
+        }
+    }
 
     // Single choke point: invalidate resume BEFORE closing, so resume can never see a closing socket.
     private fun closeLive(ws: LiveTransport) { invalidateResume(); runCatching { ws.close() } }
@@ -301,12 +315,13 @@ internal class LiveSessionEngine(
     // waits until this resume finishes (no blocking/network call happens under the lock).
     fun resumeUserTurn(): Boolean = synchronized(resumeLock) {
         if (cancelled.get()) return@synchronized false
-        val ws = liveGate.get() ?: return@synchronized false // only a live+configured socket is resumable
+        val l = lease ?: return@synchronized false            // only a live+configured socket holds a lease
+        if (!l.active.get()) return@synchronized false          // revoked lease → not resumable
         val scope = sessionScope ?: return@synchronized false
         val config = activeConfig ?: return@synchronized false
         val emit = emitter ?: return@synchronized false
         player.flush()
-        startMicStreaming(config, ws, scope, emit, captureErrorRef)
+        startMicStreaming(config, l.ws, scope, emit, captureErrorRef)
     }
 
     // Lifecycle contract (FRI-548 owns teardown; FRI-562's UI wires the OS callbacks) — mic/socket never outlive the reason to hold them.

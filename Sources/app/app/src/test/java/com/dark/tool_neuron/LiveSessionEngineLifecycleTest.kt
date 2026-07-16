@@ -453,4 +453,60 @@ class LiveSessionEngineLifecycleTest {
 
         job.cancel(); job.join(); eng.cancel()
     }
+
+    // F1: a synchronous playback-start failure (player.start -> onError -> failAudio -> closeLive) must never
+    // let the following (now-removed) re-arm line resurrect the lease on a dead socket.
+    @Test
+    fun resumeUserTurn_afterSyncPlaybackStartFailure_returnsFalse_notReArmed() = runTest {
+        val src = FakeSource()
+        val sink = FakeSink().apply { failOnStart = true }   // player.start → synchronous onError → failAudio → closeLive
+        val transport = FakeTransport(
+            frames = listOf(LiveTransport.Incoming.Text("""{"setupComplete":{}}""")),
+            keepOpen = true,
+        )
+        val eng = engine(src, sink) { transport }
+        val events = mutableListOf<LiveEvent>()
+        val job = launch { eng.run(config()).collect { events += it } }
+        advanceUntilIdle()
+        // Playback-start failed synchronously → closeLive revoked the lease. It must NOT have been re-armed.
+        val startsAtFailure = src.startCount
+        val listeningAtFailure = events.count { it is LiveEvent.State && it.state == LiveSessionState.LISTENING }
+        assertEquals(false, eng.resumeUserTurn())
+        assertEquals("resume must not restart capture on a failed-startup socket", startsAtFailure, src.startCount)
+        assertEquals(
+            "resume must not emit a new LISTENING on a failed-startup socket",
+            listeningAtFailure,
+            events.count { it is LiveEvent.State && it.state == LiveSessionState.LISTENING },
+        )
+        job.cancel(); job.join(); eng.cancel()
+    }
+
+    // F2: after resume, a lease revocation must stop the ALREADY-CAPTURED mic onChunk callback from sending —
+    // proving the gate is re-checked per-chunk, not just at startMicStreaming() call time.
+    @Test
+    fun resumeThenRevoke_captureCallbackSendsNothingAfterInvalidation() = runTest {
+        val src = FakeSource()
+        val transport = FakeTransport(
+            frames = listOf(LiveTransport.Incoming.Text("""{"setupComplete":{}}""")),
+            keepOpen = true,
+        )
+        val eng = engine(src, FakeSink()) { transport }
+        val job = launch { eng.run(config()).collect {} }
+        advanceUntilIdle()
+        assertEquals(1, src.startCount)
+        eng.endUserTurn()
+        assertTrue(eng.resumeUserTurn())
+        assertEquals(2, src.startCount)
+        val resumedChunk = src.lastOnChunk!!
+        // Lease still active: the captured callback DOES send.
+        val beforeActive = transport.sent.size
+        resumedChunk.invoke(ByteArray(320))
+        assertTrue("active lease must send mic frames", transport.sent.size > beforeActive)
+        // Close wins after resume → finally revokes the lease. The SAME captured callback must now send nothing.
+        job.cancel(); job.join()
+        val afterRevoke = transport.sent.size
+        resumedChunk.invoke(ByteArray(320))
+        assertEquals("no mic frame may be sent after the lease is revoked", afterRevoke, transport.sent.size)
+        eng.cancel()
+    }
 }
