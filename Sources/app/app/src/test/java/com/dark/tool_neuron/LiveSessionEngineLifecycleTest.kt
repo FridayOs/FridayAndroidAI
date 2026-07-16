@@ -8,6 +8,7 @@ import com.dark.tool_neuron.repo.gateway.live.LiveEvent
 import com.dark.tool_neuron.repo.gateway.live.LiveSessionEngine
 import com.dark.tool_neuron.repo.gateway.live.LiveSessionState
 import com.dark.tool_neuron.repo.gateway.live.LiveTransport
+import com.dark.tool_neuron.repo.gateway.live.PlaybackResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.channels.awaitClose
@@ -33,10 +34,12 @@ class LiveSessionEngineLifecycleTest {
         var permission = true
         var openable = true
         var failAfterStart = false // simulate a runtime mic failure after a successful open
+        var lastOnChunk: ((ByteArray) -> Unit)? = null
         override fun hasPermission(): Boolean = permission
         override fun start(scope: CoroutineScope, onChunk: (ByteArray) -> Unit, onError: (Throwable) -> Unit): Boolean {
             startCount++
             if (!openable) return false
+            lastOnChunk = onChunk
             if (failAfterStart) onError(IOException("mic died mid-session"))
             return true
         }
@@ -52,7 +55,7 @@ class LiveSessionEngineLifecycleTest {
         override fun start(onError: (Throwable) -> Unit) { startCount++; if (failOnStart) onError(IOException("audio track dead")) }
         override fun currentGeneration(): Long = gen
         override fun enqueue(pcm: ByteArray, gen: Long) {}
-        override suspend fun playToCompletion(pcm: ByteArray, gen: Long): Boolean = true
+        override suspend fun playToCompletion(pcm: ByteArray, gen: Long): PlaybackResult = PlaybackResult.Completed
         override fun flush() { flushCount++; gen++ }
         override fun stop() { stopCount++ }
     }
@@ -313,5 +316,68 @@ class LiveSessionEngineLifecycleTest {
         val events = eng.run(config()).toList()
         val msg = events.filterIsInstance<LiveEvent.Error>().firstOrNull()?.message
         assertTrue("error message must not leak the api key", msg != null && !msg.contains("sk-test"))
+    }
+
+    // D2 production-path proof: a cloud barge-in resume must reopen the mic and keep streaming on the SAME
+    // socket (no reconnect), proving resumeUserTurn()/startMicStreaming() wiring end-to-end against the real engine.
+    @Test
+    fun cloudBargeIn_resumeUserTurn_restartsCaptureAndSendsChunkOnSameTransport() = runTest {
+        val src = FakeSource()
+        val transport = FakeTransport(
+            frames = listOf(LiveTransport.Incoming.Text("""{"setupComplete":{}}""")),
+            keepOpen = true,
+        )
+        val eng = engine(src, FakeSink()) { transport }
+        val job = launch { eng.run(config()).collect {} }
+        advanceUntilIdle()
+
+        assertEquals("initial turn opens the mic once", 1, src.startCount)
+
+        src.lastOnChunk!!.invoke(ByteArray(320))
+        assertTrue(
+            "captured chunk is sent as a realtimeInput audio frame",
+            transport.sent.any { it.contains("realtimeInput") && it.contains("audio") },
+        )
+
+        eng.endUserTurn()
+        assertTrue("ending the turn stops capture", src.stopCount >= 1)
+        assertTrue("ending the turn sends audioStreamEnd", transport.sent.any { it.contains("audioStreamEnd") })
+
+        assertTrue("resumeUserTurn succeeds on a live session", eng.resumeUserTurn())
+        assertEquals("resume reopens the mic", 2, src.startCount)
+
+        val before = transport.sent.size
+        src.lastOnChunk!!.invoke(ByteArray(320))
+        assertTrue("resumed capture sends a new frame", transport.sent.size > before)
+        val newFrame = transport.sent.last()
+        assertTrue(
+            "the new frame is a realtimeInput audio frame",
+            newFrame.contains("realtimeInput") && newFrame.contains("audio"),
+        )
+        assertEquals("resume reuses the same socket, no reconnect", 0, transport.closeCount)
+
+        job.cancel(); job.join(); eng.cancel()
+    }
+
+    @Test
+    fun resumeUserTurn_afterCancel_returnsFalse() = runTest {
+        val src = FakeSource()
+        val transport = FakeTransport(
+            frames = listOf(LiveTransport.Incoming.Text("""{"setupComplete":{}}""")),
+            keepOpen = true,
+        )
+        val eng = engine(src, FakeSink()) { transport }
+        val job = launch { eng.run(config()).collect {} }
+        advanceUntilIdle()
+        job.cancel(); job.join()
+        eng.cancel()
+
+        assertEquals(false, eng.resumeUserTurn())
+    }
+
+    @Test
+    fun resumeUserTurn_onIdleEngine_returnsFalse() {
+        val eng = engine()
+        assertEquals(false, eng.resumeUserTurn())
     }
 }

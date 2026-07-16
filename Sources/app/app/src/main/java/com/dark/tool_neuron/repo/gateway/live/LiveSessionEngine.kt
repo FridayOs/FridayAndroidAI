@@ -251,7 +251,8 @@ internal class LiveSessionEngine(
             scope,
             onChunk = onChunk@{ chunk ->
                 if (cancelled.get()) return@onChunk
-                val b64 = Base64.encodeToString(chunk, Base64.NO_WRAP)
+                // java.util encoder is JVM-testable + matches android NO_WRAP; android.util.Base64 stays for decode
+                val b64 = java.util.Base64.getEncoder().encodeToString(chunk)
                 ws.sendText(LiveProtocol.audioFrame(b64))
             },
             onError = { t -> failAudio(config, ws, emit, captureError, t) },

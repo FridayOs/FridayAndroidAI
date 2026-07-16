@@ -16,11 +16,18 @@ interface LiveAudioSink {
     fun currentGeneration(): Long
     fun enqueue(pcm: ByteArray, gen: Long)
     // B1 speak-on-Done: play one chunk and SUSPEND until the audio has actually drained, so the caller can
-    // fire the terminal SpeakComplete only after playback finished (not the moment it was queued). Returns
-    // false when a flush bumped the generation mid-playback (superseded turn). Used only by the cloud
-    // brain-owns-answer path, where enqueue() is never called — so no consumer-coroutine contention.
-    suspend fun playToCompletion(pcm: ByteArray, gen: Long): Boolean
+    // fire the terminal SpeakComplete only after playback finished (not the moment it was queued). Used only
+    // by the cloud brain-owns-answer path, where enqueue() is never called — so no consumer-coroutine contention.
+    // Superseded on a mid-play flush, Failed on a track fault/timeout, Completed only after all submitted frames drained.
+    suspend fun playToCompletion(pcm: ByteArray, gen: Long): PlaybackResult
     // Barge-in / interrupt: drop the current turn's queued audio instantly.
     fun flush()
     fun stop()
+}
+
+// Typed to-completion playback result: separates a real audio fault (surface Error) from a barge-in supersede.
+sealed interface PlaybackResult {
+    data object Completed : PlaybackResult
+    data object Superseded : PlaybackResult
+    data class Failed(val reason: String) : PlaybackResult
 }

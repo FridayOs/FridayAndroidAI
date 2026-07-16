@@ -36,9 +36,11 @@ class LiveVoiceSession internal constructor(
             return when (val result = synthesizer.synthesize(config, text)) {
                 is SynthResult.Empty -> SpeakOutcome.Empty
                 is SynthResult.Failed -> SpeakOutcome.Failed(result.message)
-                is SynthResult.Audio ->
-                    if (sink.playToCompletion(result.pcm, gen)) SpeakOutcome.Completed
-                    else SpeakOutcome.Superseded
+                is SynthResult.Audio -> when (val r = sink.playToCompletion(result.pcm, gen)) {
+                    PlaybackResult.Completed -> SpeakOutcome.Completed
+                    PlaybackResult.Superseded -> SpeakOutcome.Superseded
+                    is PlaybackResult.Failed -> SpeakOutcome.Failed(r.reason)
+                }
             }
         } catch (ce: CancellationException) {
             sink.flush()

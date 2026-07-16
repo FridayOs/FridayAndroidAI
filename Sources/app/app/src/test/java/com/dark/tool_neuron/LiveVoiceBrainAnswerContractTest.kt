@@ -13,6 +13,7 @@ import com.dark.tool_neuron.repo.gateway.live.LiveSessionEngine
 import com.dark.tool_neuron.repo.gateway.live.LiveTransport
 import com.dark.tool_neuron.repo.gateway.live.LiveVoiceSession
 import com.dark.tool_neuron.repo.gateway.live.LiveVoiceSynthesizer
+import com.dark.tool_neuron.repo.gateway.live.PlaybackResult
 import com.dark.tool_neuron.repo.gateway.live.SpeakOutcome
 import com.dark.tool_neuron.repo.gateway.live.SynthResult
 import kotlinx.coroutines.CoroutineScope
@@ -40,7 +41,7 @@ class LiveVoiceBrainAnswerContractTest {
         override fun currentGeneration(): Long = gen
         override fun enqueue(pcm: ByteArray, gen: Long) { enqueued += pcm }
         // Brain-owns-answer path plays TTS PCM to completion in the same sink; record it distinctly.
-        override suspend fun playToCompletion(pcm: ByteArray, gen: Long): Boolean { played += pcm; return true }
+        override suspend fun playToCompletion(pcm: ByteArray, gen: Long): PlaybackResult { played += pcm; return PlaybackResult.Completed }
         override fun flush() { gen++ }
         override fun stop() {}
     }

@@ -12,6 +12,7 @@ import com.dark.tool_neuron.repo.gateway.live.GeminiLiveConfig
 import com.dark.tool_neuron.repo.gateway.live.LiveSessionState
 import com.dark.tool_neuron.repo.gateway.live.LiveVoiceSessionFactory
 import com.dark.tool_neuron.repo.gateway.live.LiveVoiceSynthesizer
+import com.dark.tool_neuron.repo.gateway.live.PlaybackResult
 import com.dark.tool_neuron.repo.gateway.live.SynthResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.flow.Flow
@@ -35,7 +36,7 @@ class LiveVoiceSessionFactoryTest {
         override fun start(onError: (Throwable) -> Unit) {}
         override fun currentGeneration(): Long = 0
         override fun enqueue(pcm: ByteArray, gen: Long) {}
-        override suspend fun playToCompletion(pcm: ByteArray, gen: Long): Boolean = true
+        override suspend fun playToCompletion(pcm: ByteArray, gen: Long): PlaybackResult = PlaybackResult.Completed
         override fun flush() {}
         override fun stop() { stopCount++ }
     }
