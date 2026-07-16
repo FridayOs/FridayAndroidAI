@@ -13,11 +13,21 @@
     <string name="friday_sign_out">Đăng xuất</string>
     <string name="friday_settings_title">Cài đặt</string>
     <string name="friday_drawer_free_plan">Gói miễn phí</string>
-    <string name="friday_voice_idle_title">Chạm mic để gửi tin nhắn thoại</string>
+    <string name="friday_voice_idle_title">Chạm để nói với Friday</string>
     <string name="friday_voice_listening_title">Đang nghe…</string>
     <string name="friday_voice_thinking_title">Đang suy nghĩ…</string>
     <string name="friday_voice_speaking_title">Đang nói…</string>
-    <string name="friday_voice_done_title">Chạm để hỏi lại</string>
+    <string name="friday_voice_done_title">Chạm để hỏi tiếp</string>
+    <string name="friday_voice_thinking_label">Friday đang suy nghĩ…</string>
+    <string name="friday_voice_no_provider_title">Chọn “bộ não” cho Friday</string>
+    <string name="friday_voice_no_provider_body">Thêm hoặc chọn provider/model trước khi gửi tin nhắn đầu tiên.</string>
+    <string name="friday_voice_add_provider">Thêm provider</string>
+    <string name="friday_voice_select_provider">Chọn provider</string>
+    <string name="friday_voice_connecting">Đang kết nối…</string>
+    <string name="friday_voice_notif_title">Phiên thoại Friday</string>
+    <string name="friday_voice_notif_body">Vẫn đang nghe ở chế độ nền. Nhấn Dừng để kết thúc.</string>
+    <string name="friday_voice_notif_stop">Dừng</string>
+    <string name="friday_voice_channel_name">Phiên thoại</string>
     <string name="friday_recent_quick_command">Lệnh nhanh</string>
     <string name="friday_recent_open_care">Mở Care</string>
     <string name="friday_recent_how_to_use">Cách dùng</string>
@@ -36,9 +46,8 @@
     <string name="friday_nav_history">Lịch sử</string>
     <string name="friday_version_footer">Friday · v1.0.0</string>
     <string name="friday_chat_input_hint">Nhập tin nhắn ở đây</string>
-    <string name="friday_voice_idle_hint">Chạm mic và hỏi bất cứ điều gì — mình nghe và trả lời bằng giọng nói.</string>
     <string name="friday_history_empty">Chưa có cuộc trò chuyện. Bắt đầu từ Trò chuyện hoặc Thoại.</string>
-    <string name="friday_voice_hold_hint">Nhấn giữ mic và nói — thả ra để gửi. Mình sẽ trả lời bằng giọng nói.</string>
+    <string name="friday_voice_tap_hint">Chạm mic và hỏi bất cứ điều gì —\nFriday sẽ lắng nghe và trả lời bằng giọng nói.</string>
     <string name="friday_gateways_title">Cổng kết nối</string>
     <string name="friday_gateways_add">Thêm cổng</string>
     <string name="friday_gateways_empty">Chưa có cổng nào. Thêm một cổng để kết nối trực tiếp từ thiết bị.</string>
@@ -84,6 +93,15 @@
     <string name="friday_settings_section_theme_subtitle">Theo hệ thống</string>
     <string name="friday_settings_section_language_title">Ngôn ngữ</string>
     <string name="friday_settings_section_language_subtitle">Đổi ngôn ngữ ứng dụng</string>
+    <string name="friday_settings_section_assistant_title">Đặt FRIDAY làm trợ lý</string>
+    <string name="friday_settings_section_assistant_subtitle">Mở bằng cách giữ nút home hoặc cử chỉ trợ lý</string>
+    <string name="friday_events_channel_normal">Cập nhật Friday</string>
+    <string name="friday_events_channel_high">Friday quan trọng</string>
+    <string name="friday_events_channel_urgent">Friday khẩn cấp</string>
+    <string name="friday_event_confirm">Xác nhận</string>
+    <string name="friday_event_cancel">Huỷ</string>
+    <string name="friday_event_dismiss">Bỏ qua</string>
+    <string name="friday_event_awaiting_confirmation">Friday đang chờ bạn xác nhận</string>
 
     <!-- Setup labels (M2-00 first-launch) -->
     <string name="friday_setup_protect_title">Bảo vệ dữ liệu của bạn</string>

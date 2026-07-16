@@ -22,9 +22,14 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import android.content.ActivityNotFoundException
+import android.content.Context
+import android.content.Intent
+import android.provider.Settings
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -43,6 +48,7 @@ fun FridaySettingsScreen(
     accountViewModel: AccountViewModel = hiltViewModel(),
 ) {
     val account by accountViewModel.state.collectAsStateWithLifecycle()
+    val context = LocalContext.current
 
     Column(
         modifier = Modifier
@@ -103,6 +109,13 @@ fun FridaySettingsScreen(
             icon = TnIcons.Globe,
             onClick = onLanguageClick,
         )
+        Spacer(Modifier.height(10.dp))
+        SectionCard(
+            title = stringResource(R.string.friday_settings_section_assistant_title),
+            subtitle = stringResource(R.string.friday_settings_section_assistant_subtitle),
+            icon = TnIcons.Sparkles,
+            onClick = { openAssistantSettings(context) },
+        )
 
         Spacer(Modifier.height(20.dp))
         Box(
@@ -122,6 +135,24 @@ fun FridaySettingsScreen(
                 style = MaterialTheme.typography.titleSmall,
                 fontWeight = FontWeight.SemiBold,
             )
+        }
+    }
+}
+
+// Deep-link to the OS "Digital assistant app" picker. OEMs vary, so fall through a chain and never
+// crash on a device that ships none of them.
+private fun openAssistantSettings(context: Context) {
+    val actions = listOf(
+        Settings.ACTION_VOICE_INPUT_SETTINGS,
+        "android.settings.VOICE_CONTROL_ASSIST_GESTURE_SETTINGS",
+        Settings.ACTION_SETTINGS,
+    )
+    for (action in actions) {
+        try {
+            context.startActivity(Intent(action).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+            return
+        } catch (_: ActivityNotFoundException) {
+        } catch (_: Throwable) {
         }
     }
 }

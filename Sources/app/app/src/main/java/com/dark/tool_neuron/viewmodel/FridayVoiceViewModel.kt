@@ -1,43 +1,130 @@
 package com.dark.tool_neuron.viewmodel
 
+import android.content.Context
+import androidx.core.content.ContextCompat
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import com.dark.tool_neuron.data.AppPreferences
+import com.dark.tool_neuron.data.PendingAssistInvocation
 import com.dark.tool_neuron.model.friday.FridayTurn
-import com.dark.tool_neuron.repo.FridayConvoStore
 import com.dark.tool_neuron.model.gateway.GatewayConfig
+import com.dark.tool_neuron.repo.FridayConvoStore
 import com.dark.tool_neuron.repo.context.ContextHistorySource
 import com.dark.tool_neuron.repo.gateway.GatewayEvent
+import com.dark.tool_neuron.repo.gateway.GatewayTurn
 import com.dark.tool_neuron.repo.gateway.VoiceBridge
 import com.dark.tool_neuron.repo.gateway.VoiceRoutePort
 import com.dark.tool_neuron.repo.gateway.VoiceRouter
+import com.dark.tool_neuron.repo.gateway.live.GeminiLiveConfig
+import com.dark.tool_neuron.repo.gateway.live.LiveEvent
+import com.dark.tool_neuron.repo.gateway.live.LiveVoiceAdapter
+import com.dark.tool_neuron.repo.gateway.live.LiveVoiceHandle
+import com.dark.tool_neuron.service.voice.VoiceSessionForegroundService
+import com.dark.tool_neuron.ui.screens.friday.components.VoiceAnimation
+import com.dark.tool_neuron.voice.AttachedSession
 import com.dark.tool_neuron.voice.VoiceIo
+import com.dark.tool_neuron.voice.VoiceSessionLifecycleHost
+import com.dark.tool_neuron.voice.VoiceSessionServiceGate
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.collect
+import kotlinx.coroutines.flow.map
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 import java.util.UUID
 import javax.inject.Inject
-
-enum class VoiceMode { IDLE, LISTENING, THINKING, SPEAKING, DONE }
 
 sealed interface VoiceSelectorRequest {
     data object NeedVoiceGateway : VoiceSelectorRequest
     data object NeedBrainGateway : VoiceSelectorRequest
 }
 
+// AppPreferences is HXS-native-backed (unconstructable off-device); this narrow seam is the only
+// part the VM reads, so JVM unit tests can fake it without touching AppPreferences itself.
+internal interface VoicePrefsPort {
+    val fridayVoiceBargeIn: Boolean
+    val foregroundContinue: Boolean
+    fun language(): String
+    fun voiceAnim(): String
+}
+
+private class AppPreferencesVoicePrefsPort(private val prefs: AppPreferences) : VoicePrefsPort {
+    override val fridayVoiceBargeIn: Boolean get() = prefs.fridayVoiceBargeIn
+    override val foregroundContinue: Boolean get() = prefs.fridayVoiceForegroundContinue
+    override fun language(): String = prefs.getString(FridayVoiceViewModel.KEY_FRIDAY_LANGUAGE)
+    override fun voiceAnim(): String = prefs.fridayVoiceAnim
+}
+
+// Narrow seam over the Context-only bits (start/stop the opt-in mic-FGS) so the VM stays
+// constructable in JVM tests without an Android Context or a mocking library.
+internal interface VoiceForegroundServicePort {
+    fun start()
+    fun stop()
+}
+
+private class AndroidVoiceForegroundServicePort(
+    private val context: Context,
+) : VoiceForegroundServicePort {
+    override fun start() {
+        ContextCompat.startForegroundService(context, VoiceSessionForegroundService.intent(context))
+    }
+    override fun stop() {
+        context.stopService(VoiceSessionForegroundService.intent(context))
+    }
+}
+
 @HiltViewModel
-class FridayVoiceViewModel @Inject constructor(
+class FridayVoiceViewModel internal constructor(
     private val voiceRouter: VoiceRoutePort,
     private val bridge: VoiceBridge,
     private val convoRepo: FridayConvoStore,
     private val voiceManager: VoiceIo,
     private val contextEngine: ContextHistorySource,
+    private val adapter: LiveVoiceAdapter,
+    private val prefs: VoicePrefsPort,
+    private val gatewayState: VoiceGatewayStatePort,
+    private val lifecycleHost: VoiceSessionLifecycleHost,
+    private val serviceGate: VoiceSessionServiceGate,
+    private val foregroundService: VoiceForegroundServicePort,
+    private val pendingAssist: PendingAssistInvocation = PendingAssistInvocation(),
 ) : ViewModel() {
 
-    private val _mode = MutableStateFlow(VoiceMode.IDLE)
-    val mode: StateFlow<VoiceMode> = _mode.asStateFlow()
+    @Inject constructor(
+        voiceRouter: VoiceRoutePort,
+        bridge: VoiceBridge,
+        convoRepo: FridayConvoStore,
+        voiceManager: VoiceIo,
+        contextEngine: ContextHistorySource,
+        adapter: LiveVoiceAdapter,
+        prefs: AppPreferences,
+        gatewayState: VoiceGatewayStatePort,
+        lifecycleHost: VoiceSessionLifecycleHost,
+        serviceGate: VoiceSessionServiceGate,
+        pendingAssist: PendingAssistInvocation,
+        @ApplicationContext context: Context,
+    ) : this(
+        voiceRouter, bridge, convoRepo, voiceManager, contextEngine, adapter,
+        AppPreferencesVoicePrefsPort(prefs), gatewayState,
+        lifecycleHost, serviceGate, AndroidVoiceForegroundServicePort(context), pendingAssist,
+    )
+
+    init {
+        viewModelScope.launch {
+            serviceGate.stopRequests.collect { reset() }
+        }
+    }
+
+    private val state = MutableStateFlow(VoiceTurnState())
+    val uiState: StateFlow<VoiceUiState> =
+        state.map { it.ui }.stateIn(viewModelScope, SharingStarted.Eagerly, VoiceUiState.Idle)
 
     private val _question = MutableStateFlow("")
     val question: StateFlow<String> = _question.asStateFlow()
@@ -45,139 +132,293 @@ class FridayVoiceViewModel @Inject constructor(
     private val _answer = MutableStateFlow("")
     val answer: StateFlow<String> = _answer.asStateFlow()
 
-    private val _error = MutableStateFlow<String?>(null)
-    val error: StateFlow<String?> = _error.asStateFlow()
-
     private val _selectorRequest = MutableStateFlow<VoiceSelectorRequest?>(null)
     val selectorRequest: StateFlow<VoiceSelectorRequest?> = _selectorRequest.asStateFlow()
 
+    private val _permissionRequest = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
+    val permissionRequest: SharedFlow<Unit> = _permissionRequest.asSharedFlow()
+
     val amplitude: StateFlow<Float> = voiceManager.recordingAmplitude
+
+    // Pref read once at VM init; FRI-583 will add live change notification (screen resume is enough now).
+    val voiceAnimation: StateFlow<VoiceAnimation> =
+        MutableStateFlow(VoiceAnimation.fromKey(prefs.voiceAnim())).asStateFlow()
+    val voiceGateway: StateFlow<GatewayConfig?> = gatewayState.voiceGateway
+    val brainConfigured: StateFlow<Boolean> = gatewayState.brainConfigured
+
+    // Confirm/cancel card renders while the brain has a gate armed; user tap is the ONLY resolver.
+    val awaitingConfirmationState: StateFlow<Boolean> = bridge.awaitingConfirmationState
 
     private var conversationId: String? = null
     private var brainForTurn: GatewayConfig? = null
-    private var flowJob: Job? = null
+    private var cloudVoiceConfig: GatewayConfig? = null
+    private var handle: LiveVoiceHandle? = null
+    private var sessionJob: Job? = null
+    private var brainTurnJob: Job? = null
 
-    fun clearError() { _error.value = null }
     fun clearSelectorRequest() { _selectorRequest.value = null }
 
-    // Gate mic before recording so a missing gateway opens the selector, never records-then-fails.
-    fun startListening() {
-        if (_mode.value == VoiceMode.THINKING || _mode.value == VoiceMode.LISTENING) return
-        val brain = when (val route = voiceRouter.route()) {
-            is VoiceRouter.Route.LocalBridge -> route.brain
-            is VoiceRouter.Route.CloudBridge -> route.brain
-            VoiceRouter.Route.NoVoice -> {
-                _selectorRequest.value = VoiceSelectorRequest.NeedVoiceGateway
-                return
-            }
-            VoiceRouter.Route.NoBrain -> {
-                _selectorRequest.value = VoiceSelectorRequest.NeedBrainGateway
-                return
-            }
-        }
-        voiceManager.stopSpeaking()
-        flowJob?.cancel()
-        _error.value = null
-        _question.value = ""
-        _answer.value = ""
-        val started = voiceManager.startRecording()
-        if (!started) {
-            _error.value = voiceManager.error.value ?: "Could not start recording"
-            _mode.value = VoiceMode.IDLE
-            return
-        }
-        brainForTurn = brain
-        _mode.value = VoiceMode.LISTENING
-    }
+    // Set by MainActivity when the OS delivers an assist invocation (long-press home / assist gesture);
+    // the Voice screen observes it and, once, calls onAssistantInvocation() after the lock chain resolves.
+    val pendingAssistInvocation: StateFlow<Boolean> = pendingAssist.pending
+    fun consumeAssistInvocation(): Boolean = pendingAssist.consume()
 
-    fun stopListening() {
-        if (_mode.value != VoiceMode.LISTENING) return
-        _mode.value = VoiceMode.THINKING
-        flowJob = viewModelScope.launch {
-            val transcript = voiceManager.stopRecordingAndRecognize()
-            if (transcript.isNullOrBlank()) {
-                _error.value = voiceManager.error.value ?: "No speech detected"
-                _mode.value = VoiceMode.IDLE
-                return@launch
-            }
-            _question.value = transcript
-            respond(transcript)
+    // Assist invocation opens the exact same live-voice turn a mic tap does — no separate audio path.
+    fun onAssistantInvocation() = onMicTap()
+
+    fun onMicTap() {
+        val ui = state.value.ui
+        if (ui == VoiceUiState.Idle || ui == VoiceUiState.Done || ui is VoiceUiState.Error) {
+            val route = resolveRoute() ?: return
+            dispatchClearingTextOnNewEpoch(VoiceTurnEvent.MicTap(route, prefs.fridayVoiceBargeIn))
+        } else {
+            dispatchClearingTextOnNewEpoch(VoiceTurnEvent.MicTap(state.value.route, state.value.bargeIn))
         }
     }
 
-    fun cancel() {
-        flowJob?.cancel()
-        bridge.brainCancel()
-        voiceManager.cancelRecording()
-        voiceManager.stopSpeaking()
-        _mode.value = VoiceMode.IDLE
-        _question.value = ""
-        _answer.value = ""
-        _error.value = null
+    fun onMicNeedsPermission() {
+        val route = resolveRoute() ?: return
+        dispatch(VoiceTurnEvent.PermissionNeeded(route, prefs.fridayVoiceBargeIn))
     }
 
-    // brain_confirm: resolves a confirmation gate armed during a turn (brain_cancel is the negative path).
-    fun confirm() {
-        bridge.brainConfirm()
+    fun onPermissionResult(granted: Boolean) {
+        if (granted) dispatch(VoiceTurnEvent.PermissionGranted)
+        else dispatch(VoiceTurnEvent.PermissionDenied("Microphone permission is required for voice."))
     }
+
+    fun reset() = dispatch(VoiceTurnEvent.ResetTap)
+
+    // brain_confirm goes to the live handle when a cloud session owns the turn, else the local bridge.
+    fun confirm() { handle?.brainConfirm() ?: bridge.brainConfirm() }
 
     fun awaitingConfirmation(): Boolean = bridge.brainAwaitingConfirmation()
 
-    private suspend fun respond(transcript: String) {
-        val brain = brainForTurn ?: run {
+    // Gate mic on a resolvable route so a missing gateway opens the selector, never records-then-fails.
+    private fun resolveRoute(): VoiceTurnRoute? = when (val route = voiceRouter.route()) {
+        VoiceRouter.Route.NoVoice -> {
+            _selectorRequest.value = VoiceSelectorRequest.NeedVoiceGateway
+            null
+        }
+        VoiceRouter.Route.NoBrain -> {
             _selectorRequest.value = VoiceSelectorRequest.NeedBrainGateway
-            _mode.value = VoiceMode.IDLE
+            null
+        }
+        is VoiceRouter.Route.LocalBridge -> {
+            brainForTurn = route.brain
+            cloudVoiceConfig = null
+            VoiceTurnRoute.LOCAL
+        }
+        is VoiceRouter.Route.CloudBridge -> {
+            brainForTurn = route.brain
+            cloudVoiceConfig = route.voice
+            VoiceTurnRoute.CLOUD
+        }
+    }
+
+    private fun epochCurrent(epoch: Int): Boolean = state.value.epoch == epoch
+
+    // Epoch bump = new turn (fresh start or barge-in); stale question/answer must not leak into it.
+    private fun dispatchClearingTextOnNewEpoch(event: VoiceTurnEvent) {
+        val before = state.value.epoch
+        dispatch(event)
+        if (state.value.epoch != before) {
+            _question.value = ""
+            _answer.value = ""
+        }
+    }
+
+    private fun dispatch(event: VoiceTurnEvent) {
+        val effects: List<VoiceTurnEffect>
+        synchronized(this) {
+            val result = FridayVoiceTurnMachine.reduce(state.value, event)
+            state.value = result.state
+            effects = result.effects
+        }
+        effects.forEach(::execute)
+    }
+
+    private fun execute(effect: VoiceTurnEffect) {
+        when (effect) {
+            VoiceTurnEffect.RequestPermission -> _permissionRequest.tryEmit(Unit)
+            is VoiceTurnEffect.OpenCloudSession -> openCloudSession(effect.epoch, effect.bargeIn)
+            is VoiceTurnEffect.EndCloudUserTurn -> handle?.endUserTurn()
+            is VoiceTurnEffect.StartLocalRecording -> startLocalRecording(effect.epoch)
+            is VoiceTurnEffect.StopLocalRecordingAndRecognize -> stopLocalRecording(effect.epoch)
+            VoiceTurnEffect.CancelBrainTurn -> {
+                // Also cancel the collect job so a cancelled cloud turn stops streaming/persisting.
+                brainTurnJob?.cancel()
+                brainTurnJob = null
+                handle?.brainCancel() ?: bridge.brainCancel()
+            }
+            is VoiceTurnEffect.RunBrainTurn -> runBrainTurn(effect.epoch, effect.transcript)
+            is VoiceTurnEffect.SpeakLocal -> speakLocal(effect.epoch, effect.text)
+            VoiceTurnEffect.StopLocalSpeaking -> voiceManager.stopSpeaking()
+            VoiceTurnEffect.TeardownAll -> teardownAll()
+            VoiceTurnEffect.ReleaseSession -> releaseSession()
+        }
+    }
+
+    private fun openCloudSession(epoch: Int, bargeIn: Boolean) {
+        val voiceCfg = cloudVoiceConfig
+        if (voiceCfg == null || !adapter.supports(voiceCfg)) {
+            dispatch(VoiceTurnEvent.BrainError(epoch, "Live voice isn't supported for this provider yet."))
             return
         }
-        val convoId = conversationId ?: convoRepo.createConversation(brain.id).id.also { conversationId = it }
-        val userTurn = FridayTurn(
-            id = UUID.randomUUID().toString(),
-            conversationId = convoId,
-            role = "user",
-            content = transcript,
-            timestamp = System.currentTimeMillis(),
-            viaVoice = true,
-        )
-        convoRepo.addTurn(userTurn)
-        contextEngine.onUserTurnPersisted(userTurn)
-        val history = contextEngine.buildHistory(convoId)
-        bridge.runTurn(viewModelScope, history) { event ->
-            when (event) {
-                is GatewayEvent.Delta -> {
-                    if (_mode.value != VoiceMode.SPEAKING) _mode.value = VoiceMode.SPEAKING
-                    _answer.value += event.text
-                }
-                is GatewayEvent.Done -> {
-                    val finalText = event.fullText
-                    _answer.value = finalText
-                    _mode.value = VoiceMode.SPEAKING
-                    if (finalText.isNotBlank()) {
-                        convoRepo.addTurn(
-                            FridayTurn(
-                                id = UUID.randomUUID().toString(),
-                                conversationId = convoId,
-                                role = "assistant",
-                                content = finalText,
-                                timestamp = System.currentTimeMillis(),
-                                viaVoice = true,
-                            )
-                        )
-                        contextEngine.onTurnCompleted(convoId)
-                        val spoken = voiceManager.speak(UUID.randomUUID().toString(), finalText)
-                        if (!spoken) _error.value = voiceManager.error.value
-                    }
-                    _mode.value = VoiceMode.DONE
-                }
-                is GatewayEvent.Error -> {
-                    _error.value = event.message
-                    _mode.value = VoiceMode.IDLE
-                }
+        val h = adapter.open(voiceCfg, GeminiLiveConfig.DEFAULT_VOICE, locale(), bargeIn)
+        handle = h
+        lifecycleHost.attach(cloudAttachedSession(h))
+        lifecycleHost.setContinuationActive(prefs.foregroundContinue)
+        serviceGate.setSessionActive(true)
+        if (prefs.foregroundContinue) foregroundService.start()
+        sessionJob = viewModelScope.launch {
+            h.run().collect { ev ->
+                if (ev is LiveEvent.InputTranscript && epochCurrent(epoch)) _question.value = ev.text
+                if (ev is LiveEvent.OutputTranscript && epochCurrent(epoch)) _answer.value += ev.text
+                dispatch(VoiceTurnEvent.SessionEvent(epoch, ev))
             }
         }
     }
 
-    override fun onCleared() {
+    private fun startLocalRecording(epoch: Int) {
+        if (voiceManager.startRecording()) {
+            lifecycleHost.attach(localAttachedSession())
+        } else {
+            dispatch(VoiceTurnEvent.BrainError(epoch, voiceManager.error.value ?: "Could not start recording"))
+        }
+    }
+
+    // Cloud route: forward focus/route/background straight to the live handle (FRI-548 contract).
+    private fun cloudAttachedSession(h: LiveVoiceHandle): AttachedSession = object : AttachedSession {
+        override fun onAudioFocusLost() = h.onAudioFocusLost()
+        override fun onAudioRouteChanged() = h.onAudioRouteChanged()
+        override fun onBackground() = h.onBackground()
+    }
+
+    // Local route: no live-handle passthroughs exist, so focus loss/background cancel the turn
+    // via the same reset() path; route change never affects local playback routing.
+    private fun localAttachedSession(): AttachedSession = object : AttachedSession {
+        override fun onAudioFocusLost() { reset() }
+        override fun onAudioRouteChanged() {}
+        override fun onBackground() { reset() }
+    }
+
+    private fun stopLocalRecording(epoch: Int) {
+        viewModelScope.launch {
+            val transcript = voiceManager.stopRecordingAndRecognize()
+            if (epochCurrent(epoch) && !transcript.isNullOrBlank()) _question.value = transcript
+            dispatch(VoiceTurnEvent.LocalTranscript(epoch, transcript))
+        }
+    }
+
+    private fun runBrainTurn(epoch: Int, transcript: String) {
+        val brain = brainForTurn ?: run {
+            dispatch(VoiceTurnEvent.BrainError(epoch, "No brain gateway selected."))
+            return
+        }
+        brainTurnJob = viewModelScope.launch {
+            val convoId = conversationId
+                ?: convoRepo.createConversation(brain.id).id.also { conversationId = it }
+            val userTurn = FridayTurn(
+                id = UUID.randomUUID().toString(),
+                conversationId = convoId,
+                role = "user",
+                content = transcript,
+                timestamp = System.currentTimeMillis(),
+                viaVoice = true,
+            )
+            convoRepo.addTurn(userTurn)
+            contextEngine.onUserTurnPersisted(userTurn)
+            val history = contextEngine.buildHistory(convoId)
+            val onEvent: suspend (GatewayEvent) -> Unit = { event ->
+                when (event) {
+                    is GatewayEvent.Delta -> {
+                        if (epochCurrent(epoch)) _answer.value += event.text
+                        dispatch(VoiceTurnEvent.BrainDelta(epoch, event.text))
+                    }
+                    is GatewayEvent.Done -> {
+                        // A cancelled/superseded turn must not persist a stale assistant reply.
+                        if (epochCurrent(epoch) && event.fullText.isNotBlank()) {
+                            convoRepo.addTurn(
+                                FridayTurn(
+                                    id = UUID.randomUUID().toString(),
+                                    conversationId = convoId,
+                                    role = "assistant",
+                                    content = event.fullText,
+                                    timestamp = System.currentTimeMillis(),
+                                    viaVoice = true,
+                                )
+                            )
+                            contextEngine.onTurnCompleted(convoId)
+                        }
+                        if (epochCurrent(epoch)) _answer.value = event.fullText
+                        dispatch(VoiceTurnEvent.BrainDone(epoch, event.fullText))
+                    }
+                    is GatewayEvent.Error -> dispatch(VoiceTurnEvent.BrainError(epoch, event.message))
+                }
+            }
+            val h = handle
+            if (h != null) {
+                // LiveCloudBridge.brainTurn appends the transcript as the new user turn itself;
+                // drop the trailing duplicate the context engine already included.
+                val cloudHistory =
+                    if (history.lastOrNull() == GatewayTurn("user", transcript)) history.dropLast(1) else history
+                h.brainTurn(cloudHistory, transcript).collect { onEvent(it) }
+            } else {
+                bridge.runTurn(viewModelScope, history) { onEvent(it) }
+            }
+        }
+    }
+
+    private fun speakLocal(epoch: Int, text: String) {
+        viewModelScope.launch {
+            val spoken = voiceManager.speak(UUID.randomUUID().toString(), text)
+            // Honest surfacing: a failed TTS after Done flips the UI to Error deliberately.
+            if (!spoken && epochCurrent(epoch)) {
+                dispatch(VoiceTurnEvent.BrainError(epoch, voiceManager.error.value ?: "Speech failed"))
+            }
+        }
+    }
+
+    // Terminal-state resource release: mic/session/FGS go away, but question/answer text and the
+    // Done/Error surface stay for the user to read. TeardownAll (mid-turn cancel) also resets UI.
+    // Deliberately does NOT stopSpeaking — local Done keeps TTS playing.
+    private fun releaseSession() {
+        brainTurnJob?.cancel()
+        brainTurnJob = null
+        sessionJob?.cancel()
+        sessionJob = null
+        handle?.cancel()
+        handle = null
+        bridge.brainCancel()
+        voiceManager.cancelRecording()
+        lifecycleHost.detach()
+        serviceGate.setSessionActive(false)
+        foregroundService.stop()
+    }
+
+    private fun teardownAll() {
+        releaseSession()
         voiceManager.stopSpeaking()
-        flowJob?.cancel()
+        _question.value = ""
+        _answer.value = ""
+        dispatch(VoiceTurnEvent.TeardownComplete(state.value.epoch))
+    }
+
+    private fun locale(): String =
+        if (prefs.language() == "vi") "vi-VN" else "en-US"
+
+    override fun onCleared() {
+        brainTurnJob?.cancel()
+        sessionJob?.cancel()
+        handle?.cancel()
+        voiceManager.cancelRecording()
+        voiceManager.stopSpeaking()
+        lifecycleHost.detach()
+        serviceGate.setSessionActive(false)
+        foregroundService.stop()
+    }
+
+    internal companion object {
+        const val KEY_FRIDAY_LANGUAGE = "friday_language"
     }
 }

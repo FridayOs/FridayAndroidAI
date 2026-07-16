@@ -1,6 +1,7 @@
 package com.dark.tool_neuron.activity
 
 import android.content.Context
+import android.content.Intent
 import android.os.Bundle
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
@@ -59,4 +60,17 @@ class MainActivity : ComponentActivity() {
         }
     }
 
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+    }
+
+    // The assist one-shot flag is set in-process by FridayVoiceInteractionSession (never via an
+    // Intent extra), so an exported-activity caller can't forge an assist invocation.
+    companion object {
+        const val ACTION_ASSIST_VOICE = "com.dark.tool_neuron.action.ASSIST_VOICE"
+        const val ACTION_OPEN_EVENT = "com.dark.tool_neuron.action.OPEN_EVENT"
+        const val EXTRA_OPEN_EVENT_ID = "com.dark.tool_neuron.extra.OPEN_EVENT_ID"
+        const val EXTRA_OPEN_EVENT_CORRELATION = "com.dark.tool_neuron.extra.OPEN_EVENT_CORRELATION"
+    }
 }

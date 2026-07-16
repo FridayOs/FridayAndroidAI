@@ -3,6 +3,8 @@ package com.dark.tool_neuron.repo.gateway
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.Flow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
 import javax.inject.Inject
@@ -13,6 +15,11 @@ class VoiceBridge @Inject constructor(
     private val brain: BrainBridge,
 ) {
     private var turnJob: Job? = null
+
+    // Reactive mirror of the brain's confirmation gate (real StateFlow when the brain is the router,
+    // else a constant false) so the Voice screen can render a confirm/cancel card without polling.
+    val awaitingConfirmationState: StateFlow<Boolean> =
+        (brain as? GatewayRoleRouter)?.awaitingConfirmation ?: MutableStateFlow(false)
 
     // Owns the collecting Job so brainCancel() tears down the live turn, not just the delegate.
     fun runTurn(

@@ -491,7 +491,7 @@ fun TNavigation(
             FridayVoiceScreen(
                 innerPadding = innerPadding,
                 onOpenMenu = { navController.navigate(NavScreens.FridayHistory.route) },
-                onOpenHistory = { navController.navigate(NavScreens.FridayHistory.route) },
+                onToChat = { navController.navigate(NavScreens.FridayChat.BASE) },
             )
         }
         composable(

@@ -13,11 +13,21 @@
     <string name="friday_sign_out">Sign out</string>
     <string name="friday_settings_title">Settings</string>
     <string name="friday_drawer_free_plan">Free plan</string>
-    <string name="friday_voice_idle_title">Tap to send voice message</string>
+    <string name="friday_voice_idle_title">Tap to talk to Friday</string>
     <string name="friday_voice_listening_title">Listening…</string>
     <string name="friday_voice_thinking_title">Thinking…</string>
     <string name="friday_voice_speaking_title">Speaking…</string>
     <string name="friday_voice_done_title">Tap to ask again</string>
+    <string name="friday_voice_thinking_label">Friday is thinking…</string>
+    <string name="friday_voice_no_provider_title">Choose Friday\'s brain</string>
+    <string name="friday_voice_no_provider_body">Add or select a provider/model before sending your first message.</string>
+    <string name="friday_voice_add_provider">Add provider</string>
+    <string name="friday_voice_select_provider">Select provider</string>
+    <string name="friday_voice_connecting">Connecting…</string>
+    <string name="friday_voice_notif_title">Friday voice session</string>
+    <string name="friday_voice_notif_body">Listening continues in background. Tap Stop to end.</string>
+    <string name="friday_voice_notif_stop">Stop</string>
+    <string name="friday_voice_channel_name">Voice session</string>
     <string name="friday_recent_quick_command">Quick command</string>
     <string name="friday_recent_open_care">Open Care</string>
     <string name="friday_recent_how_to_use">How to use</string>
@@ -36,9 +46,8 @@
     <string name="friday_nav_history">History</string>
     <string name="friday_version_footer">Friday · v1.0.0</string>
     <string name="friday_chat_input_hint">Type message here</string>
-    <string name="friday_voice_idle_hint">Tap the mic and ask me anything — I\'ll listen and reply out loud.</string>
     <string name="friday_history_empty">No conversations yet. Start one from Chat or Voice.</string>
-    <string name="friday_voice_hold_hint">Hold the mic and speak — release to send. I\'ll reply out loud.</string>
+    <string name="friday_voice_tap_hint">Tap the mic and ask me anything —\nI’ll listen and reply out loud.</string>
     <string name="friday_gateways_title">Gateways</string>
     <string name="friday_gateways_add">Add gateway</string>
     <string name="friday_gateways_empty">No gateways yet. Add one to connect a provider directly from this device.</string>
@@ -84,6 +93,15 @@
     <string name="friday_settings_section_theme_subtitle">System · follows device</string>
     <string name="friday_settings_section_language_title">Language</string>
     <string name="friday_settings_section_language_subtitle">Change app language</string>
+    <string name="friday_settings_section_assistant_title">Set FRIDAY as your assistant</string>
+    <string name="friday_settings_section_assistant_subtitle">Open with long-press home or the assist gesture</string>
+    <string name="friday_events_channel_normal">Friday updates</string>
+    <string name="friday_events_channel_high">Friday important</string>
+    <string name="friday_events_channel_urgent">Friday urgent</string>
+    <string name="friday_event_confirm">Confirm</string>
+    <string name="friday_event_cancel">Cancel</string>
+    <string name="friday_event_dismiss">Dismiss</string>
+    <string name="friday_event_awaiting_confirmation">Friday is waiting for your confirmation</string>
 
     <!-- Setup labels (M2-00 first-launch) -->
     <string name="friday_setup_protect_title">Protect your data</string>

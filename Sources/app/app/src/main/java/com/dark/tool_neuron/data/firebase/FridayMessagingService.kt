@@ -2,6 +2,8 @@ package com.dark.tool_neuron.data.firebase
 
 import android.util.Log
 import com.dark.tool_neuron.data.AppPreferences
+import com.dark.tool_neuron.repo.InboundEventCenter
+import com.dark.tool_neuron.repo.InboundEventPort
 import com.google.firebase.messaging.FirebaseMessagingService
 import com.google.firebase.messaging.RemoteMessage
 import dagger.hilt.android.AndroidEntryPoint
@@ -20,6 +22,7 @@ class FridayMessagingService : FirebaseMessagingService() {
 
     @Inject lateinit var prefs: AppPreferences
     @Inject lateinit var profileStore: FirebaseProfileStore
+    @Inject lateinit var inboundEvents: InboundEventPort
 
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -34,9 +37,15 @@ class FridayMessagingService : FirebaseMessagingService() {
     }
 
     override fun onMessageReceived(message: RemoteMessage) {
-        // Push routing only. Payloads carry no assistant content by design; a
-        // future notification surface consumes message.data here.
-        Log.i(TAG, "push received")
+        // Push routing only. Map data -> InboundEvent (conservative: unverified CONFIRMATION is
+        // downgraded, lengths capped — see InboundEventCenter). Malformed payloads drop silently;
+        // never log payload content (pushes may carry user-adjacent metadata).
+        val event = InboundEventCenter.fromPushData(message.data)
+        if (event == null) {
+            Log.i(TAG, "push dropped (malformed)")
+            return
+        }
+        inboundEvents.publish(event)
     }
 
     companion object {

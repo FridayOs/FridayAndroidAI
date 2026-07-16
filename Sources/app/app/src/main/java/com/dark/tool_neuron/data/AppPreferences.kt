@@ -244,6 +244,18 @@ class AppPreferences @Inject constructor(
         get() = getString(KEY_FRIDAY_FCM_TOKEN)
         set(value) = putString(KEY_FRIDAY_FCM_TOKEN, value)
 
+    var fridayVoiceAnim: String
+        get() = getString(KEY_FRIDAY_VOICE_ANIM, DEFAULT_FRIDAY_VOICE_ANIM)
+        set(value) = putString(KEY_FRIDAY_VOICE_ANIM, value)
+
+    var fridayVoiceForegroundContinue: Boolean
+        get() = getBoolean(KEY_FRIDAY_VOICE_FOREGROUND_CONTINUE, false)
+        set(value) = putBoolean(KEY_FRIDAY_VOICE_FOREGROUND_CONTINUE, value)
+
+    var fridayVoiceBargeIn: Boolean
+        get() = getBoolean(KEY_FRIDAY_VOICE_BARGE_IN, true)
+        set(value) = putBoolean(KEY_FRIDAY_VOICE_BARGE_IN, value)
+
     // Random per-install device id for the Firestore device registry. NOT
     // Settings.Secure.ANDROID_ID — the repo forbids OS-attested/global ids for
     // any persisted identity. Lives sealed in the encrypted app_prefs vault.
@@ -359,6 +371,10 @@ class AppPreferences @Inject constructor(
         const val KEY_FRIDAY_SELECTED_MODEL = "friday_selected_model"
         const val KEY_FRIDAY_FCM_TOKEN = "friday_fcm_token"
         const val KEY_FRIDAY_DEVICE_ID = "friday_device_id"
+        const val KEY_FRIDAY_VOICE_ANIM = "friday_voice_anim"
+        const val DEFAULT_FRIDAY_VOICE_ANIM = "orb"
+        const val KEY_FRIDAY_VOICE_FOREGROUND_CONTINUE = "friday_voice_foreground_continue"
+        const val KEY_FRIDAY_VOICE_BARGE_IN = "friday_voice_barge_in"
         const val KEY_BACKEND_MODE = "backend_mode"
         const val DEFAULT_FRIDAY_API_BASE_URL = "http://localhost:3101"
         const val DEFAULT_SERVER_PORT = 11434

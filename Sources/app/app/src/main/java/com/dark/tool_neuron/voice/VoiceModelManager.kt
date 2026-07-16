@@ -111,6 +111,16 @@ class VoiceModelManager @Inject constructor(
         text
     }
 
+    // FridaySpeechRecognitionService captures with its own AudioRecord (never the singleton SttRecorder,
+    // which a live session may hold) and hands the samples here: load the active STT model, recognize.
+    // Null when no STT model is installed or recognition fails — honest, never a fabricated transcript.
+    suspend fun recognizeSamples(samples: FloatArray): String? = withContext(Dispatchers.IO) {
+        if (samples.isEmpty()) return@withContext null
+        val loaded = ensureSttLoaded() ?: return@withContext null
+        if (!loaded) return@withContext null
+        InferenceClient.recognize(samples, SttRecorder.SAMPLE_RATE)
+    }
+
     private suspend fun ensureTtsLoaded(): Boolean? = ttsLock.withLock {
         if (InferenceClient.isTtsLoaded.value) return@withLock true
         val model = findActiveTts() ?: run {

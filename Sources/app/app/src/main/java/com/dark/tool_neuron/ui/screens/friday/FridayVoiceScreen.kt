@@ -6,14 +6,10 @@ import android.Manifest
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectTapGestures
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -21,23 +17,19 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -46,24 +38,38 @@ import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.dark.tool_neuron.ui.icons.TnIcons
-import com.dark.tool_neuron.ui.screens.friday.components.FridayOrb
-import com.dark.tool_neuron.ui.screens.friday.components.FridayWaveform
+import com.dark.tool_neuron.model.gateway.GatewayStatus
+import com.dark.tool_neuron.ui.screens.friday.components.ConfirmationCard
+import com.dark.tool_neuron.ui.screens.friday.components.FridayVoiceAnimation
+import com.dark.tool_neuron.ui.screens.friday.components.FridayVoiceControls
+import com.dark.tool_neuron.ui.screens.friday.components.FridayVoiceHeader
+import com.dark.tool_neuron.ui.screens.friday.components.FridayVoiceProviderStatusPill
+import com.dark.tool_neuron.ui.screens.friday.components.FridayVoiceRing
+import com.dark.tool_neuron.ui.screens.friday.components.FridayVoiceSelectorPrompt
+import com.dark.tool_neuron.ui.screens.friday.components.InboundEventCard
 import com.dark.tool_neuron.ui.util.FridayPalette
+import com.dark.tool_neuron.viewmodel.FridayEventsViewModel
 import com.dark.tool_neuron.viewmodel.FridayVoiceViewModel
-import com.dark.tool_neuron.viewmodel.VoiceMode
+import com.dark.tool_neuron.viewmodel.VoiceUiState
 
 @Composable
 fun FridayVoiceScreen(
     innerPadding: PaddingValues,
     onOpenMenu: () -> Unit,
-    onOpenHistory: () -> Unit,
+    onToChat: () -> Unit,
     viewModel: FridayVoiceViewModel = hiltViewModel(),
+    eventsViewModel: FridayEventsViewModel = hiltViewModel(),
 ) {
-    val mode by viewModel.mode.collectAsStateWithLifecycle()
+    val uiState by viewModel.uiState.collectAsStateWithLifecycle()
     val question by viewModel.question.collectAsStateWithLifecycle()
     val answer by viewModel.answer.collectAsStateWithLifecycle()
-    val error by viewModel.error.collectAsStateWithLifecycle()
+    val selectorRequest by viewModel.selectorRequest.collectAsStateWithLifecycle()
+    val voiceAnimation by viewModel.voiceAnimation.collectAsStateWithLifecycle()
+    val voiceGateway by viewModel.voiceGateway.collectAsStateWithLifecycle()
+    val brainConfigured by viewModel.brainConfigured.collectAsStateWithLifecycle()
+    val pendingAssist by viewModel.pendingAssistInvocation.collectAsStateWithLifecycle()
+    val activeInboundEvent by eventsViewModel.activeEvent.collectAsStateWithLifecycle()
+    val awaitingConfirmation by viewModel.awaitingConfirmationState.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     var micGranted by remember {
@@ -72,29 +78,41 @@ fun FridayVoiceScreen(
                 android.content.pm.PackageManager.PERMISSION_GRANTED
         )
     }
+
+    // Assistant invocation (long-press home) reaches this screen only after the auth/lock chain has
+    // resolved onto the voice route; consume the one-shot flag and open the same turn a mic tap does.
+    // Assist goes through the same permission gate — mic-FGS on Android 14+ needs while-in-use RECORD_AUDIO.
+    LaunchedEffect(pendingAssist, micGranted) {
+        if (pendingAssist && viewModel.consumeAssistInvocation()) {
+            if (micGranted) viewModel.onAssistantInvocation() else viewModel.onMicNeedsPermission()
+        }
+    }
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { granted ->
         micGranted = granted
-        if (granted) viewModel.startListening()
+        viewModel.onPermissionResult(granted)
+    }
+    // WHY: single launch path avoids the double-invocation bug of firing the launcher directly from onClick
+    LaunchedEffect(viewModel) {
+        viewModel.permissionRequest.collect { permissionLauncher.launch(Manifest.permission.RECORD_AUDIO) }
     }
 
-    val active = mode == VoiceMode.LISTENING || mode == VoiceMode.SPEAKING
-    val barColor = when (mode) {
-        VoiceMode.LISTENING -> FridayPalette.Primary
-        VoiceMode.SPEAKING -> FridayPalette.SpeakingGlow
+    val active = uiState == VoiceUiState.Listening || uiState == VoiceUiState.Speaking
+    val ringColor = when (uiState) {
+        VoiceUiState.Listening -> FridayPalette.Primary
+        VoiceUiState.Speaking -> FridayPalette.SpeakingGlow
         else -> MaterialTheme.colorScheme.onSurfaceVariant
     }
-    val glow = if (mode == VoiceMode.SPEAKING) FridayPalette.SpeakingGlow else FridayPalette.Primary
-    val title = when (mode) {
-        VoiceMode.IDLE -> stringResource(R.string.friday_voice_idle_title)
-        VoiceMode.LISTENING -> stringResource(R.string.friday_voice_listening_title)
-        VoiceMode.THINKING -> stringResource(R.string.friday_voice_thinking_title)
-        VoiceMode.SPEAKING -> stringResource(R.string.friday_voice_speaking_title)
-        VoiceMode.DONE -> stringResource(R.string.friday_voice_done_title)
+    val title = when (uiState) {
+        VoiceUiState.Idle, VoiceUiState.Cancelling -> stringResource(R.string.friday_voice_idle_title)
+        VoiceUiState.RequestingPermission, VoiceUiState.Connecting -> stringResource(R.string.friday_voice_connecting)
+        VoiceUiState.Listening -> stringResource(R.string.friday_voice_listening_title)
+        VoiceUiState.Thinking -> stringResource(R.string.friday_voice_thinking_title)
+        VoiceUiState.Speaking -> stringResource(R.string.friday_voice_speaking_title)
+        VoiceUiState.Done -> stringResource(R.string.friday_voice_done_title)
+        is VoiceUiState.Error -> stringResource(R.string.friday_voice_idle_title)
     }
-
-    val currentMode by rememberUpdatedState(mode)
 
     Column(
         modifier = Modifier
@@ -102,10 +120,7 @@ fun FridayVoiceScreen(
             .padding(innerPadding)
             .padding(horizontal = 22.dp, vertical = 6.dp),
     ) {
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            TopIconButton(TnIcons.Menu, onOpenMenu)
-            TopIconButton(TnIcons.MessageCircle, onOpenHistory)
-        }
+        FridayVoiceHeader(onOpenMenu = onOpenMenu, onToChat = onToChat)
 
         Spacer(Modifier.height(18.dp))
         Text(
@@ -118,14 +133,20 @@ fun FridayVoiceScreen(
 
         Spacer(Modifier.height(14.dp))
         Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .size(280.dp),
+            modifier = Modifier.fillMaxWidth().size(280.dp),
             contentAlignment = Alignment.Center,
         ) {
-            FridayWaveform(active = active, color = barColor, modifier = Modifier.size(280.dp))
-            FridayOrb(active = active, glow = glow)
+            FridayVoiceRing(active = active, color = ringColor, modifier = Modifier.size(280.dp))
+            FridayVoiceAnimation(animation = voiceAnimation, active = active)
         }
+
+        Spacer(Modifier.height(10.dp))
+        FridayVoiceProviderStatusPill(
+            brainConfigured = brainConfigured,
+            gatewayLabel = voiceGateway?.label,
+            ready = voiceGateway?.status == GatewayStatus.READY,
+            onClick = onOpenMenu,
+        )
 
         Column(
             modifier = Modifier
@@ -151,9 +172,9 @@ fun FridayVoiceScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
             }
-            if (question.isEmpty() && mode == VoiceMode.IDLE) {
+            if (question.isEmpty() && uiState == VoiceUiState.Idle) {
                 Text(
-                    text = stringResource(R.string.friday_voice_hold_hint),
+                    text = stringResource(R.string.friday_voice_tap_hint),
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     textAlign = TextAlign.Center,
@@ -161,14 +182,30 @@ fun FridayVoiceScreen(
             }
         }
 
-        error?.let { message ->
+        activeInboundEvent?.let { event ->
+            InboundEventCard(
+                event = event,
+                onDismiss = eventsViewModel::dismiss,
+                modifier = Modifier.padding(vertical = 6.dp),
+            )
+        }
+
+        if (awaitingConfirmation) {
+            ConfirmationCard(
+                onConfirm = viewModel::confirm,
+                onCancel = viewModel::reset,
+                modifier = Modifier.padding(vertical = 6.dp),
+            )
+        }
+
+        (uiState as? VoiceUiState.Error)?.message?.let { message ->
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(vertical = 6.dp)
                     .clip(RoundedCornerShape(12.dp))
                     .background(MaterialTheme.colorScheme.errorContainer)
-                    .clickable { viewModel.clearError() }
+                    .clickable { viewModel.reset() }
                     .padding(horizontal = 14.dp, vertical = 10.dp),
             ) {
                 Text(
@@ -181,81 +218,18 @@ fun FridayVoiceScreen(
             }
         }
 
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 14.dp),
-            horizontalArrangement = Arrangement.Center,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            DashedCircleButton(TnIcons.Edit, onClick = onOpenMenu)
-            Spacer(Modifier.size(40.dp))
-            Box(
-                modifier = Modifier
-                    .size(84.dp)
-                    .background(FridayPalette.Primary, CircleShape)
-                    .pointerInput(micGranted) {
-                        detectTapGestures(
-                            onPress = {
-                                if (!micGranted) {
-                                    permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
-                                    return@detectTapGestures
-                                }
-                                if (currentMode == VoiceMode.SPEAKING || currentMode == VoiceMode.THINKING) {
-                                    return@detectTapGestures
-                                }
-                                viewModel.startListening()
-                                tryAwaitRelease()
-                                viewModel.stopListening()
-                            },
-                        )
-                    },
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = if (mode == VoiceMode.LISTENING) TnIcons.PlayerStop else TnIcons.Mic,
-                    contentDescription = null,
-                    modifier = Modifier.size(32.dp),
-                    tint = FridayPalette.OnPrimary,
-                )
-            }
-            Spacer(Modifier.size(40.dp))
-            DashedCircleButton(TnIcons.X, onClick = viewModel::cancel)
+        selectorRequest?.let {
+            FridayVoiceSelectorPrompt(
+                onAddProvider = { viewModel.clearSelectorRequest(); onOpenMenu() },
+                onSelectProvider = { viewModel.clearSelectorRequest(); onOpenMenu() },
+            )
         }
-    }
-}
 
-@Composable
-private fun TopIconButton(icon: ImageVector, onClick: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .size(42.dp)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            modifier = Modifier.size(24.dp),
-            tint = MaterialTheme.colorScheme.onSurface,
-        )
-    }
-}
-
-@Composable
-private fun DashedCircleButton(icon: ImageVector, onClick: () -> Unit) {
-    Box(
-        modifier = Modifier
-            .size(52.dp)
-            .border(1.5.dp, MaterialTheme.colorScheme.outline, CircleShape)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            modifier = Modifier.size(20.dp),
-            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+        FridayVoiceControls(
+            uiState = uiState,
+            onEditClick = onOpenMenu,
+            onMicClick = { if (!micGranted) viewModel.onMicNeedsPermission() else viewModel.onMicTap() },
+            onReset = viewModel::reset,
         )
     }
 }
