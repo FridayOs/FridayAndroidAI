@@ -380,4 +380,45 @@ class LiveSessionEngineLifecycleTest {
         val eng = engine()
         assertEquals(false, eng.resumeUserTurn())
     }
+
+    // E1 race: a clean server close runs connectOnce's finally (liveGate cleared, socket closed) before the
+    // outer loop even attempts a reconnect. resumeUserTurn() must see the cleared gate and refuse to restart capture.
+    @Test
+    fun resumeUserTurn_afterCleanClose_returnsFalse_noCaptureRestart() = runTest {
+        val src = FakeSource()
+        val transport = FakeTransport(
+            frames = listOf(
+                LiveTransport.Incoming.Text("""{"setupComplete":{}}"""),
+                LiveTransport.Incoming.Closed(1000, ""),
+            ),
+        )
+        val eng = engine(src, FakeSink()) { transport }
+        eng.run(config()).toList()
+
+        val starts = src.startCount
+        assertEquals(false, eng.resumeUserTurn())
+        assertEquals("resume must not restart capture on a closed socket", starts, src.startCount)
+    }
+
+    // E1 race: the collector cancel drives connectOnce's finally (liveGate cleared) which happens-before
+    // teardown() runs — so resumeUserTurn() must return false even in this pre-teardown window, not just after
+    // teardown has fully run.
+    @Test
+    fun resumeUserTurn_afterCollectorCancelTeardownRace_returnsFalse() = runTest {
+        val src = FakeSource()
+        val transport = FakeTransport(
+            frames = listOf(LiveTransport.Incoming.Text("""{"setupComplete":{}}""")),
+            keepOpen = true,
+        )
+        val eng = engine(src, FakeSink()) { transport }
+        val job = launch { eng.run(config()).collect {} }
+        advanceUntilIdle()
+        assertEquals(1, src.startCount)
+
+        job.cancel(); job.join()
+
+        val starts = src.startCount
+        assertEquals(false, eng.resumeUserTurn())
+        assertEquals(starts, src.startCount)
+    }
 }

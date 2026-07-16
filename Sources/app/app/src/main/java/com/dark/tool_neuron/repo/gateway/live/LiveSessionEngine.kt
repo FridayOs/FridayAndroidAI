@@ -44,6 +44,10 @@ internal class LiveSessionEngine(
     @Volatile private var activeConfig: GeminiLiveConfig? = null
     @Volatile private var emitter: ((LiveEvent) -> Unit)? = null
     private val captureErrorRef = AtomicReference<LiveErrorKind?>(null)
+    // The currently live+configured socket; only this is resumable. Cleared in connectOnce's finally BEFORE the
+    // socket closes (and again in teardown, belt-and-suspenders) so resumeUserTurn() can't race a closing/reconnecting
+    // session into sending frames on a dead socket.
+    private val liveGate = AtomicReference<LiveTransport?>(null)
 
     // Runs the full session as a cold flow. Collecting starts it; cancelling the collector tears everything down.
     fun run(config: GeminiLiveConfig): Flow<LiveEvent> = callbackFlow {
@@ -155,6 +159,7 @@ internal class LiveSessionEngine(
             emit(LiveEvent.Error(kind, GatewayErrorSanitizer.sanitize(t.message, config.apiKey)))
             return kind
         } finally {
+            liveGate.set(null) // invalidate resume BEFORE the socket closes (close/teardown race)
             capture.stop()
             runCatching { ws.close() }
         }
@@ -188,6 +193,8 @@ internal class LiveSessionEngine(
                     }
                     // Open playback now so a broken speaker ends the session as terminal AUDIO instead of failing silent.
                     player.start(onError = { t -> failAudio(config, ws, emit, captureError, t) })
+                    // Mic + player are fully up and the session is live: only now is this socket resumable.
+                    liveGate.set(ws)
                 }
                 is LiveProtocol.ServerFrame.Audio -> {
                     // B1 brain-owns-answer: Gemini's own generated audio is discarded — never enqueued, never
@@ -281,7 +288,7 @@ internal class LiveSessionEngine(
     // session isn't live (cancelled / no transport / torn down) so the VM opens a fresh session instead.
     fun resumeUserTurn(): Boolean {
         if (cancelled.get()) return false
-        val ws = transport.get() ?: return false
+        val ws = liveGate.get() ?: return false // only a live+configured socket is resumable
         val scope = sessionScope ?: return false
         val config = activeConfig ?: return false
         val emit = emitter ?: return false
@@ -314,6 +321,7 @@ internal class LiveSessionEngine(
     }
 
     private fun teardown() {
+        liveGate.set(null) // belt-and-suspenders; connectOnce's finally already clears it before close
         capture.stop()
         player.stop()
         runCatching { transport.getAndSet(null)?.close() }
