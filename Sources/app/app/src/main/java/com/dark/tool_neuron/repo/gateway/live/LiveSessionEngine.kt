@@ -48,6 +48,10 @@ internal class LiveSessionEngine(
     // socket closes (and again in teardown, belt-and-suspenders) so resumeUserTurn() can't race a closing/reconnecting
     // session into sending frames on a dead socket.
     private val liveGate = AtomicReference<LiveTransport?>(null)
+    // Serializes every gate clear against resumeUserTurn()'s check+start so a close on any path can never race a
+    // resume that already read a live gate: the loser of the lock either sees the gate already cleared, or the
+    // resume finishes its (non-blocking) start before the clear proceeds.
+    private val resumeLock = Any()
 
     // Runs the full session as a cold flow. Collecting starts it; cancelling the collector tears everything down.
     fun run(config: GeminiLiveConfig): Flow<LiveEvent> = callbackFlow {
@@ -120,19 +124,19 @@ internal class LiveSessionEngine(
                         val kind = handleServerText(config, incoming.text, ws, scope, emit, micDenied, captureError)
                         if (kind != null) {
                             serverFailure.set(kind)
-                            ws.close()
+                            closeLive(ws)
                         }
                     }
                     is LiveTransport.Incoming.Binary -> {} // Gemini Live is text-framed JSON only.
                     is LiveTransport.Incoming.Closed -> {
                         peerClose = PeerClose(incoming.code)
-                        ws.close()
+                        closeLive(ws)
                     }
                     is LiveTransport.Incoming.TransportError -> {
                         val kind = classifyTransport(incoming.cause)
                         sendFailure.set(kind)
                         emit(LiveEvent.Error(kind, GatewayErrorSanitizer.sanitize(incoming.cause.message, config.apiKey)))
-                        ws.close()
+                        closeLive(ws)
                     }
                 }
             }
@@ -159,7 +163,7 @@ internal class LiveSessionEngine(
             emit(LiveEvent.Error(kind, GatewayErrorSanitizer.sanitize(t.message, config.apiKey)))
             return kind
         } finally {
-            liveGate.set(null) // invalidate resume BEFORE the socket closes (close/teardown race)
+            invalidateResume() // invalidate resume BEFORE the socket closes (close/teardown race)
             capture.stop()
             runCatching { ws.close() }
         }
@@ -188,7 +192,7 @@ internal class LiveSessionEngine(
                     // Mic denial is terminal — close so connectOnce returns PERMISSION instead of idling into a timeout retry.
                     if (!startMicStreaming(config, ws, scope, emit, captureError)) {
                         micDenied.set(true)
-                        ws.close()
+                        closeLive(ws)
                         return null
                     }
                     // Open playback now so a broken speaker ends the session as terminal AUDIO instead of failing silent.
@@ -240,7 +244,7 @@ internal class LiveSessionEngine(
     ) {
         if (captureError.compareAndSet(null, LiveErrorKind.AUDIO)) {
             emit(LiveEvent.Error(LiveErrorKind.AUDIO, GatewayErrorSanitizer.sanitize(cause.message, config.apiKey)))
-            ws.close()
+            closeLive(ws)
         }
     }
 
@@ -283,17 +287,26 @@ internal class LiveSessionEngine(
         if (!bargeIn) ws.sendText(LiveProtocol.activityEndFrame()) else ws.sendText(LiveProtocol.audioStreamEndFrame())
     }
 
+    // Clear the resume gate atomically w.r.t. resumeUserTurn(); every socket close goes through this first.
+    private fun invalidateResume() { synchronized(resumeLock) { liveGate.set(null) } }
+
+    // Single choke point: invalidate resume BEFORE closing, so resume can never see a closing socket.
+    private fun closeLive(ws: LiveTransport) { invalidateResume(); runCatching { ws.close() } }
+
     // Cloud barge-in: re-open the mic for a fresh user turn on the SAME live socket (endUserTurn stopped
     // capture). Flushes any queued Gemini audio first, then restarts mic streaming. Returns false when the
     // session isn't live (cancelled / no transport / torn down) so the VM opens a fresh session instead.
-    fun resumeUserTurn(): Boolean {
-        if (cancelled.get()) return false
-        val ws = liveGate.get() ?: return false // only a live+configured socket is resumable
-        val scope = sessionScope ?: return false
-        val config = activeConfig ?: return false
-        val emit = emitter ?: return false
+    // Holds resumeLock for the whole check+start so it is serialized against every close/invalidate: a
+    // concurrent close either wins the lock and clears the gate first (resume sees null → false), or loses and
+    // waits until this resume finishes (no blocking/network call happens under the lock).
+    fun resumeUserTurn(): Boolean = synchronized(resumeLock) {
+        if (cancelled.get()) return@synchronized false
+        val ws = liveGate.get() ?: return@synchronized false // only a live+configured socket is resumable
+        val scope = sessionScope ?: return@synchronized false
+        val config = activeConfig ?: return@synchronized false
+        val emit = emitter ?: return@synchronized false
         player.flush()
-        return startMicStreaming(config, ws, scope, emit, captureErrorRef)
+        startMicStreaming(config, ws, scope, emit, captureErrorRef)
     }
 
     // Lifecycle contract (FRI-548 owns teardown; FRI-562's UI wires the OS callbacks) — mic/socket never outlive the reason to hold them.
@@ -321,7 +334,7 @@ internal class LiveSessionEngine(
     }
 
     private fun teardown() {
-        liveGate.set(null) // belt-and-suspenders; connectOnce's finally already clears it before close
+        invalidateResume() // belt-and-suspenders; connectOnce's finally already clears it before close
         capture.stop()
         player.stop()
         runCatching { transport.getAndSet(null)?.close() }

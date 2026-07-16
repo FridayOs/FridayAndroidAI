@@ -421,4 +421,36 @@ class LiveSessionEngineLifecycleTest {
         assertEquals(false, eng.resumeUserTurn())
         assertEquals(starts, src.startCount)
     }
+
+    // E2 race: an early close (peer Closed frame handled mid-collect) invalidates the gate via closeLive()
+    // immediately, well BEFORE connectOnce's finally runs. keepOpen=true keeps the callbackFlow suspended in
+    // awaitClose after both frames are delivered, so finally never runs here -- isolating the pre-finally window.
+    // resumeLock also serializes the concurrent read-before-clear that a single-threaded test can't interleave.
+    @Test
+    fun resumeUserTurn_afterEarlyServerClose_beforeFinally_returnsFalse() = runTest {
+        val src = FakeSource()
+        val transport = FakeTransport(
+            frames = listOf(
+                LiveTransport.Incoming.Text("""{"setupComplete":{}}"""),
+                LiveTransport.Incoming.Closed(1011, ""),
+            ),
+            keepOpen = true,
+        )
+        val eng = engine(src, FakeSink()) { transport }
+        val events = mutableListOf<LiveEvent>()
+        val job = launch { eng.run(config()).collect { events += it } }
+        advanceUntilIdle()
+
+        val listeningBefore = events.count { it is LiveEvent.State && it.state == LiveSessionState.LISTENING }
+        val starts = src.startCount
+        assertEquals("resume in the close-before-finally window must return false", false, eng.resumeUserTurn())
+        assertEquals("no capture restart in the window", starts, src.startCount)
+        assertEquals(
+            "no LISTENING emitted on the closing socket",
+            listeningBefore,
+            events.count { it is LiveEvent.State && it.state == LiveSessionState.LISTENING },
+        )
+
+        job.cancel(); job.join(); eng.cancel()
+    }
 }
