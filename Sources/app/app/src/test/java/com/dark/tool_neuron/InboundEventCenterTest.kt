@@ -8,6 +8,9 @@ import com.dark.tool_neuron.repo.InboundEventCenter
 import com.dark.tool_neuron.repo.gateway.event.InboundActionBridge
 import com.dark.tool_neuron.repo.gateway.event.InboundConfirmationCenter
 import com.dark.tool_neuron.repo.gateway.event.PendingInboundConfirmation
+import java.util.concurrent.ConcurrentHashMap
+import java.util.concurrent.CyclicBarrier
+import java.util.concurrent.atomic.AtomicInteger
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -642,5 +645,106 @@ class InboundEventCenterTest {
             InboundEventCenter.ACTION_CAP,
             confirmationCenter.pending.value!!.actionIntent!!.length,
         )
+    }
+
+    // FRI-555 R5-1: thread-safe collaborators for the cross-center race below. Callbacks run under
+    // InboundConfirmationCenter's monitor, so blocking here would deadlock a racing caller -- atomics
+    // and concurrent collections only, never locks.
+    private class ThreadSafeRecordingNotifier : com.dark.tool_neuron.repo.EventNotifier {
+        val cancelCounts = ConcurrentHashMap<String, AtomicInteger>()
+        override fun notify(event: InboundEvent, channelId: String) = Unit
+        override fun cancel(notificationKey: String) {
+            cancelCounts.computeIfAbsent(notificationKey) { AtomicInteger(0) }.incrementAndGet()
+        }
+    }
+
+    private class ThreadSafeRecordingBridge : InboundActionBridge {
+        val confirmedCount = AtomicInteger(0)
+        val cancelledCount = AtomicInteger(0)
+        override fun onConfirmed(confirmation: PendingInboundConfirmation) {
+            confirmedCount.incrementAndGet()
+        }
+        override fun onCancelled(confirmation: PendingInboundConfirmation) {
+            cancelledCount.incrementAndGet()
+        }
+    }
+
+    // FRI-555 R5-1: the reviewer's explicit gap -- a UI confirm() (main thread) racing an FCM-signed
+    // CANCEL's dismissIfCorrelated() (FCM callback thread) on the SAME confirmation must tear down
+    // the card/recent/OS-notification exactly once, never twice, regardless of which side wins the
+    // race. Iterated to shake out both interleavings.
+    @Test
+    fun confirmActiveConfirmationVsDismissIfCorrelated_concurrentRace_exactlyOnceTeardown() {
+        repeat(200) {
+            val store = FakeEventStateStore()
+            val bridge = ThreadSafeRecordingBridge()
+            val confirmationCenter = InboundConfirmationCenter(store, bridge) { 1_000L }
+            val notifier = ThreadSafeRecordingNotifier()
+            val center = InboundEventCenter(FakeForeground(true), notifier, confirmationCenter)
+            center.publish(
+                event(kind = InboundEventKind.CONFIRMATION, source = InboundSource.VERIFIED)
+                    .copy(eventId = "race-1", correlationId = "corr-race", sourceId = "src-race")
+            )
+
+            val barrier = CyclicBarrier(2)
+            val threadA = Thread {
+                barrier.await()
+                center.confirmActiveConfirmation()
+            }
+            val threadB = Thread {
+                barrier.await()
+                center.dismissIfCorrelated("src-race", "corr-race")
+            }
+            threadA.start()
+            threadB.start()
+            threadA.join()
+            threadB.join()
+
+            val key = InboundEventCenter.compositeKey("src-race", "corr-race")
+            assertEquals(
+                "notifier.cancel must fire exactly once for this identity, never twice",
+                1,
+                notifier.cancelCounts[key]?.get() ?: 0,
+            )
+            assertEquals(
+                "bridge must observe exactly one total outcome, never both onConfirmed and onCancelled",
+                1,
+                bridge.confirmedCount.get() + bridge.cancelledCount.get(),
+            )
+            assertNull("active card must be torn down", center.activeEvent.value)
+            assertNull("retained recent entry must be purged", center.resolve("race-1", null))
+        }
+    }
+
+    // FRI-555 R5-1: same race, but CANCEL (dismissIfCorrelated) is forced to resolve first -- proves
+    // the WON branch itself (not just the ALREADY_RESOLVED short-circuit) produces exactly-once
+    // teardown with the correct onCancelled outcome, and that a UI confirm() arriving after already
+    // observes a safe no-op rather than a second resolution.
+    @Test
+    fun dismissIfCorrelatedWinsFirst_thenConfirmActiveConfirmation_isSafeNoOp_exactlyOnceTeardown() {
+        repeat(200) {
+            val store = FakeEventStateStore()
+            val bridge = ThreadSafeRecordingBridge()
+            val confirmationCenter = InboundConfirmationCenter(store, bridge) { 1_000L }
+            val notifier = ThreadSafeRecordingNotifier()
+            val center = InboundEventCenter(FakeForeground(true), notifier, confirmationCenter)
+            center.publish(
+                event(kind = InboundEventKind.CONFIRMATION, source = InboundSource.VERIFIED)
+                    .copy(eventId = "race-2", correlationId = "corr-race2", sourceId = "src-race2")
+            )
+
+            val cancelResult = center.dismissIfCorrelated("src-race2", "corr-race2")
+            val confirmResult = center.confirmActiveConfirmation()
+
+            assertTrue("CANCEL wins the claim", cancelResult)
+            assertFalse("UI confirm after CANCEL already resolved it must be a safe no-op", confirmResult)
+
+            val key = InboundEventCenter.compositeKey("src-race2", "corr-race2")
+            assertEquals(1, notifier.cancelCounts[key]?.get() ?: 0)
+            assertEquals(1, bridge.cancelledCount.get())
+            assertEquals(0, bridge.confirmedCount.get())
+            assertNull("active card must be torn down", center.activeEvent.value)
+            assertNull("retained recent entry must be purged", center.resolve("race-2", null))
+        }
     }
 }

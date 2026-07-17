@@ -38,6 +38,13 @@ class InboundConfirmationCenter internal constructor(
     private val _pending = MutableStateFlow(loadPending())
     val pending: StateFlow<PendingInboundConfirmation?> = _pending.asStateFlow()
 
+    // FRI-555 R5-1: bounded access-order LRU of resolved sourceId|correlationId identities, guarded
+    // by the same monitor as every other mutation here (never touched outside @Synchronized methods).
+    private val recentlyResolved = object : LinkedHashMap<String, Boolean>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Boolean>): Boolean =
+            size > RECENTLY_RESOLVED_CAP
+    }
+
     // FRI-555 R4-1: @Synchronized so arm/confirm/cancel/cancelByCorrelation serialize on `this` --
     // a UI confirm() racing an FCM-thread cancelByCorrelation() (or a re-arm racing a resolve) can
     // never both observe the same pending record; exactly one caller wins the claim.
@@ -72,6 +79,26 @@ class InboundConfirmationCenter internal constructor(
     fun cancelByCorrelation(sourceId: String, correlationId: String): Boolean =
         resolve({ it.sourceId == sourceId && it.correlationId == correlationId }, bridge::onCancelled)
 
+    // FRI-555 R5-1: exactly-once cancel claim across the confirm-vs-CANCEL race. Disambiguates "the
+    // concurrent UI confirm() already resolved this identity" (ALREADY_RESOLVED -- caller must skip
+    // teardown, the other path already did it) from "nothing was ever armed for this identity" (NONE
+    // -- a plain task, caller must still unconditionally cancel the OS notification) from "this call
+    // is the one that resolved it" (WON -- caller is the sole teardown). All three states are decided
+    // under this same monitor, so they never race with confirm/cancel/cancelByCorrelation/arm.
+    @Synchronized
+    fun claimCancel(sourceId: String, correlationId: String): CancelClaim {
+        val current = _pending.value
+        if (current != null && current.sourceId == sourceId && current.correlationId == correlationId) {
+            _pending.value = null
+            store.write(PENDING_KEY, "")
+            recordResolved(sourceId, correlationId)
+            bridge.onCancelled(current)
+            return CancelClaim.WON
+        }
+        if (recentlyResolved.containsKey(identityKey(sourceId, correlationId))) return CancelClaim.ALREADY_RESOLVED
+        return CancelClaim.NONE
+    }
+
     // FRI-555 R4-1: only ever called from the @Synchronized public methods above, so it always
     // runs under this monitor -- claim (clear state+store) BEFORE invoking the bridge so a losing
     // concurrent resolver sees the record already gone (or a different re-armed record) and
@@ -84,8 +111,18 @@ class InboundConfirmationCenter internal constructor(
         if (!matches(current)) return false
         _pending.value = null
         store.write(PENDING_KEY, "")
+        recordResolved(current.sourceId, current.correlationId)
         onResolved(current)
         return true
+    }
+
+    // FRI-555 R5-1: remembers every identity resolved by ANY path (confirm/cancel/cancelByCorrelation
+    // win, or a claimCancel WON) so a later racing claimCancel for the same identity returns
+    // ALREADY_RESOLVED instead of NONE -- only called under the monitor. Bounded LRU: unresolved
+    // identities never accumulate forever, and a very old resolution simply ages out (a stale
+    // notifier.cancel would still be a safe unconditional no-op-if-absent, same as the NONE path).
+    private fun recordResolved(sourceId: String?, correlationId: String?) {
+        if (sourceId != null && correlationId != null) recentlyResolved[identityKey(sourceId, correlationId)] = true
     }
 
     private fun loadPending(): PendingInboundConfirmation? {
@@ -96,6 +133,9 @@ class InboundConfirmationCenter internal constructor(
     private companion object {
         const val PENDING_KEY = "fri555.pending_confirm"
         const val NULL_SENTINEL = "-"
+        const val RECENTLY_RESOLVED_CAP = 32
+
+        fun identityKey(sourceId: String, correlationId: String): String = "$sourceId|$correlationId"
 
         // Fields (eventId/title/body are validated clean per B4, but title/body are free-text so
         // this still Base64-encodes every text field to stay delimiter-safe on a single tab-joined
@@ -143,6 +183,12 @@ class InboundConfirmationCenter internal constructor(
         }
     }
 }
+
+// FRI-555 R5-1: outcome of InboundConfirmationCenter.claimCancel -- lets a caller (InboundEventCenter
+// .dismissIfCorrelated) tell apart "I resolved this cancel, I'm the sole teardown" (WON), "a
+// concurrent UI confirm()/cancel() already resolved this identity, skip teardown" (ALREADY_RESOLVED),
+// and "nothing was ever armed for this identity, it's a plain task" (NONE, teardown proceeds as before).
+enum class CancelClaim { WON, ALREADY_RESOLVED, NONE }
 
 // Display-only snapshot of a verified inbound confirmation. actionIntent is data, never executed.
 data class PendingInboundConfirmation(

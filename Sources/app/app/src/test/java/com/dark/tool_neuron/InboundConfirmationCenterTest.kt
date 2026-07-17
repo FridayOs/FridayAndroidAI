@@ -4,6 +4,7 @@ import com.dark.tool_neuron.model.friday.InboundEvent
 import com.dark.tool_neuron.model.friday.InboundEventKind
 import com.dark.tool_neuron.model.friday.InboundSource
 import com.dark.tool_neuron.model.friday.InboundUrgency
+import com.dark.tool_neuron.repo.gateway.event.CancelClaim
 import com.dark.tool_neuron.repo.gateway.event.InboundActionBridge
 import com.dark.tool_neuron.repo.gateway.event.InboundConfirmationCenter
 import com.dark.tool_neuron.repo.gateway.event.PendingInboundConfirmation
@@ -293,6 +294,77 @@ class InboundConfirmationCenterTest {
             "a different sourceId sharing the correlationId must not resolve this pending confirmation",
             c.cancelByCorrelation("openclaw-1", "c-1"),
         )
+        assertEquals("e1", c.pending.value!!.eventId)
+        assertEquals(0, bridge.cancelledCount)
+    }
+
+    // FRI-555 R5-1: claimCancel WON -- pending matches both keys, so this call is the sole
+    // teardown: bridge sees exactly onCancelled, and the slot clears.
+    @Test
+    fun claimCancel_pendingMatchesBothKeys_returnsWon_callsBridgeOnCancelledOnce() {
+        val bridge = RecordingBridge()
+        val c = center(bridge = bridge)
+        c.arm(confirmationEvent(id = "e1", correlationId = "c-1", sourceId = "src-1"))
+
+        assertEquals(CancelClaim.WON, c.claimCancel("src-1", "c-1"))
+        assertEquals(1, bridge.cancelledCount)
+        assertEquals(0, bridge.confirmedCount)
+        assertNull(c.pending.value)
+    }
+
+    // FRI-555 R5-1: after a prior confirm() resolves an identity, a later claimCancel for the SAME
+    // identity must not re-fire the bridge -- it observes ALREADY_RESOLVED (the identity was
+    // recorded by resolve()'s recordResolved on the winning confirm), never WON or a second callback.
+    @Test
+    fun claimCancel_afterPriorConfirm_returnsAlreadyResolved_neverCallsBridgeAgain() {
+        val bridge = RecordingBridge()
+        val c = center(bridge = bridge)
+        c.arm(confirmationEvent(id = "e1", correlationId = "c-1", sourceId = "src-1"))
+        assertTrue(c.confirm("e1"))
+        assertEquals(1, bridge.confirmedCount)
+
+        assertEquals(CancelClaim.ALREADY_RESOLVED, c.claimCancel("src-1", "c-1"))
+        assertEquals(1, bridge.confirmedCount)
+        assertEquals(0, bridge.cancelledCount)
+    }
+
+    // FRI-555 R5-1: same as above but the prior resolution came from cancel() rather than confirm()
+    // -- claimCancel must still see ALREADY_RESOLVED and not double-fire onCancelled.
+    @Test
+    fun claimCancel_afterPriorCancel_returnsAlreadyResolved_neverCallsBridgeAgain() {
+        val bridge = RecordingBridge()
+        val c = center(bridge = bridge)
+        c.arm(confirmationEvent(id = "e1", correlationId = "c-1", sourceId = "src-1"))
+        assertTrue(c.cancel("e1"))
+        assertEquals(1, bridge.cancelledCount)
+
+        assertEquals(CancelClaim.ALREADY_RESOLVED, c.claimCancel("src-1", "c-1"))
+        assertEquals(1, bridge.cancelledCount)
+        assertEquals(0, bridge.confirmedCount)
+    }
+
+    // FRI-555 R5-1: an identity that was never armed and never resolved -- a plain task's CANCEL --
+    // must return NONE (not ALREADY_RESOLVED) so the caller still unconditionally cancels the OS
+    // notification, and the bridge must never be touched.
+    @Test
+    fun claimCancel_neverArmedOrResolved_returnsNone_neverCallsBridge() {
+        val bridge = RecordingBridge()
+        val c = center(bridge = bridge)
+
+        assertEquals(CancelClaim.NONE, c.claimCancel("src-1", "c-1"))
+        assertEquals(0, bridge.confirmedCount)
+        assertEquals(0, bridge.cancelledCount)
+    }
+
+    // FRI-555 R5-1: a claimCancel for a DIFFERENT identity than the one currently pending must not
+    // resolve the pending record and must return NONE (no prior resolution recorded for it either).
+    @Test
+    fun claimCancel_mismatchedIdentity_returnsNone_leavesPendingIntact() {
+        val bridge = RecordingBridge()
+        val c = center(bridge = bridge)
+        c.arm(confirmationEvent(id = "e1", correlationId = "c-1", sourceId = "src-1"))
+
+        assertEquals(CancelClaim.NONE, c.claimCancel("src-1", "c-2"))
         assertEquals("e1", c.pending.value!!.eventId)
         assertEquals(0, bridge.cancelledCount)
     }

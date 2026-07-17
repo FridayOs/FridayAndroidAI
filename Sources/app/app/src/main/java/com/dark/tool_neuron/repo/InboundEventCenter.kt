@@ -14,6 +14,7 @@ import com.dark.tool_neuron.model.friday.InboundEvent
 import com.dark.tool_neuron.model.friday.InboundEventKind
 import com.dark.tool_neuron.model.friday.InboundSource
 import com.dark.tool_neuron.model.friday.InboundUrgency
+import com.dark.tool_neuron.repo.gateway.event.CancelClaim
 import com.dark.tool_neuron.repo.gateway.event.EventDeliverySink
 import com.dark.tool_neuron.repo.gateway.event.InboundConfirmationCenter
 import com.friday.ai.R
@@ -164,7 +165,17 @@ class InboundEventCenter internal constructor(
     // whether or not anything was actually showing.
     // FRI-555 B1: a verified CANCEL for this source+correlation also clears any pending inbound
     // confirmation sharing it, so a stale confirm/cancel tap can't resolve an already-cancelled task.
+    // FRI-555 R5-1: exactly-once teardown across a UI-confirm-vs-FCM-CANCEL race. claimCancel is the
+    // single atomic decision point: ALREADY_RESOLVED means a concurrent confirmActiveConfirmation()/
+    // cancelActiveConfirmation() already tore down this exact card/recent/notification, so this call
+    // must skip teardown entirely (never double-purge, never double-cancel the OS notification) and
+    // still report true since the identity WAS resolved. WON or NONE both fall through to the same
+    // teardown as before -- including the unconditional notifier.cancel, which is what makes a plain
+    // (never-armed) task's stray tray notification always get cleared even after `recent` evicted it.
     override fun dismissIfCorrelated(sourceId: String, correlationId: String): Boolean {
+        val claim = confirmationCenter.claimCancel(sourceId, correlationId)
+        if (claim == CancelClaim.ALREADY_RESOLVED) return true
+
         val current = _activeEvent.value
         val cardCleared = current?.sourceId == sourceId && current.correlationId == correlationId
         if (cardCleared) _activeEvent.value = null
@@ -177,9 +188,8 @@ class InboundEventCenter internal constructor(
             toRemove.isNotEmpty()
         }
 
-        val confirmationCleared = confirmationCenter.cancelByCorrelation(sourceId, correlationId)
         notifier.cancel(compositeKey(sourceId, correlationId))
-        return cardCleared || purged || confirmationCleared
+        return cardCleared || purged || claim == CancelClaim.WON
     }
 
     // FRI-555 R3-1: the user-tap confirm/cancel path. dismissIfCorrelated (above) already tears down
