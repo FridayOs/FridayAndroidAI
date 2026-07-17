@@ -7,8 +7,11 @@ import com.dark.tool_neuron.model.friday.InboundUrgency
 import com.dark.tool_neuron.repo.gateway.event.InboundActionBridge
 import com.dark.tool_neuron.repo.gateway.event.InboundConfirmationCenter
 import com.dark.tool_neuron.repo.gateway.event.PendingInboundConfirmation
+import java.util.concurrent.CyclicBarrier
+import java.util.concurrent.atomic.AtomicInteger
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -34,6 +37,113 @@ class InboundConfirmationCenterTest {
         override fun onCancelled(confirmation: PendingInboundConfirmation) {
             cancelled = confirmation
             cancelledCount++
+        }
+    }
+
+    // FRI-555 R4-1: thread-safe recording double for the concurrent races below -- AtomicInteger
+    // counters only, no blocking/locking inside the callback (it runs under the center's monitor,
+    // so blocking here would deadlock a racing caller).
+    private class ThreadSafeRecordingBridge : InboundActionBridge {
+        val confirmedCount = AtomicInteger(0)
+        val cancelledCount = AtomicInteger(0)
+
+        override fun onConfirmed(confirmation: PendingInboundConfirmation) {
+            confirmedCount.incrementAndGet()
+        }
+
+        override fun onCancelled(confirmation: PendingInboundConfirmation) {
+            cancelledCount.incrementAndGet()
+        }
+    }
+
+    // FRI-555 R4-1: a UI confirm() (main thread) and an FCM signed CANCEL's cancelByCorrelation()
+    // (FCM callback thread) racing on the SAME pending confirmation must produce exactly one
+    // resolution -- never both onConfirmed AND onCancelled for one event. Iterated to shake the race.
+    @Test
+    fun confirmVsCancelByCorrelation_concurrentRace_exactlyOneWinner() {
+        repeat(200) {
+            val store = FakeEventStateStore()
+            val bridge = ThreadSafeRecordingBridge()
+            val c = center(store = store, bridge = bridge)
+            c.arm(confirmationEvent(id = "e1", correlationId = "c1", sourceId = "src-1"))
+
+            val barrier = CyclicBarrier(2)
+            var confirmResult = false
+            var cancelResult = false
+
+            val threadA = Thread {
+                barrier.await()
+                confirmResult = c.confirm("e1")
+            }
+            val threadB = Thread {
+                barrier.await()
+                cancelResult = c.cancelByCorrelation("src-1", "c1")
+            }
+            threadA.start()
+            threadB.start()
+            threadA.join()
+            threadB.join()
+
+            assertTrue(
+                "exactly one of confirm/cancel must win the race, got confirm=$confirmResult cancel=$cancelResult",
+                confirmResult != cancelResult,
+            )
+            assertEquals(
+                "bridge must observe exactly one total outcome, never both",
+                1,
+                bridge.confirmedCount.get() + bridge.cancelledCount.get(),
+            )
+            assertTrue(
+                "confirmed and cancelled must never both fire",
+                bridge.confirmedCount.get() == 0 || bridge.cancelledCount.get() == 0,
+            )
+        }
+    }
+
+    // FRI-555 R4-1: a re-arm racing a resolve of the PRIOR pending confirmation must not interleave
+    // a half-cleared state -- the persisted record is always either the new one or cleanly absent,
+    // and the old event's bridge outcome fires at most once (never corrupted, never double-fired).
+    @Test
+    fun rearmVsResolve_concurrentRace_noHalfState() {
+        repeat(200) {
+            val store = FakeEventStateStore()
+            val bridge = ThreadSafeRecordingBridge()
+            val c = center(store = store, bridge = bridge)
+            c.arm(confirmationEvent(id = "eOld", correlationId = "c1", sourceId = "src-1"))
+
+            val barrier = CyclicBarrier(2)
+            val threadA = Thread {
+                barrier.await()
+                c.arm(confirmationEvent(id = "eNew", correlationId = "c2", sourceId = "src-1"))
+            }
+            val threadB = Thread {
+                barrier.await()
+                c.confirm("eOld")
+            }
+            threadA.start()
+            threadB.start()
+            threadA.join()
+            threadB.join()
+
+            // The old event resolves at most once (either confirm won before the re-arm, or the
+            // re-arm won first and confirm("eOld") became a stale no-op against the new record).
+            assertTrue(
+                "old event outcome must fire at most once",
+                bridge.confirmedCount.get() <= 1,
+            )
+            assertEquals("cancel must never fire from this race", 0, bridge.cancelledCount.get())
+
+            // Persisted/in-memory state is never half-cleared or corrupt: the re-arm always wins the
+            // slot in the end (it runs after confirm in both possible interleavings), so pending is
+            // deterministically the new record -- never null, never the stale/old one.
+            val current = c.pending.value
+            assertNotNull("pending must not be left half-cleared", current)
+            assertEquals("eNew", current!!.eventId)
+
+            val recreated = center(store = store, bridge = ThreadSafeRecordingBridge())
+            val restored = recreated.pending.value
+            assertNotNull("persisted store must deserialize cleanly, never corrupt", restored)
+            assertEquals("eNew", restored!!.eventId)
         }
     }
 

@@ -38,6 +38,10 @@ class InboundConfirmationCenter internal constructor(
     private val _pending = MutableStateFlow(loadPending())
     val pending: StateFlow<PendingInboundConfirmation?> = _pending.asStateFlow()
 
+    // FRI-555 R4-1: @Synchronized so arm/confirm/cancel/cancelByCorrelation serialize on `this` --
+    // a UI confirm() racing an FCM-thread cancelByCorrelation() (or a re-arm racing a resolve) can
+    // never both observe the same pending record; exactly one caller wins the claim.
+    @Synchronized
     fun arm(event: InboundEvent) {
         val record = PendingInboundConfirmation(
             eventId = event.eventId,
@@ -55,25 +59,32 @@ class InboundConfirmationCenter internal constructor(
     // Resolves the pending confirmation as accepted, recording the outcome through the bridge.
     // False (safe no-op) when nothing is pending or the id doesn't match the currently armed one
     // (stale UI tap after a re-arm/cancel).
+    @Synchronized
     fun confirm(eventId: String): Boolean = resolve({ it.eventId == eventId }, bridge::onConfirmed)
 
+    @Synchronized
     fun cancel(eventId: String): Boolean = resolve({ it.eventId == eventId }, bridge::onCancelled)
 
     // FRI-555 B3 integration point: a verified CANCEL for a source+correlation also clears any
     // pending inbound confirmation sharing BOTH keys (dismissIfCorrelated calls this) -- scoped so an
     // OpenClaw cancel can never resolve a Hermes confirmation sharing the same correlationId.
+    @Synchronized
     fun cancelByCorrelation(sourceId: String, correlationId: String): Boolean =
         resolve({ it.sourceId == sourceId && it.correlationId == correlationId }, bridge::onCancelled)
 
-    private inline fun resolve(
+    // FRI-555 R4-1: only ever called from the @Synchronized public methods above, so it always
+    // runs under this monitor -- claim (clear state+store) BEFORE invoking the bridge so a losing
+    // concurrent resolver sees the record already gone (or a different re-armed record) and
+    // returns false instead of double-resolving.
+    private fun resolve(
         matches: (PendingInboundConfirmation) -> Boolean,
         onResolved: (PendingInboundConfirmation) -> Unit,
     ): Boolean {
         val current = _pending.value ?: return false
         if (!matches(current)) return false
-        onResolved(current)
         _pending.value = null
         store.write(PENDING_KEY, "")
+        onResolved(current)
         return true
     }
 
