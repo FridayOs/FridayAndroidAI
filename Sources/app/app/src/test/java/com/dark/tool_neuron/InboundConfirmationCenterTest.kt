@@ -343,29 +343,31 @@ class InboundConfirmationCenterTest {
         assertEquals(0, bridge.confirmedCount)
     }
 
-    // FRI-555 R6-1: clearResolved invalidates a prior ALREADY_RESOLVED suppression -- a new delivered
-    // state for the identity means a subsequent claimCancel must fall through to NONE (plain-task
-    // teardown path), not the stale ALREADY_RESOLVED skip from the earlier confirm().
+    // FRI-555 R7-1: noteState bumps the identity's generation, invalidating a prior resolution's
+    // generation-stamped suppression -- a superseding delivery for the identity means a subsequent
+    // claimCancel must fall through to NONE (plain-task teardown path), not the stale ALREADY_RESOLVED
+    // skip from the earlier confirm() (whose stamp is now an older generation).
     @Test
-    fun clearResolved_afterPriorConfirm_makesClaimCancelReturnNone_notAlreadyResolved() {
+    fun noteState_afterPriorConfirm_makesClaimCancelReturnNone() {
         val bridge = RecordingBridge()
         val c = center(bridge = bridge)
         c.arm(confirmationEvent(id = "e1", correlationId = "c-1", sourceId = "src-1"))
         assertTrue(c.confirm("e1"))
         assertEquals(1, bridge.confirmedCount)
 
-        c.clearResolved("src-1", "c-1")
+        c.noteState("src-1", "c-1")
 
         assertEquals(CancelClaim.NONE, c.claimCancel("src-1", "c-1"))
         assertEquals(1, bridge.confirmedCount)
         assertEquals(0, bridge.cancelledCount)
     }
 
-    // FRI-555 R6-1: clearResolved for an identity that was never resolved is a safe no-op.
+    // FRI-555 R7-1: noteState for an identity that was never armed/resolved is a safe no-op (it only
+    // bumps a generation counter; claimCancel still returns NONE with no recorded resolution).
     @Test
-    fun clearResolved_neverResolvedIdentity_isSafeNoOp() {
+    fun noteState_neverArmedIdentity_isSafeNoOp() {
         val c = center()
-        c.clearResolved("src-1", "c-1")
+        c.noteState("src-1", "c-1")
         assertEquals(CancelClaim.NONE, c.claimCancel("src-1", "c-1"))
     }
 

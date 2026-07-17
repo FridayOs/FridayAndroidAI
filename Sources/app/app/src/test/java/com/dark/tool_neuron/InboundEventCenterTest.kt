@@ -750,8 +750,9 @@ class InboundEventCenterTest {
 
     // FRI-555 R6-1: the reviewer's missing deterministic sequence -- a prior confirm() resolving t1
     // must NOT permanently suppress a later, valid CANCEL for the SAME identity once new state (t2)
-    // has been published. Without clearResolved() this hits the stale ALREADY_RESOLVED skip and t2's
-    // surfaces are never torn down.
+    // has been published. t2's publish bumps the identity's generation (R7-1 noteState), so t1's
+    // generation-stamped suppression no longer matches and this CANCEL falls through to the NONE
+    // teardown path instead of a stale ALREADY_RESOLVED skip that would leave t2's surfaces alive.
     @Test
     fun dismissIfCorrelated_afterPriorConfirmation_tearsDownLaterPublishedStateForSameIdentity() {
         val notifier = RecordingNotifier()
@@ -797,5 +798,107 @@ class InboundEventCenterTest {
         // t1's earlier resolution is untouched by this CANCEL -- no second bridge call.
         assertEquals(1, bridge.confirmedCount)
         assertEquals(0, bridge.cancelledCount)
+    }
+
+    // FRI-555 R7-1: the reviewer's missing REVERSE-ORDER sequence -- the newer state (t2) is published
+    // BEFORE the old pending confirmation (t1) is resolved. round-6's clearResolved-on-publish handled
+    // publish-BEFORE-resolve; this is resolve-AFTER-a-superseding-publish. Without the generation token
+    // (recording resolution at pendingGeneration, not the live generation), confirming t1 would stamp
+    // suppression for the identity at the CURRENT generation and swallow the later CANCEL as
+    // ALREADY_RESOLVED, leaving t2's card + recent[E2] + OS notification alive.
+    @Test
+    fun dismissIfCorrelated_laterStatePublishedBeforeOldConfirmationResolution_cancelStillTearsDownLaterState() {
+        val notifier = RecordingNotifier()
+        val bridge = RecordingBridge()
+        val confirmationCenter = InboundConfirmationCenter(FakeEventStateStore(), bridge) { 1_000L }
+        val center = InboundEventCenter(FakeForeground(true), notifier, confirmationCenter)
+
+        // t1: verified CONFIRMATION (E1) armed for the identity.
+        center.publish(
+            event(kind = InboundEventKind.CONFIRMATION, source = InboundSource.VERIFIED)
+                .copy(eventId = "E1", correlationId = "corr-r7", sourceId = "src-r7")
+        )
+        // t2: a NEW STATUS state (E2, same identity, different eventId) published BEFORE t1 resolves --
+        // it becomes the live active card + recent entry and bumps the identity's generation.
+        center.publish(
+            event(kind = InboundEventKind.STATUS, source = InboundSource.VERIFIED)
+                .copy(eventId = "E2", correlationId = "corr-r7", sourceId = "src-r7")
+        )
+        assertEquals("t2 is the live active card", "E2", center.activeEvent.value!!.eventId)
+
+        // The user now resolves the still-pending t1 confirmation. Its suppression is stamped at t1's
+        // (older) generation, so it must NOT suppress a CANCEL meant for t2's newer generation.
+        assertTrue(center.confirmActiveConfirmation())
+        assertEquals(1, bridge.confirmedCount)
+
+        // t3: a valid CANCEL for the identity must tear down t2 via the NONE path.
+        val result = center.dismissIfCorrelated("src-r7", "corr-r7")
+
+        assertTrue("CANCEL must tear down t2 via the NONE path, not an ALREADY_RESOLVED skip", result)
+        assertNull("t2's active card must be torn down", center.activeEvent.value)
+        assertNull("t2's retained recent entry must be purged", center.resolve("E2", null))
+        assertTrue(
+            "t2's OS notification must be cancelled under the composite key",
+            notifier.cancelled.contains(InboundEventCenter.compositeKey("src-r7", "corr-r7")),
+        )
+        // t1's resolution is untouched -- no second bridge outcome.
+        assertEquals(1, bridge.confirmedCount)
+        assertEquals(0, bridge.cancelledCount)
+    }
+
+    // FRI-555 R7-1: race variant of the reverse-order sequence -- a superseding publish(t2) concurrent
+    // with the resolve of the old pending t1, then a CANCEL. Regardless of interleaving, the CANCEL
+    // must tear down t2 exactly once and never be lost to a stale suppression: t1's resolution always
+    // stamps at its own (older) generation while t2's publish always bumps the identity's generation,
+    // so the joined-then-CANCEL always hits the NONE teardown path.
+    @Test
+    fun supersedingPublishConcurrentWithOldConfirmationResolve_thenCancel_tearsDownLaterStateExactlyOnce() {
+        repeat(200) {
+            val store = FakeEventStateStore()
+            val bridge = ThreadSafeRecordingBridge()
+            val confirmationCenter = InboundConfirmationCenter(store, bridge) { 1_000L }
+            val notifier = ThreadSafeRecordingNotifier()
+            val center = InboundEventCenter(FakeForeground(true), notifier, confirmationCenter)
+
+            // t1: verified CONFIRMATION armed for the identity.
+            center.publish(
+                event(kind = InboundEventKind.CONFIRMATION, source = InboundSource.VERIFIED)
+                    .copy(eventId = "E1", correlationId = "corr-r7r", sourceId = "src-r7r")
+            )
+
+            val barrier = CyclicBarrier(2)
+            // Thread A: publish the superseding t2 STATUS state.
+            val threadA = Thread {
+                barrier.await()
+                center.publish(
+                    event(kind = InboundEventKind.STATUS, source = InboundSource.VERIFIED)
+                        .copy(eventId = "E2", correlationId = "corr-r7r", sourceId = "src-r7r")
+                )
+            }
+            // Thread B: resolve the still-pending old confirmation t1.
+            val threadB = Thread {
+                barrier.await()
+                center.confirmActiveConfirmation()
+            }
+            threadA.start()
+            threadB.start()
+            threadA.join()
+            threadB.join()
+
+            // CANCEL after both settle: must tear down t2's live state via the NONE path.
+            val result = center.dismissIfCorrelated("src-r7r", "corr-r7r")
+
+            assertTrue("CANCEL must tear down the later state, never be lost to stale suppression", result)
+            assertNull("t2's active card must be torn down", center.activeEvent.value)
+            assertNull("t2's retained recent entry must be purged", center.resolve("E2", null))
+            val key = InboundEventCenter.compositeKey("src-r7r", "corr-r7r")
+            assertTrue(
+                "t2's OS notification must be cancelled at least once for its teardown",
+                (notifier.cancelCounts[key]?.get() ?: 0) >= 1,
+            )
+            // Exactly one confirmation outcome (t1), and the CANCEL never double-resolved the bridge.
+            assertEquals(1, bridge.confirmedCount.get())
+            assertEquals(0, bridge.cancelledCount.get())
+        }
     }
 }

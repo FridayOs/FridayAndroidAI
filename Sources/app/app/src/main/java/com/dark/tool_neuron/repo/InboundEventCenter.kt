@@ -95,14 +95,17 @@ class InboundEventCenter internal constructor(
         // Defense-in-depth: kind==CONFIRMATION already implies VERIFIED today (coercePush downgrades
         // PUSH confirmations to STATUS before this point), but gate on sourceType explicitly too so a
         // future LOCAL confirmation producer can never arm without going through verification.
-        if (safe.sourceType == InboundSource.VERIFIED && safe.kind == InboundEventKind.CONFIRMATION) {
+        // FRI-555 R7-1: arm() captures the confirmation's OWN fresh generation; a superseding
+        // non-arming delivery (STATUS/PROGRESS for the same identity) instead calls noteState() to
+        // bump the generation and invalidate any earlier resolution's teardown-suppression. Routing
+        // the arming delivery through arm() ONLY (never noteState) keeps the round-5 confirm-vs-CANCEL
+        // race exactly-once: the confirmation's own publish must not bump its own generation, else the
+        // losing CANCEL would mismatch and double-tear-down.
+        val armed = safe.sourceType == InboundSource.VERIFIED && safe.kind == InboundEventKind.CONFIRMATION
+        if (armed) {
             confirmationCenter.arm(safe)
-        }
-        // FRI-555 R6-1: any new delivered state for this identity is a new generation, so it
-        // supersedes a prior resolution's ALREADY_RESOLVED suppression -- otherwise a later valid
-        // CANCEL for THIS state would be swallowed as already-handled by a stale earlier resolution.
-        if (safe.sourceId != null && safe.correlationId != null) {
-            confirmationCenter.clearResolved(safe.sourceId, safe.correlationId)
+        } else if (safe.sourceId != null && safe.correlationId != null) {
+            confirmationCenter.noteState(safe.sourceId, safe.correlationId)
         }
         if (foreground.isForeground()) {
             _activeEvent.value = safe
