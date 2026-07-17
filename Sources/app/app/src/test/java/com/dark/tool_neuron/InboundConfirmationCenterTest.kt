@@ -371,6 +371,42 @@ class InboundConfirmationCenterTest {
         assertEquals(CancelClaim.NONE, c.claimCancel("src-1", "c-1"))
     }
 
+    // FRI-555 R8-1: the round-7 two-LRU desync bug. arm+confirm identity X stamps its resolution; then
+    // churning noteState() across MORE distinct identities than the cap (32) evicts X's entry entirely.
+    // Because current + resolved now live in ONE entry, they evict TOGETHER -- a later noteState(X)
+    // recreates a FRESH entry with resolved == null, so claimCancel(X) returns NONE (tears down the new
+    // state), never the stale ALREADY_RESOLVED that would swallow the new generation's teardown. The
+    // non-evicted control below proves ordinary exactly-once (ALREADY_RESOLVED) is unbroken.
+    @Test
+    fun evictionMustNotReviveOldResolutionStamp() {
+        val bridge = RecordingBridge()
+        val c = center(bridge = bridge)
+
+        // Arm + confirm identity X -> entry {current=1, resolved=1}.
+        c.arm(confirmationEvent(id = "eX", correlationId = "cX", sourceId = "srcX"))
+        assertTrue(c.confirm("eX"))
+
+        // Churn 40 distinct OTHER identities through noteState -> exceeds cap 32 -> LRU evicts X.
+        repeat(40) { i ->
+            c.noteState("src-$i", "corr-$i")
+        }
+
+        // A superseding delivery for X recreates a fresh entry {current=1, resolved=null}.
+        c.noteState("srcX", "cX")
+
+        assertEquals(
+            "an evicted-then-recreated identity must not revive its old resolution stamp",
+            CancelClaim.NONE,
+            c.claimCancel("srcX", "cX"),
+        )
+
+        // Control: a normal non-evicted confirm -> claimCancel still returns ALREADY_RESOLVED
+        // (exactly-once suppression is unbroken by the unified entry).
+        c.arm(confirmationEvent(id = "eY", correlationId = "cY", sourceId = "srcY"))
+        assertTrue(c.confirm("eY"))
+        assertEquals(CancelClaim.ALREADY_RESOLVED, c.claimCancel("srcY", "cY"))
+    }
+
     // FRI-555 R5-1: an identity that was never armed and never resolved -- a plain task's CANCEL --
     // must return NONE (not ALREADY_RESOLVED) so the caller still unconditionally cancels the OS
     // notification, and the bridge must never be touched.

@@ -35,32 +35,29 @@ class InboundConfirmationCenter internal constructor(
     // @Inject constructor above with the real Hilt-provided EventStateStore/InboundActionBridge.
     constructor() : this(InMemoryEventStateStore(), NoOpInboundActionBridge(), System::currentTimeMillis)
 
-    // FRI-555 R7-1: per-identity monotonic generation counter. Every NEW delivered state for a
-    // sourceId|correlationId (an arm() of a fresh confirmation, or a superseding noteState() publish)
-    // bumps this. A resolution's teardown-suppression is stamped with the generation it resolved AT
-    // (pendingGeneration); a later CANCEL is only suppressed while that stamp still equals the current
-    // generation -- any intervening state bump invalidates the stamp so the CANCEL tears down the new
-    // state instead of being swallowed. Bounded LRU (same cap as recentlyResolved). Declared BEFORE
-    // _pending because loadPending() (which _pending's initializer calls) bumps this on restart.
-    private val generations = object : LinkedHashMap<String, Long>(16, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Long>): Boolean =
+    // FRI-555 R8-1: per-identity generation state held in ONE bounded access-order LRU entry, so an
+    // identity's current counter and its resolved stamp evict TOGETHER -- they can never desync (the
+    // round-7 bug: two independent LRUs evicted apart, reusing a generation token while a stale resolved
+    // stamp survived, reviving a spurious ALREADY_RESOLVED). `current` is the monotonic per-identity
+    // counter bumped by every NEW delivered state for a sourceId|correlationId (an arm() of a fresh
+    // confirmation, or a superseding noteState() publish). `resolved` (recordResolved is its ONLY writer)
+    // is the generation a resolution was stamped AT (pendingGeneration). A later CANCEL is suppressed
+    // (ALREADY_RESOLVED) ONLY while resolved != null && resolved == current -- any intervening state bump
+    // makes current > resolved, so the CANCEL tears down the new state instead of being swallowed.
+    // Guarded by the same monitor as every other mutation here (never touched outside @Synchronized
+    // methods). Bounded access-order LRU (cap RECENTLY_RESOLVED_CAP). Declared BEFORE _pending because
+    // loadPending() (which _pending's initializer calls) bumps an entry on restart.
+    private data class IdentityGeneration(val current: Long, val resolved: Long?)
+
+    private val identityState = object : LinkedHashMap<String, IdentityGeneration>(16, 0.75f, true) {
+        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, IdentityGeneration>): Boolean =
             size > RECENTLY_RESOLVED_CAP
     }
 
-    // FRI-555 R5-1/R7-1: bounded access-order LRU mapping a resolved sourceId|correlationId identity
-    // to the GENERATION at which it was resolved. Guarded by the same monitor as every other mutation
-    // here (never touched outside @Synchronized methods). A later claimCancel suppresses teardown
-    // (ALREADY_RESOLVED) ONLY when this recorded generation still equals generations[id] -- i.e. no
-    // superseding state published since the resolution.
-    private val recentlyResolved = object : LinkedHashMap<String, Long>(16, 0.75f, true) {
-        override fun removeEldestEntry(eldest: MutableMap.MutableEntry<String, Long>): Boolean =
-            size > RECENTLY_RESOLVED_CAP
-    }
-
-    // FRI-555 R7-1: generation of the currently-armed pending confirmation (single-slot, monitor-
-    // guarded, NOT persisted -- the transient generation map is rebuilt on restart via loadPending).
-    // resolve()/claimCancel WON stamp recentlyResolved at THIS value, not the current live generation,
-    // so a confirmation resolved AFTER a superseding publish still records at its own (older)
+    // FRI-555 R7-1/R8-1: generation of the currently-armed pending confirmation (single-slot, monitor-
+    // guarded, NOT persisted -- the transient identityState map is rebuilt on restart via loadPending).
+    // resolve()/claimCancel WON stamp the identity's `resolved` at THIS value, not the current live
+    // generation, so a confirmation resolved AFTER a superseding publish still records at its own (older)
     // generation and therefore no longer suppresses a CANCEL meant for the newer state.
     private var pendingGeneration: Long = 0L
 
@@ -123,12 +120,13 @@ class InboundConfirmationCenter internal constructor(
             bridge.onCancelled(current)
             return CancelClaim.WON
         }
-        // FRI-555 R7-1: generation-scoped suppression. Suppress teardown ONLY when the identity's
-        // recorded resolution generation still equals its current generation -- i.e. no superseding
-        // state (noteState/arm) bumped it since. Any bump -> mismatch -> NONE -> the caller tears down
-        // the newer state. Missing entry -> NONE (never resolved, safe plain-task path).
-        val id = identityKey(sourceId, correlationId)
-        if (recentlyResolved[id]?.let { it == generations[id] } == true) return CancelClaim.ALREADY_RESOLVED
+        // FRI-555 R7-1/R8-1: generation-scoped suppression read from the single per-identity entry.
+        // Suppress teardown ONLY when the identity's recorded resolution generation still equals its
+        // current generation -- i.e. no superseding state (noteState/arm) bumped it since. Any bump ->
+        // current > resolved -> NONE -> the caller tears down the newer state. Missing entry, or an
+        // evicted-then-recreated entry (resolved == null), -> NONE (safe plain-task/superseded path).
+        val e = identityState[identityKey(sourceId, correlationId)]
+        if (e?.resolved != null && e.resolved == e.current) return CancelClaim.ALREADY_RESOLVED
         return CancelClaim.NONE
     }
 
@@ -160,31 +158,38 @@ class InboundConfirmationCenter internal constructor(
         bumpGeneration(sourceId, correlationId)
     }
 
-    // FRI-555 R7-1: monotonic per-identity generation bump. Only called under the monitor (from arm,
-    // noteState, loadPending). Returns the new generation.
+    // FRI-555 R7-1/R8-1: monotonic per-identity `current` bump within the single entry. PRESERVES the
+    // existing `resolved` stamp (recordResolved is the sole writer of `resolved`) so a superseding
+    // noteState/arm advances current past resolved without erasing it. Only called under the monitor
+    // (from arm, noteState, loadPending). Returns the new current generation.
     private fun bumpGeneration(sourceId: String, correlationId: String): Long {
         val id = identityKey(sourceId, correlationId)
-        val g = (generations[id] ?: 0L) + 1
-        generations[id] = g
-        return g
+        val prev = identityState[id]
+        val next = (prev?.current ?: 0L) + 1
+        identityState[id] = IdentityGeneration(current = next, resolved = prev?.resolved)
+        return next
     }
 
-    // FRI-555 R5-1/R7-1: remembers every identity resolved by ANY path (confirm/cancel/
-    // cancelByCorrelation win, or a claimCancel WON), STAMPED with pendingGeneration -- the generation
-    // of the pending record being resolved, NOT the current live generation. So a resolution that
-    // happens AFTER a superseding publish records at its own (older) generation and no longer
-    // suppresses a CANCEL meant for the newer state. Only called under the monitor. Bounded LRU.
+    // FRI-555 R5-1/R7-1/R8-1: remembers every identity resolved by ANY path (confirm/cancel/
+    // cancelByCorrelation win, or a claimCancel WON) by stamping `resolved` in the single per-identity
+    // entry at pendingGeneration -- the generation of the pending record being resolved, NOT the current
+    // live generation. So a resolution that happens AFTER a superseding publish records at its own
+    // (older) generation and no longer suppresses a CANCEL meant for the newer state. `current` is kept
+    // as-is (falling back to pendingGeneration if the entry was evicted). Only writer of `resolved`.
+    // Only called under the monitor.
     private fun recordResolved(sourceId: String?, correlationId: String?) {
         if (sourceId != null && correlationId != null) {
-            recentlyResolved[identityKey(sourceId, correlationId)] = pendingGeneration
+            val id = identityKey(sourceId, correlationId)
+            val cur = identityState[id]?.current ?: pendingGeneration
+            identityState[id] = IdentityGeneration(current = cur, resolved = pendingGeneration)
         }
     }
 
     private fun loadPending(): PendingInboundConfirmation? {
         val raw = store.read(PENDING_KEY)?.takeIf { it.isNotBlank() } ?: return null
         val record = deserialize(raw) ?: return null
-        // FRI-555 R7-1: rebuild the transient generation for the reloaded pending so pendingGeneration
-        // and the generation map agree after a process restart (the map itself is not persisted).
+        // FRI-555 R7-1/R8-1: rebuild the transient generation for the reloaded pending so pendingGeneration
+        // and the identityState entry agree after a process restart (the map itself is not persisted).
         val sid = record.sourceId
         val cid = record.correlationId
         if (sid != null && cid != null) pendingGeneration = bumpGeneration(sid, cid)
