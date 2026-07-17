@@ -1,42 +1,44 @@
 package com.dark.tool_neuron.ui.screens.language_selection
 
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.widthIn
-import androidx.compose.foundation.shape.CircleShape
-import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Button
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dark.tool_neuron.model.AppLanguage
-import com.dark.tool_neuron.ui.icons.TnIcons
+import com.dark.tool_neuron.ui.screens.onboarding.components.OnboardingStepIndicator
 import com.dark.tool_neuron.ui.theme.LocalDimens
+import com.dark.tool_neuron.ui.theme.groteskFamily
+import com.dark.tool_neuron.ui.theme.jakartaFamily
 import com.dark.tool_neuron.viewmodel.LanguageViewModel
 import com.friday.ai.R
 
+/*
+ * Language selection (design-spec §2, HTML lines 64-104). Step 1 of 6 in the
+ * linear onboarding step-indicator (Language=0). Both languages are shown
+ * simultaneously — this screen has not applied a locale yet, so title/subtext/
+ * note are rendered as fixed EN+VI dual-language strings (`translatable="false"`),
+ * not resolved via the active app locale. Only `en`/`vi` cards are offered
+ * (no "system default" card in this design).
+ */
 @Composable
 fun LanguageSelectionScreen(
     innerPadding: PaddingValues,
@@ -50,111 +52,105 @@ fun LanguageSelectionScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .padding(innerPadding)
-            .padding(horizontal = dimens.screenPadding, vertical = dimens.spacingLg),
-        verticalArrangement = Arrangement.SpaceBetween,
+            .padding(innerPadding),
     ) {
-        Column(modifier = Modifier.fillMaxWidth()) {
-            Text(
-                text = stringResource(R.string.friday_language_title),
-                style = MaterialTheme.typography.headlineSmall,
-                fontWeight = FontWeight.SemiBold,
-            )
-            Spacer(Modifier.height(dimens.spacingSm))
-            Text(
-                text = stringResource(R.string.friday_language_subtitle),
-                style = MaterialTheme.typography.bodyMedium,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Spacer(Modifier.height(dimens.spacingLg))
-            AppLanguage.entries.forEach { language ->
-                LanguageRow(
-                    language = language,
-                    selected = language == selected,
-                    onClick = { viewModel.choose(language) },
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Spacer(Modifier.height(dimens.spacingSm))
-            }
-        }
-        Button(
-            onClick = {
-                viewModel.confirm()
-                onContinue()
-            },
+        OnboardingStepIndicator(
+            current = 0,
             modifier = Modifier
                 .fillMaxWidth()
-                .widthIn(min = 200.dp),
-            enabled = selected.uiTag.isNotEmpty() || selected == AppLanguage.SYSTEM,
-        ) {
-            Text(text = stringResource(R.string.friday_language_continue))
-        }
-    }
-}
+                .padding(top = 10.dp),
+        )
 
-@Composable
-private fun LanguageRow(
-    language: AppLanguage,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val dimens = LocalDimens.current
-    val bg = if (selected) MaterialTheme.colorScheme.primaryContainer else MaterialTheme.colorScheme.surfaceVariant
-    val fg = if (selected) MaterialTheme.colorScheme.onPrimaryContainer else MaterialTheme.colorScheme.onSurface
-    val border = if (selected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outlineVariant
-
-    Row(
-        modifier = modifier
-            .clip(RoundedCornerShape(16.dp))
-            .background(bg)
-            .border(1.5.dp, border, RoundedCornerShape(16.dp))
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Box(
+        Column(
             modifier = Modifier
-                .size(dimens.iconLg)
-                .clip(CircleShape)
-                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.12f)),
-            contentAlignment = Alignment.Center,
+                .weight(1f)
+                .fillMaxWidth()
+                .padding(horizontal = dimens.screenPadding, vertical = dimens.spacingLg),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            Icon(
-                imageVector = TnIcons.Globe,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(dimens.iconMd),
-            )
-        }
-        Spacer(Modifier.size(dimens.spacingMd))
-        Column(modifier = Modifier.weight(1f)) {
+            LanguageIconBadge()
+
+            Spacer(Modifier.height(20.dp))
             Text(
-                text = labelFor(language),
-                style = MaterialTheme.typography.titleMedium,
+                text = stringResource(R.string.onboarding_lang_title_en),
+                fontFamily = groteskFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 23.sp,
+                letterSpacing = (-0.3).sp,
+                textAlign = TextAlign.Center,
+            )
+            Text(
+                text = stringResource(R.string.onboarding_lang_title_vi),
+                fontFamily = jakartaFamily,
                 fontWeight = FontWeight.SemiBold,
-                color = fg,
+                fontSize = 16.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = 2.dp),
             )
+
             Text(
-                text = stringResource(R.string.friday_language_subtitle_row, language.uiTag.ifEmpty { "system" }),
-                style = MaterialTheme.typography.bodySmall,
-                color = fg.copy(alpha = 0.7f),
+                text = stringResource(R.string.onboarding_lang_subtitle_dual),
+                fontFamily = jakartaFamily,
+                fontSize = 12.5.sp,
+                lineHeight = 20.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(top = 10.dp),
             )
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 26.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                LanguageCard(
+                    name = stringResource(R.string.friday_language_english),
+                    description = stringResource(R.string.onboarding_lang_card_en_desc),
+                    selected = selected == AppLanguage.EN,
+                    onClick = { viewModel.choose(AppLanguage.EN) },
+                )
+                LanguageCard(
+                    name = stringResource(R.string.friday_language_vietnamese),
+                    description = stringResource(R.string.onboarding_lang_card_vi_desc),
+                    selected = selected == AppLanguage.VI,
+                    onClick = { viewModel.choose(AppLanguage.VI) },
+                )
+            }
+
+            Column(
+                modifier = Modifier.padding(top = 18.dp, start = 6.dp, end = 6.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.onboarding_lang_note_en),
+                    fontFamily = jakartaFamily,
+                    fontSize = 11.5.sp,
+                    lineHeight = 18.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    text = stringResource(R.string.onboarding_lang_note_vi),
+                    fontFamily = jakartaFamily,
+                    fontSize = 11.5.sp,
+                    lineHeight = 18.sp,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
         }
-        if (selected) {
-            Icon(
-                imageVector = TnIcons.Check,
-                contentDescription = null,
-                tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(dimens.iconMd),
+
+        Box(modifier = Modifier.padding(horizontal = 26.dp, vertical = 10.dp)) {
+            LanguageCta(
+                selected = selected,
+                onClick = {
+                    viewModel.confirm()
+                    onContinue()
+                },
             )
         }
     }
-}
-
-@Composable
-private fun labelFor(language: AppLanguage): String = when (language) {
-    AppLanguage.SYSTEM -> stringResource(R.string.friday_language_system)
-    AppLanguage.EN -> stringResource(R.string.friday_language_english)
-    AppLanguage.VI -> stringResource(R.string.friday_language_vietnamese)
 }

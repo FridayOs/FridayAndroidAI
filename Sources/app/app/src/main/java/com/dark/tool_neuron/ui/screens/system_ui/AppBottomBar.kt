@@ -21,7 +21,7 @@ fun AppBottomBar(
     when (currentRoute) {
         NavScreens.HomeScreen.route -> HomeScreenBottomBar(navController)
         NavScreens.TermsConditions.route -> TermsConditionsBottomBar(
-            buttonLabel = R.string.friday_tc_continue,
+            buttonLabel = R.string.onboarding_terms_agree_cta,
             onAccept = onTermsAccepted,
         )
         NavScreens.DevNotes.route -> DevNotesBottomBar(navController, onContinue = onOnboardingComplete)

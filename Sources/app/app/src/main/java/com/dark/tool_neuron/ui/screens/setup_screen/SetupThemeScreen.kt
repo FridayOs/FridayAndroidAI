@@ -2,55 +2,54 @@ package com.dark.tool_neuron.ui.screens.setup_screen
 
 import com.friday.ai.R
 
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.animateColorAsState
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.slideInVertically
-import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
-import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.drawBehind
-import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dark.tool_neuron.data.ThemeController
 import com.dark.tool_neuron.ui.icons.TnIcons
-import com.dark.tool_neuron.ui.theme.ColorPalette
+import com.dark.tool_neuron.ui.screens.onboarding.components.OnboardingStepIndicator
 import com.dark.tool_neuron.ui.theme.LocalDimens
-import com.dark.tool_neuron.ui.theme.LocalTnShapes
-import com.dark.tool_neuron.ui.theme.Motion
+import com.dark.tool_neuron.ui.theme.LocalFridayAccent
+import com.dark.tool_neuron.ui.theme.groteskFamily
+import com.dark.tool_neuron.ui.theme.jakartaFamily
 import com.dark.tool_neuron.viewmodel.SetupThemeViewModel
-import kotlinx.coroutines.delay
 
+/*
+ * Theme step re-skin (FRI-582 P5, design-spec §6, HTML lines 230-286):
+ * step dots -> title/sub -> 3 mode cards (icon + label only) -> accent
+ * row (ThemeAccentRow.kt) -> live preview (ThemePreviewCard.kt). Onboarding
+ * always runs on the FRIDAY base palette; accent is the only variable here.
+ */
 @Composable
 fun SetupThemeScreen(
     innerPadding: PaddingValues,
@@ -58,254 +57,134 @@ fun SetupThemeScreen(
 ) {
     val dimens = LocalDimens.current
     val mode by viewModel.mode.collectAsStateWithLifecycle()
-    val palette by viewModel.palette.collectAsStateWithLifecycle()
+    val accent by viewModel.accent.collectAsStateWithLifecycle()
 
-    var visible by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) { delay(80); visible = true }
+    LaunchedEffect(Unit) { viewModel.ensureFridayBase() }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
             .padding(innerPadding)
-            .verticalScroll(rememberScrollState())
-            .padding(horizontal = dimens.screenPadding),
+            .verticalScroll(rememberScrollState()),
     ) {
-        Spacer(Modifier.height(dimens.spacingXl))
+        OnboardingStepIndicator(
+            current = 4,
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 10.dp),
+        )
 
-        AnimatedVisibility(
-            visible = visible,
-            enter = fadeIn(Motion.entrance()) + slideInVertically(Motion.entrance()) { it / 4 },
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = dimens.screenPadding, vertical = dimens.spacingLg),
         ) {
-            Column {
-                Icon(
-                    imageVector = TnIcons.Sparkles,
-                    contentDescription = null,
-                    modifier = Modifier.size(48.dp),
-                    tint = MaterialTheme.colorScheme.primary,
-                )
-                Spacer(Modifier.height(dimens.spacingLg))
-                Text(
-                    text = stringResource(R.string.friday_setup_theme_title),
-                    style = MaterialTheme.typography.headlineSmall,
-                    fontWeight = FontWeight.SemiBold,
-                )
-                Spacer(Modifier.height(dimens.spacingXs))
-                Text(
-                    text = stringResource(R.string.friday_setup_theme_subtitle),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
+            Text(
+                text = stringResource(R.string.friday_setup_theme_title),
+                fontFamily = groteskFamily,
+                fontWeight = FontWeight.Bold,
+                fontSize = 22.sp,
+                letterSpacing = (-0.3).sp,
+            )
+            Text(
+                text = stringResource(R.string.friday_setup_theme_subtitle),
+                fontFamily = jakartaFamily,
+                fontSize = 12.5.sp,
+                lineHeight = 19.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 8.dp),
+            )
 
-        Spacer(Modifier.height(dimens.spacingXl))
+            Spacer(Modifier.height(dimens.spacingXl))
 
-        AnimatedVisibility(
-            visible = visible,
-            enter = fadeIn(Motion.entrance()) + slideInVertically(Motion.entrance()) { it / 3 },
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(dimens.spacingSm)) {
-                SectionLabel(text = stringResource(R.string.friday_setup_theme_mode_label))
-                ThemeModeRow(
-                    mode = ThemeController.Mode.SYSTEM,
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(dimens.spacingSm),
+            ) {
+                ThemeModeCard(
+                    label = stringResource(R.string.friday_setup_theme_mode_system_title),
                     icon = TnIcons.Sparkles,
-                    title = stringResource(R.string.friday_setup_theme_mode_system_title),
-                    subtitle = stringResource(R.string.friday_setup_theme_mode_system_subtitle),
                     selected = mode == ThemeController.Mode.SYSTEM,
                     onClick = { viewModel.selectMode(ThemeController.Mode.SYSTEM) },
+                    modifier = Modifier.weight(1f),
                 )
-                ThemeModeRow(
-                    mode = ThemeController.Mode.LIGHT,
-                    icon = TnIcons.StarOutline,
-                    title = stringResource(R.string.friday_setup_theme_mode_light_title),
-                    subtitle = stringResource(R.string.friday_setup_theme_mode_light_subtitle),
+                ThemeModeCard(
+                    label = stringResource(R.string.friday_setup_theme_mode_light_title),
+                    icon = TnIcons.Sun,
                     selected = mode == ThemeController.Mode.LIGHT,
                     onClick = { viewModel.selectMode(ThemeController.Mode.LIGHT) },
+                    modifier = Modifier.weight(1f),
                 )
-                ThemeModeRow(
-                    mode = ThemeController.Mode.DARK,
-                    icon = TnIcons.Star,
-                    title = stringResource(R.string.friday_setup_theme_mode_dark_title),
-                    subtitle = stringResource(R.string.friday_setup_theme_mode_dark_subtitle),
+                ThemeModeCard(
+                    label = stringResource(R.string.friday_setup_theme_mode_dark_title),
+                    icon = TnIcons.Moon,
                     selected = mode == ThemeController.Mode.DARK,
                     onClick = { viewModel.selectMode(ThemeController.Mode.DARK) },
+                    modifier = Modifier.weight(1f),
                 )
             }
-        }
 
-        Spacer(Modifier.height(dimens.spacingLg))
+            Spacer(Modifier.height(dimens.spacingXl))
 
-        AnimatedVisibility(
-            visible = visible,
-            enter = fadeIn(Motion.entrance()) + slideInVertically(Motion.entrance()) { it / 3 },
-        ) {
-            Column(verticalArrangement = Arrangement.spacedBy(dimens.spacingSm)) {
-                SectionLabel(text = stringResource(R.string.friday_setup_theme_palette_label))
-                ColorPalette.entries.forEach { p ->
-                    PaletteRow(
-                        palette = p,
-                        selected = palette == p,
-                        onClick = { viewModel.selectPalette(p) },
-                    )
-                }
-            }
-        }
-
-        Spacer(Modifier.height(dimens.spacingLg))
-    }
-}
-
-@Composable
-private fun SectionLabel(text: String) {
-    Text(
-        text = text,
-        style = MaterialTheme.typography.labelMedium,
-        color = MaterialTheme.colorScheme.onSurfaceVariant,
-        fontWeight = FontWeight.Medium,
-    )
-}
-
-@Composable
-private fun ThemeModeRow(
-    mode: ThemeController.Mode,
-    icon: ImageVector,
-    title: String,
-    subtitle: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-) {
-    val tnShapes = LocalTnShapes.current
-    val dimens = LocalDimens.current
-
-    val borderColor by animateColorAsState(
-        targetValue = if (selected) MaterialTheme.colorScheme.primary
-        else MaterialTheme.colorScheme.outlineVariant,
-        animationSpec = Motion.state(),
-        label = "modeBorder-${mode.name}",
-    )
-    val containerColor by animateColorAsState(
-        targetValue = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
-        else MaterialTheme.colorScheme.surface,
-        animationSpec = Motion.state(),
-        label = "modeBg-${mode.name}",
-    )
-
-    Surface(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
-        shape = tnShapes.card,
-        color = containerColor,
-        border = BorderStroke(1.dp, borderColor),
-    ) {
-        Row(
-            modifier = Modifier.padding(dimens.spacingMd),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Icon(
-                imageVector = icon,
-                contentDescription = null,
-                tint = if (selected) MaterialTheme.colorScheme.primary
-                else MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.size(24.dp),
-            )
-            Spacer(Modifier.width(dimens.spacingMd))
-            TextCol(
-                title = title,
-                subtitle = subtitle,
-                modifier = Modifier.weight(1f),
-            )
-        }
-    }
-}
-
-@Composable
-private fun RowScope.TextCol(title: String, subtitle: String, modifier: Modifier = Modifier) {
-    Column(modifier = modifier) {
-        Text(
-            text = title,
-            style = MaterialTheme.typography.bodyLarge,
-            fontWeight = FontWeight.Medium,
-        )
-        Text(
-            text = subtitle,
-            style = MaterialTheme.typography.bodySmall,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-        )
-    }
-}
-
-@Composable
-private fun PaletteRow(
-    palette: ColorPalette,
-    selected: Boolean,
-    onClick: () -> Unit,
-) {
-    val tnShapes = LocalTnShapes.current
-    val dimens = LocalDimens.current
-
-    val borderColor by animateColorAsState(
-        targetValue = if (selected) MaterialTheme.colorScheme.primary
-        else MaterialTheme.colorScheme.outlineVariant,
-        animationSpec = Motion.state(),
-        label = "palBorder-${palette.name}",
-    )
-
-    Surface(
-        onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
-        shape = tnShapes.card,
-        color = if (selected) MaterialTheme.colorScheme.primary.copy(alpha = 0.08f)
-                else MaterialTheme.colorScheme.surface,
-        border = BorderStroke(1.dp, borderColor),
-    ) {
-        Row(
-            modifier = Modifier.padding(dimens.spacingMd),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            PaletteSwatch(palette = palette)
-            Spacer(Modifier.width(dimens.spacingMd))
             Text(
-                text = palette.displayName,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = FontWeight.Medium,
-                modifier = Modifier.weight(1f),
+                text = stringResource(R.string.friday_setup_theme_palette_label).uppercase(),
+                fontFamily = jakartaFamily,
+                fontWeight = FontWeight.SemiBold,
+                fontSize = 11.sp,
+                letterSpacing = 0.6.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
-            if (selected) {
-                Icon(
-                    imageVector = TnIcons.Check,
-                    contentDescription = stringResource(R.string.friday_setup_theme_palette_label),
-                    tint = MaterialTheme.colorScheme.primary,
-                    modifier = Modifier.size(20.dp),
-                )
-            }
+            Spacer(Modifier.height(dimens.spacingSm))
+            ThemeAccentRow(
+                selected = accent,
+                onSelect = { viewModel.selectAccent(it) },
+            )
+
+            Spacer(Modifier.height(dimens.spacingLg))
+
+            ThemePreviewCard(accent = accent)
+
+            Spacer(Modifier.height(dimens.spacingXl))
         }
     }
 }
 
 @Composable
-private fun PaletteSwatch(palette: ColorPalette) {
-    val colors = paletteSwatchColors(palette)
-    Row(
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        colors.forEach { c ->
-            Box(
-                modifier = Modifier
-                    .size(14.dp)
-                    .drawBehind { drawCircle(c) },
+private fun ThemeModeCard(
+    label: String,
+    icon: ImageVector,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val accent = LocalFridayAccent.current
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(16.dp))
+            .background(if (selected) accent.soft else MaterialTheme.colorScheme.surfaceVariant)
+            .border(
+                width = if (selected) 1.5.dp else 1.dp,
+                color = if (selected) accent.color else MaterialTheme.colorScheme.outlineVariant,
+                shape = RoundedCornerShape(16.dp),
             )
-        }
+            .clickable(onClick = onClick)
+            .padding(vertical = 16.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Icon(
+            imageVector = icon,
+            contentDescription = null,
+            tint = if (selected) accent.color else MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(22.dp),
+        )
+        Spacer(Modifier.height(8.dp))
+        Text(
+            text = label,
+            fontFamily = jakartaFamily,
+            fontWeight = FontWeight.SemiBold,
+            fontSize = 12.sp,
+            textAlign = TextAlign.Center,
+            color = if (selected) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
+        )
     }
-}
-
-private fun paletteSwatchColors(palette: ColorPalette): List<Color> = when (palette) {
-    ColorPalette.DYNAMIC -> listOf(Color(0xFF8AB4F8), Color(0xFFB388FF), Color(0xFFFFAB91))
-    ColorPalette.NEON_LIME -> listOf(Color(0xFF556500), Color(0xFFD6ED6C), Color(0xFFDFE6C5))
-    ColorPalette.OCEAN_CYAN -> listOf(Color(0xFF006874), Color(0xFF82D3E0), Color(0xFFCAE6ED))
-    ColorPalette.VIOLET_DUSK -> listOf(Color(0xFF5A5A96), Color(0xFFC7BCFF), Color(0xFFE2DEFF))
-    ColorPalette.AMBER_RUST -> listOf(Color(0xFF8A5400), Color(0xFFFFD898), Color(0xFFFFE0B6))
-    ColorPalette.ROSE_PINK -> listOf(Color(0xFF8F4953), Color(0xFFFFD9DE), Color(0xFFFFECEF))
-    ColorPalette.MONO_SLATE -> listOf(Color(0xFF5F6063), Color(0xFFB9C6DA), Color(0xFFE2E6EC))
-    ColorPalette.FRIDAY -> listOf(Color(0xFFFFE658), Color(0xFFF2D63B), Color(0xFF1A1A1A))
 }

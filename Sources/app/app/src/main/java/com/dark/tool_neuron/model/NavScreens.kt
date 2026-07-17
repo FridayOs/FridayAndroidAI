@@ -7,6 +7,13 @@ sealed class NavScreens(val route: String) {
     object HomeScreen : NavScreens("home_screen")
     object TermsConditions : NavScreens("terms_conditions")
     object DevNotes : NavScreens("dev_notes")
+    object FeatureTour : NavScreens("feature_tour")
+    object OnboardingProviders : NavScreens("onboarding_providers")
+    object OnboardingAddProvider : NavScreens("onboarding_add_provider?catalogId={catalogId}") {
+        const val ARG_CATALOG_ID = "catalogId"
+        const val BASE = "onboarding_add_provider"
+        fun routeFor(catalogId: String) = "onboarding_add_provider?catalogId=$catalogId"
+    }
     object Credits : NavScreens("credits")
     object PasswordScreen : NavScreens("password_screen")
     object SetupScreen : NavScreens("setup_screen")

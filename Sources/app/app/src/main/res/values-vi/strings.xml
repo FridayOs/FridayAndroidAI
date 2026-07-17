@@ -76,13 +76,8 @@
     <string name="friday_login_privacy_link">Chính sách bảo mật</string>
 
     <!-- Language selection (M2-00 bilingual foundation) -->
-    <string name="friday_language_title">Chọn ngôn ngữ</string>
-    <string name="friday_language_subtitle">Friday ra mắt song ngữ. Chọn ngôn ngữ bạn muốn dùng — bạn có thể đổi sau trong Cài đặt.</string>
-    <string name="friday_language_subtitle_row">Mã: %1$s</string>
-    <string name="friday_language_system">Theo hệ thống</string>
     <string name="friday_language_english">English</string>
     <string name="friday_language_vietnamese">Tiếng Việt</string>
-    <string name="friday_language_continue">Tiếp tục</string>
 
     <!-- Friday settings sections -->
     <string name="friday_settings_section_gateway_title">Cổng kết nối</string>
@@ -103,28 +98,163 @@
     <string name="friday_event_dismiss">Bỏ qua</string>
     <string name="friday_event_awaiting_confirmation">Friday đang chờ bạn xác nhận</string>
 
-    <!-- Setup labels (M2-00 first-launch) -->
-    <string name="friday_setup_protect_title">Bảo vệ dữ liệu của bạn</string>
-    <string name="friday_setup_protect_subtitle">Chọn cách khóa ứng dụng. Điều này giữ cuộc trò chuyện và dữ liệu ở chế độ riêng tư.</string>
+    <!-- Setup labels (M2-00 first-launch, FRI-582 P5 re-skin) -->
+    <string name="friday_setup_topbar_title">Thiết lập</string>
+    <string name="friday_setup_protect_title">Bảo vệ Friday</string>
+    <string name="friday_setup_protect_subtitle">Chọn cách FRIDAY bảo vệ hội thoại, bản ghi, tài liệu và cấu hình gateway trên điện thoại này.</string>
     <string name="friday_setup_app_password_title">Mật khẩu ứng dụng</string>
-    <string name="friday_setup_app_password_subtitle">Đặt mật khẩu riêng cho ứng dụng</string>
-    <string name="friday_setup_no_lock_title">Không khóa</string>
-    <string name="friday_setup_no_lock_subtitle">Bất kỳ ai cầm máy đều có thể mở ứng dụng</string>
+    <string name="friday_setup_app_password_subtitle">Yêu cầu mật khẩu FRIDAY riêng mỗi khi mở ứng dụng.</string>
+    <string name="friday_setup_app_password_detail">Phù hợp máy dùng chung hoặc lịch sử trợ lý nhạy cảm.</string>
+    <string name="friday_setup_no_lock_title">Không khóa ứng dụng</string>
+    <string name="friday_setup_no_lock_subtitle">Chỉ dùng khóa màn hình điện thoại.</string>
+    <string name="friday_setup_no_lock_detail">Truy cập nhanh hơn. Ai mở được điện thoại đều mở được FRIDAY.</string>
+    <string name="friday_setup_change_later">Bạn có thể đổi lại trong Cài đặt.</string>
+    <string name="friday_setup_password_create_title">Tạo mật khẩu</string>
+    <string name="friday_setup_password_create_subtitle">Tối thiểu 4 chữ số</string>
+    <string name="friday_setup_password_confirm_title">Xác nhận mật khẩu</string>
+    <string name="friday_setup_password_confirm_subtitle">Nhập lại mật khẩu vừa tạo</string>
+    <string name="friday_setup_password_action_back">Quay lại</string>
+    <string name="friday_setup_password_action_clear">Xóa</string>
+    <string name="friday_setup_password_action_next">Tiếp</string>
+    <string name="friday_setup_password_action_confirm">Xác nhận</string>
 
-    <!-- Theme selection (M2-00 first-launch) -->
-    <string name="friday_setup_theme_title">Cá nhân hóa</string>
-    <string name="friday_setup_theme_subtitle">Chọn chế độ giao diện và bảng màu. Bạn có thể đổi sau trong Cài đặt.</string>
-    <string name="friday_setup_theme_mode_label">Chế độ giao diện</string>
+    <!-- Theme selection (M2-00 first-launch, FRI-582 P5 re-skin) -->
+    <string name="friday_setup_theme_title">Cá nhân hóa Friday</string>
+    <string name="friday_setup_theme_subtitle">Chọn giao diện cho FRIDAY. Có thể đổi bất cứ lúc nào.</string>
     <string name="friday_setup_theme_mode_system_title">Theo hệ thống</string>
-    <string name="friday_setup_theme_mode_system_subtitle">Khớp với cài đặt sáng/tối của máy</string>
     <string name="friday_setup_theme_mode_light_title">Sáng</string>
-    <string name="friday_setup_theme_mode_light_subtitle">Luôn dùng màu sáng</string>
     <string name="friday_setup_theme_mode_dark_title">Tối</string>
-    <string name="friday_setup_theme_mode_dark_subtitle">Luôn dùng màu tối</string>
-    <string name="friday_setup_theme_palette_label">Bảng màu</string>
+    <string name="friday_setup_theme_palette_label">Bảng màu nhấn</string>
+    <!-- Accent names (FRI-582 P5, design-spec §0 ACCENTS array) -->
+    <string name="friday_accent_sun">Vàng nắng</string>
+    <string name="friday_accent_ember">Đỏ lửa</string>
+    <string name="friday_accent_violet">Tím hoàng hôn</string>
+    <string name="friday_accent_mint">Xanh bạc hà</string>
+    <string name="friday_setup_theme_preview_title">Xem trước Friday</string>
+    <string name="friday_setup_theme_preview_message">Giọng nói, chat và nút bấm sẽ trông như thế này.</string>
+    <string name="friday_setup_theme_preview_reply">Đẹp đấy!</string>
 
-    <!-- T&C (M2-00 first-launch) -->
-    <string name="friday_tc_title">Vài điều cần đọc trước</string>
-    <string name="friday_tc_subtitle">Văn phong đời thường. Không phải ngôn ngữ luật sư.</string>
-    <string name="friday_tc_continue">Đồng ý và tiếp tục</string>
+    <!-- Model Setup (M2-00 first-launch, FRI-582 P6 re-skin, design-spec §7) -->
+    <string name="friday_model_setup_title">Chọn cách Friday suy nghĩ</string>
+    <string name="friday_model_setup_subtitle">Dùng gateway của bạn để bắt đầu nhanh nhất, hoặc cài model cục bộ để chủ động offline hơn.</string>
+    <string name="friday_model_setup_recommended_badge">Khuyên dùng</string>
+    <string name="friday_model_setup_packs_label">Gói model</string>
+    <string name="friday_model_setup_continue">Tiếp tục</string>
+    <string name="friday_model_setup_skip_now">Bỏ qua</string>
+    <string name="friday_model_setup_cta_gateway">Thêm gateway</string>
+    <string name="friday_model_setup_cta_local">Cài model cục bộ</string>
+    <string name="friday_model_setup_path_gateway_title">Dùng AI gateway của tôi</string>
+    <string name="friday_model_setup_path_gateway_body">Thêm Gemini, OpenAI, Anthropic, OpenClaw, Hermes hoặc endpoint tùy chỉnh. Yêu cầu đi trực tiếp từ máy này tới provider của bạn.</string>
+    <string name="friday_model_setup_path_local_title">Dùng model cục bộ</string>
+    <string name="friday_model_setup_path_local_body">Tải hoặc nhập model cho chat, giọng nói và dùng offline. Riêng tư nhất, nhưng cần bộ nhớ.</string>
+    <string name="friday_model_setup_path_skip_title">Thiết lập sau</string>
+    <string name="friday_model_setup_path_skip_body">Bỏ qua bây giờ. Friday sẽ nhắc khi bạn bắt đầu chat hoặc nói.</string>
+    <string name="friday_model_setup_pack_small_name">Chat cục bộ gọn nhẹ</string>
+    <string name="friday_model_setup_pack_small_desc">Model nhẹ cho chat offline nhanh.</string>
+    <string name="friday_model_setup_pack_voice_name">Chat + giọng nói</string>
+    <string name="friday_model_setup_pack_voice_desc">Model chat kèm model nhận và đọc giọng nói.</string>
+    <string name="friday_model_setup_pack_plus_name">Chat + giọng nói nâng cao</string>
+    <string name="friday_model_setup_pack_plus_desc">Model lớn hơn, trả lời tốt hơn, tốn bộ nhớ hơn.</string>
+
+    <!-- Onboarding Providers (FRI-582 P7, design-spec §8) -->
+    <string name="friday_providers_title">Provider</string>
+    <string name="friday_providers_hero_title">Chìa khóa của bạn, quyết định của bạn</string>
+    <string name="friday_providers_hero_body">FRIDAY gọi thẳng tới provider của bạn từ máy này. Khóa và endpoint được lưu mã hóa cục bộ.</string>
+    <string name="friday_providers_chip_local">Lưu cục bộ</string>
+    <string name="friday_providers_chip_direct">Trực tiếp từ máy</string>
+    <string name="friday_providers_chip_no_sync">Không đồng bộ server</string>
+    <string name="friday_providers_configured_label">Provider của bạn</string>
+    <string name="friday_providers_available_label">Thêm provider</string>
+    <string name="friday_providers_add">Thêm</string>
+    <string name="friday_providers_coming_soon">Sắp ra mắt</string>
+    <string name="friday_providers_direct_from_phone">Yêu cầu đi trực tiếp từ máy này</string>
+    <string name="friday_providers_empty_title">Chưa có provider nào</string>
+    <string name="friday_providers_empty_body">Thêm một provider bên dưới để Friday có thể chat và nói bằng tài khoản của bạn.</string>
+    <string name="friday_providers_status_ready">Sẵn sàng</string>
+    <string name="friday_providers_status_not_tested">Chưa kiểm tra</string>
+    <string name="friday_providers_status_failed">Lỗi</string>
+    <string name="friday_providers_status_selected">Đang dùng</string>
+    <string name="friday_providers_continue">Tiếp tục đến Friday</string>
+    <string name="friday_providers_deleted_toast">Đã xóa provider</string>
+    <string name="friday_providers_delete_dialog_title">Xóa provider này?</string>
+    <string name="friday_providers_delete_dialog_body">FRIDAY sẽ quên nhãn, khóa và endpoint này. Không thể hoàn tác.</string>
+    <string name="friday_providers_delete">Xóa</string>
+    <string name="friday_providers_cancel">Hủy</string>
+    <string name="friday_providers_got_it">Đã hiểu</string>
+    <string name="friday_providers_friday_dialog_title">Model Friday sắp ra mắt</string>
+    <string name="friday_providers_friday_dialog_body">Model do FRIDAY tự vận hành chưa sẵn sàng. Hãy dùng gateway riêng hoặc model cục bộ lúc này — chúng tôi sẽ báo khi ra mắt.</string>
+    <string name="friday_providers_privacy_dialog_title">Quyền riêng tư provider hoạt động thế nào</string>
+    <string name="friday_providers_privacy_dialog_body">FRIDAY lưu cấu hình provider trong bộ nhớ mã hóa cục bộ trên máy này.\n\nKhi bạn gửi tin nhắn, FRIDAY gửi thẳng từ Android tới provider bạn chọn. Máy chủ FRIDAY không chuyển tiếp, xem hay lưu các yêu cầu đó.\n\nProvider của bạn có thể lưu hoặc xử lý yêu cầu theo điều khoản riêng của họ. Hãy dùng provider bạn tin tưởng.</string>
+
+    <!-- Add Provider (FRI-582 P8, design-spec §8) -->
+    <string name="friday_add_provider_title_prefix">Thêm </string>
+    <string name="friday_add_provider_privacy">Key của bạn được lưu cục bộ trong bộ nhớ mã hóa. Không bao giờ gửi lên máy chủ FRIDAY.</string>
+    <string name="friday_add_provider_field_label">Tên gợi nhớ (tùy chọn)</string>
+    <string name="friday_add_provider_label_placeholder">Cá nhân · %1$s</string>
+    <string name="friday_add_provider_field_key">API key</string>
+    <string name="friday_add_provider_field_model">Model</string>
+    <string name="friday_add_provider_field_base_url">Base URL</string>
+    <string name="friday_add_provider_advanced">Nâng cao</string>
+    <string name="friday_add_provider_test_connection">Kiểm tra kết nối</string>
+    <string name="friday_add_provider_testing">Đang kiểm tra kết nối trực tiếp…</string>
+    <string name="friday_add_provider_test_hint">FRIDAY gửi một yêu cầu thử nhỏ trực tiếp tới provider này.</string>
+    <string name="friday_add_provider_test_ready_title">Kết nối sẵn sàng</string>
+    <string name="friday_add_provider_test_ready_body">Friday có thể dùng provider này cho chat và trả lời bằng giọng nói.</string>
+    <string name="friday_add_provider_test_fail_title">Kết nối thất bại</string>
+    <string name="friday_add_provider_test_fail_unknown">Đã xảy ra lỗi khi kiểm tra. Vui lòng thử lại.</string>
+    <string name="friday_add_provider_save_use">Lưu &amp; dùng</string>
+    <string name="friday_add_provider_save_only">Chỉ lưu</string>
+    <string name="friday_add_provider_err_key">Provider này cần API key.</string>
+    <string name="friday_add_provider_err_url">Nhập URL http:// hoặc https:// hợp lệ.</string>
+    <string name="friday_add_provider_err_model">Cần nhập tên model.</string>
+    <string name="friday_add_provider_saved_toast">Đã lưu</string>
+    <string name="friday_add_provider_saved_use_toast">Friday sẽ dùng %1$s · %2$s</string>
+
+    <!-- Onboarding intro (FRI-582 M2-00 re-skin) -->
+    <string name="onboarding_intro_title">FRIDAY AI</string>
+    <string name="onboarding_intro_tagline">Trợ lý AI riêng tư của bạn, chạy ngay trên điện thoại.</string>
+    <string name="onboarding_intro_pill">Local-first • Do bạn sở hữu • Riêng tư theo mặc định</string>
+
+    <!-- Onboarding language selection (FRI-582 M2-00 re-skin) -->
+    <!-- Both languages shown simultaneously (pre-locale). title_en/title_vi, subtitle_dual, card -->
+    <!-- descriptions, notes, and cta_en/cta_vi are locale-invariant (translatable="false") and live -->
+    <!-- only in values/strings.xml. Only cta_prompt is a real VI translation. -->
+    <string name="onboarding_lang_cta_prompt">Chọn ngôn ngữ để tiếp tục</string>
+
+    <!-- Onboarding Terms & Conditions (FRI-582 P4, design-spec §3, HTML TERMS array lines 1417-1430) -->
+    <string name="onboarding_terms_topbar_title">Điều khoản sử dụng</string>
+    <string name="onboarding_terms_title">Trước khi bắt đầu</string>
+    <string name="onboarding_terms_subtitle">Ngôn ngữ dễ hiểu. Không chiêu trò.</string>
+    <string name="onboarding_terms_card1_title">Dữ liệu của bạn là của bạn</string>
+    <string name="onboarding_terms_card1_body">Hội thoại, prompt, câu trả lời, bản ghi, tài liệu, ghi nhớ, cấu hình gateway, API key, base URL và lựa chọn model mặc định ở lại trên máy này.</string>
+    <string name="onboarding_terms_card2_title">Đăng nhập dùng để làm gì</string>
+    <string name="onboarding_terms_card2_body">Đăng nhập Google giúp FRIDAY nhận diện tài khoản, đăng ký thiết bị và áp dụng quyền/chính sách. Không tải lịch sử trò chuyện riêng tư của bạn lên.</string>
+    <string name="onboarding_terms_card3_title">Gateway của bạn, cuộc gọi của bạn</string>
+    <string name="onboarding_terms_card3_body">Khi bạn thêm provider như Gemini, OpenAI, Anthropic, OpenClaw, Hermes hoặc endpoint tùy chỉnh, FRIDAY gọi trực tiếp từ máy này. Điều khoản của provider áp dụng cho các yêu cầu đó.</string>
+    <string name="onboarding_terms_card4_title">Friday có thể sai</string>
+    <string name="onboarding_terms_card4_body">Hãy coi câu trả lời là trợ giúp, không phải chân lý. Kiểm chứng mọi nội dung y tế, pháp lý, tài chính hoặc an toàn.</string>
+    <string name="onboarding_terms_card5_title">Bảo mật cục bộ quan trọng</string>
+    <string name="onboarding_terms_card5_body">Nếu bật khóa ứng dụng và quên mật khẩu, dữ liệu mã hóa cục bộ có thể không khôi phục được.</string>
+    <string name="onboarding_terms_card6_title">Thỏa thuận</string>
+    <string name="onboarding_terms_card6_body">Khi tiếp tục, bạn đồng ý sử dụng FRIDAY AI một cách có trách nhiệm.</string>
+    <string name="onboarding_terms_privacy_link">Xem chi tiết quyền riêng tư</string>
+    <string name="onboarding_terms_privacy_dialog_title">Quyền riêng tư provider hoạt động ra sao</string>
+    <string name="onboarding_terms_privacy_dialog_body">FRIDAY lưu cấu hình provider trong bộ nhớ mã hóa cục bộ trên máy này.\n\nKhi bạn gửi tin nhắn, FRIDAY gửi prompt trực tiếp từ Android tới provider bạn chọn. Máy chủ FRIDAY không proxy, không đọc, không lưu các yêu cầu đó.\n\nProvider của bạn có thể lưu hoặc xử lý yêu cầu theo điều khoản riêng của họ. Hãy dùng provider bạn tin tưởng.</string>
+    <string name="onboarding_terms_privacy_dialog_got_it">Đã hiểu</string>
+    <string name="onboarding_terms_agree_cta">Tôi hiểu và đồng ý</string>
+
+    <!-- Onboarding Feature Tour (FRI-582 P4, design-spec §4, HTML TOUR array lines 1432-1443) -->
+    <string name="onboarding_tour_title">Gặp Friday</string>
+    <string name="onboarding_tour_subtitle">Trợ lý AI riêng tư, xoay quanh điện thoại, model và lựa chọn của bạn.</string>
+    <string name="onboarding_tour_card1_title">Riêng tư từ thiết kế</string>
+    <string name="onboarding_tour_card1_body">Hội thoại, bản ghi, tài liệu, ghi nhớ và key gateway mặc định ở lại trên thiết bị này.</string>
+    <string name="onboarding_tour_card2_title">Chat hoặc nói tự nhiên</string>
+    <string name="onboarding_tour_card2_body">Gõ tin nhắn, hoặc giữ mic và nói. Friday trả lời bằng chữ hoặc giọng nói khi model giọng nói sẵn sàng.</string>
+    <string name="onboarding_tour_card3_title">Mang gateway của riêng bạn</string>
+    <string name="onboarding_tour_card3_body">Dùng Gemini, OpenAI, Anthropic, OpenClaw, Hermes hoặc endpoint tùy chỉnh. FRIDAY kết nối trực tiếp từ Android.</string>
+    <string name="onboarding_tour_card4_title">Lịch sử mã hóa cục bộ</string>
+    <string name="onboarding_tour_card4_body">Lịch sử chat và giọng nói lưu cục bộ trong bộ nhớ mã hóa, không đồng bộ lên máy chủ FRIDAY.</string>
+    <string name="onboarding_tour_card5_title">Mở rộng khi cần</string>
+    <string name="onboarding_tour_card5_body">Thêm tìm kiếm tài liệu, model cục bộ và công cụ nâng cao sau. Giờ cứ bắt đầu đơn giản.</string>
+    <string name="onboarding_tour_continue_cta">Tiếp tục</string>
 </resources>

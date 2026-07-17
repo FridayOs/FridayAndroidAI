@@ -120,6 +120,18 @@ class AppPreferences @Inject constructor(
         get() = getBoolean(KEY_MODEL_SETUP_DONE)
         set(value) = putBoolean(KEY_MODEL_SETUP_DONE, value)
 
+    var tourDone: Boolean
+        get() = getBoolean(KEY_TOUR_DONE)
+        set(value) = putBoolean(KEY_TOUR_DONE, value)
+
+    var themeSetupDone: Boolean
+        get() = getBoolean(KEY_THEME_SETUP_DONE)
+        set(value) = putBoolean(KEY_THEME_SETUP_DONE, value)
+
+    var providerStepDone: Boolean
+        get() = getBoolean(KEY_PROVIDER_STEP_DONE)
+        set(value) = putBoolean(KEY_PROVIDER_STEP_DONE, value)
+
     var guideShown: Boolean
         get() = getBoolean(KEY_GUIDE_SHOWN)
         set(value) = putBoolean(KEY_GUIDE_SHOWN, value)
@@ -331,6 +343,9 @@ class AppPreferences @Inject constructor(
         const val KEY_SETUP_DONE = "setup_done"
         const val KEY_SECURITY_SETUP_DONE = "security_setup_done"
         const val KEY_MODEL_SETUP_DONE = "model_setup_done"
+        const val KEY_TOUR_DONE = "tour_done"
+        const val KEY_THEME_SETUP_DONE = "theme_setup_done"
+        const val KEY_PROVIDER_STEP_DONE = "provider_step_done"
         const val KEY_GUIDE_SHOWN = "guide_shown"
         const val KEY_ROOT_WARNING_SHOWN = "root_warning_shown"
         const val KEY_SERVER_TOKEN = "server_token"

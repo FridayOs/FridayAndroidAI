@@ -76,13 +76,8 @@
     <string name="friday_login_privacy_link">Privacy Policy</string>
 
     <!-- Language selection (M2-00 bilingual foundation) -->
-    <string name="friday_language_title">Choose your language</string>
-    <string name="friday_language_subtitle">Friday is launching bilingual. Pick the language you want to use — you can change this later in Settings.</string>
-    <string name="friday_language_subtitle_row">Tag: %1$s</string>
-    <string name="friday_language_system">System default</string>
     <string name="friday_language_english">English</string>
     <string name="friday_language_vietnamese">Tiếng Việt</string>
-    <string name="friday_language_continue">Continue</string>
 
     <!-- Friday settings sections -->
     <string name="friday_settings_section_gateway_title">Gateway</string>
@@ -103,28 +98,174 @@
     <string name="friday_event_dismiss">Dismiss</string>
     <string name="friday_event_awaiting_confirmation">Friday is waiting for your confirmation</string>
 
-    <!-- Setup labels (M2-00 first-launch) -->
-    <string name="friday_setup_protect_title">Protect your data</string>
-    <string name="friday_setup_protect_subtitle">Choose how you want to lock the app. This keeps your conversations and data private.</string>
+    <!-- Setup labels (M2-00 first-launch, FRI-582 P5 re-skin) -->
+    <string name="friday_setup_topbar_title">Setup</string>
+    <string name="friday_setup_protect_title">Protect Friday</string>
+    <string name="friday_setup_protect_subtitle">Choose how FRIDAY should protect local conversations, transcripts, documents, and gateway settings on this phone.</string>
     <string name="friday_setup_app_password_title">App password</string>
-    <string name="friday_setup_app_password_subtitle">Set a separate password for this app</string>
-    <string name="friday_setup_no_lock_title">No lock</string>
-    <string name="friday_setup_no_lock_subtitle">Anyone with access to your phone can open the app</string>
+    <string name="friday_setup_app_password_subtitle">Ask for a separate FRIDAY password when the app unlocks.</string>
+    <string name="friday_setup_app_password_detail">Best for shared phones or sensitive assistant history.</string>
+    <string name="friday_setup_no_lock_title">No app lock</string>
+    <string name="friday_setup_no_lock_subtitle">Use your phone lock only.</string>
+    <string name="friday_setup_no_lock_detail">Faster access. Anyone who can unlock this phone can open FRIDAY.</string>
+    <string name="friday_setup_change_later">You can change this later in Settings.</string>
+    <string name="friday_setup_password_create_title">Create a password</string>
+    <string name="friday_setup_password_create_subtitle">At least 4 digits</string>
+    <string name="friday_setup_password_confirm_title">Confirm your password</string>
+    <string name="friday_setup_password_confirm_subtitle">Enter the same password again</string>
+    <string name="friday_setup_password_action_back">Back</string>
+    <string name="friday_setup_password_action_clear">Clear</string>
+    <string name="friday_setup_password_action_next">Next</string>
+    <string name="friday_setup_password_action_confirm">Confirm</string>
 
-    <!-- Theme selection (M2-00 first-launch) -->
-    <string name="friday_setup_theme_title">Make it yours</string>
-    <string name="friday_setup_theme_subtitle">Pick a theme mode and accent palette. You can change this anytime from Settings.</string>
-    <string name="friday_setup_theme_mode_label">Theme mode</string>
+    <!-- Theme selection (M2-00 first-launch, FRI-582 P5 re-skin) -->
+    <string name="friday_setup_theme_title">Make Friday yours</string>
+    <string name="friday_setup_theme_subtitle">Pick how FRIDAY should look. You can change this anytime.</string>
     <string name="friday_setup_theme_mode_system_title">Follow system</string>
-    <string name="friday_setup_theme_mode_system_subtitle">Match device light/dark setting</string>
     <string name="friday_setup_theme_mode_light_title">Light</string>
-    <string name="friday_setup_theme_mode_light_subtitle">Always use light colours</string>
     <string name="friday_setup_theme_mode_dark_title">Dark</string>
-    <string name="friday_setup_theme_mode_dark_subtitle">Always use dark colours</string>
     <string name="friday_setup_theme_palette_label">Accent palette</string>
+    <!-- Accent names (FRI-582 P5, design-spec §0 ACCENTS array) -->
+    <string name="friday_accent_sun">Sunbeam Yellow</string>
+    <string name="friday_accent_ember">Ember Red</string>
+    <string name="friday_accent_violet">Twilight Violet</string>
+    <string name="friday_accent_mint">Quiet Mint</string>
+    <string name="friday_setup_theme_preview_title">Friday preview</string>
+    <string name="friday_setup_theme_preview_message">How voice, chat, and buttons will feel with this theme.</string>
+    <string name="friday_setup_theme_preview_reply">Looks great!</string>
 
-    <!-- T&C (M2-00 first-launch) -->
-    <string name="friday_tc_title">A few things to read first</string>
-    <string name="friday_tc_subtitle">Plain English. Not lawyer English.</string>
-    <string name="friday_tc_continue">Agree and continue</string>
+    <!-- Model Setup (M2-00 first-launch, FRI-582 P6 re-skin, design-spec §7) -->
+    <string name="friday_model_setup_title">Choose how Friday thinks</string>
+    <string name="friday_model_setup_subtitle">Use your own gateway for the fastest start, or set up local models for more offline control.</string>
+    <string name="friday_model_setup_recommended_badge">Recommended</string>
+    <string name="friday_model_setup_packs_label">Model packs</string>
+    <string name="friday_model_setup_continue">Continue</string>
+    <string name="friday_model_setup_skip_now">Skip for now</string>
+    <string name="friday_model_setup_cta_gateway">Add gateway</string>
+    <string name="friday_model_setup_cta_local">Set up local models</string>
+    <string name="friday_model_setup_path_gateway_title">Use my AI gateway</string>
+    <string name="friday_model_setup_path_gateway_body">Add Gemini, OpenAI, Anthropic, OpenClaw, Hermes, or a custom endpoint. Requests go directly from this phone to your provider.</string>
+    <string name="friday_model_setup_path_local_title">Use local models</string>
+    <string name="friday_model_setup_path_local_body">Download or import models for local chat, voice, and offline use. Best for privacy and offline work, but it needs storage.</string>
+    <string name="friday_model_setup_path_skip_title">Set up later</string>
+    <string name="friday_model_setup_path_skip_body">Skip this now. Friday will remind you when you try to chat or speak.</string>
+    <string name="friday_model_setup_pack_small_name">Small local chat</string>
+    <string name="friday_model_setup_pack_small_desc">Lightweight model for quick offline chat.</string>
+    <string name="friday_model_setup_pack_small_size" translatable="false">1.2 GB</string>
+    <string name="friday_model_setup_pack_voice_name">Chat + voice</string>
+    <string name="friday_model_setup_pack_voice_desc">Chat model plus speech in/out models.</string>
+    <string name="friday_model_setup_pack_voice_size" translatable="false">2.8 GB</string>
+    <string name="friday_model_setup_pack_plus_name">Better local chat + voice</string>
+    <string name="friday_model_setup_pack_plus_desc">Larger model, better answers, more storage.</string>
+    <string name="friday_model_setup_pack_plus_size" translatable="false">5.4 GB</string>
+
+    <!-- Onboarding Providers (FRI-582 P7, design-spec §8) -->
+    <string name="friday_providers_title">Providers</string>
+    <string name="friday_providers_hero_title">Your keys, your calls</string>
+    <string name="friday_providers_hero_body">FRIDAY calls your provider directly from this phone. Keys and endpoints stay in encrypted local storage.</string>
+    <string name="friday_providers_chip_local">Local storage</string>
+    <string name="friday_providers_chip_direct">Direct from phone</string>
+    <string name="friday_providers_chip_no_sync">No server sync</string>
+    <string name="friday_providers_configured_label">Your providers</string>
+    <string name="friday_providers_available_label">Add a provider</string>
+    <string name="friday_providers_add">Add</string>
+    <string name="friday_providers_coming_soon">Coming soon</string>
+    <string name="friday_providers_direct_from_phone">Requests go directly from this phone</string>
+    <string name="friday_providers_empty_title">No providers yet</string>
+    <string name="friday_providers_empty_body">Add a provider below to let Friday chat and speak using your own account.</string>
+    <string name="friday_providers_status_ready">Ready</string>
+    <string name="friday_providers_status_not_tested">Not tested</string>
+    <string name="friday_providers_status_failed">Failed</string>
+    <string name="friday_providers_status_selected">Selected</string>
+    <string name="friday_providers_continue">Continue to Friday</string>
+    <string name="friday_providers_deleted_toast">Provider removed</string>
+    <string name="friday_providers_delete_dialog_title">Remove this provider?</string>
+    <string name="friday_providers_delete_dialog_body">FRIDAY will forget this label, key, and endpoint. This can\'t be undone.</string>
+    <string name="friday_providers_delete">Delete</string>
+    <string name="friday_providers_cancel">Cancel</string>
+    <string name="friday_providers_got_it">Got it</string>
+    <string name="friday_providers_friday_dialog_title">Friday model coming soon</string>
+    <string name="friday_providers_friday_dialog_body">FRIDAY\'s own hosted model isn\'t available yet. Use your own gateway or local models for now — we\'ll let you know when it ships.</string>
+    <string name="friday_providers_privacy_dialog_title">How provider privacy works</string>
+    <string name="friday_providers_privacy_dialog_body">FRIDAY stores provider configs in encrypted local storage on this phone.\n\nWhen you send a message, FRIDAY sends your prompt directly from Android to the provider you selected. FRIDAY servers do not proxy, inspect, or store those requests.\n\nYour provider may store or process requests under its own terms. Use a provider you trust.</string>
+
+    <!-- Add Provider (FRI-582 P8, design-spec §8) -->
+    <string name="friday_add_provider_title_prefix">Add </string>
+    <string name="friday_add_provider_privacy">Your key is stored locally in encrypted storage. It is never sent to FRIDAY servers.</string>
+    <string name="friday_add_provider_field_label">Label (optional)</string>
+    <string name="friday_add_provider_label_placeholder">Personal %1$s</string>
+    <string name="friday_add_provider_field_key">API key</string>
+    <string name="friday_add_provider_field_model">Model</string>
+    <string name="friday_add_provider_field_base_url">Base URL</string>
+    <string name="friday_add_provider_advanced">Advanced</string>
+    <string name="friday_add_provider_test_connection">Test connection</string>
+    <string name="friday_add_provider_testing">Testing direct connection…</string>
+    <string name="friday_add_provider_test_hint">FRIDAY sends a tiny test request directly to this provider.</string>
+    <string name="friday_add_provider_test_ready_title">Connection ready</string>
+    <string name="friday_add_provider_test_ready_body">Friday can use this provider for chat and voice replies.</string>
+    <string name="friday_add_provider_test_fail_title">Connection failed</string>
+    <string name="friday_add_provider_test_fail_unknown">Something went wrong while testing. Please try again.</string>
+    <string name="friday_add_provider_save_use">Save &amp; use</string>
+    <string name="friday_add_provider_save_only">Save only</string>
+    <string name="friday_add_provider_err_key">API key is required for this provider.</string>
+    <string name="friday_add_provider_err_url">Enter a valid http:// or https:// URL.</string>
+    <string name="friday_add_provider_err_model">Model name is required.</string>
+    <string name="friday_add_provider_saved_toast">Saved</string>
+    <string name="friday_add_provider_saved_use_toast">Friday now uses %1$s · %2$s</string>
+
+    <!-- Onboarding intro (FRI-582 M2-00 re-skin) -->
+    <string name="onboarding_intro_title">FRIDAY AI</string>
+    <string name="onboarding_intro_tagline">Your private AI familiar, running from your phone.</string>
+    <string name="onboarding_intro_pill">Local-first • User-owned • Private by default</string>
+
+    <!-- Onboarding language selection (FRI-582 M2-00 re-skin) -->
+    <!-- Both languages shown simultaneously (pre-locale), so title_en/title_vi, subtitle_dual, -->
+    <!-- card descriptions, and notes are fixed dual-language strings — identical in values/ and values-vi/. -->
+    <string name="onboarding_lang_title_en" translatable="false">Choose language</string>
+    <string name="onboarding_lang_title_vi" translatable="false">Chọn ngôn ngữ</string>
+    <string name="onboarding_lang_subtitle_dual" translatable="false">You can change this later in Settings.\nBạn có thể đổi lại trong Cài đặt.</string>
+    <string name="onboarding_lang_card_en_desc" translatable="false">English</string>
+    <string name="onboarding_lang_card_vi_desc" translatable="false">Tiếng Việt</string>
+    <string name="onboarding_lang_note_en" translatable="false">This changes app text only.</string>
+    <string name="onboarding_lang_note_vi" translatable="false">Chỉ thay đổi ngôn ngữ hiển thị của ứng dụng.</string>
+    <string name="onboarding_lang_cta_en" translatable="false">Continue</string>
+    <string name="onboarding_lang_cta_vi" translatable="false">Tiếp tục</string>
+    <string name="onboarding_lang_cta_prompt">Select a language to continue</string>
+
+    <!-- Onboarding Terms & Conditions (FRI-582 P4, design-spec §3, HTML TERMS array lines 1417-1430) -->
+    <string name="onboarding_terms_topbar_title">Terms of use</string>
+    <string name="onboarding_terms_title">Before we start</string>
+    <string name="onboarding_terms_subtitle">Plain language. No dark patterns.</string>
+    <string name="onboarding_terms_card1_title">Your data stays yours</string>
+    <string name="onboarding_terms_card1_body">Chats, prompts, answers, transcripts, documents, memories, gateway settings, API keys, base URLs, and model choices stay on this phone by default.</string>
+    <string name="onboarding_terms_card2_title">What sign-in is for</string>
+    <string name="onboarding_terms_card2_body">Google sign-in lets FRIDAY identify your account, register your device, and apply entitlement or policy metadata. It does not upload your private assistant history.</string>
+    <string name="onboarding_terms_card3_title">Your gateways, your calls</string>
+    <string name="onboarding_terms_card3_body">When you add a provider like Gemini, OpenAI, Anthropic, OpenClaw, Hermes, or a custom endpoint, FRIDAY calls it directly from this phone. That provider\'s rules apply to those requests.</string>
+    <string name="onboarding_terms_card4_title">Friday can be wrong</string>
+    <string name="onboarding_terms_card4_body">Treat answers as assistance, not authority. Verify anything medical, legal, financial, or safety-critical.</string>
+    <string name="onboarding_terms_card5_title">Local security matters</string>
+    <string name="onboarding_terms_card5_body">If you enable app lock and lose the password, encrypted local data may not be recoverable.</string>
+    <string name="onboarding_terms_card6_title">Agreement</string>
+    <string name="onboarding_terms_card6_body">By continuing, you agree to use FRIDAY AI responsibly.</string>
+    <string name="onboarding_terms_privacy_link">View full privacy details</string>
+    <string name="onboarding_terms_privacy_dialog_title">How provider privacy works</string>
+    <string name="onboarding_terms_privacy_dialog_body">FRIDAY stores provider configs in encrypted local storage on this phone.\n\nWhen you send a message, FRIDAY sends your prompt directly from Android to the provider you selected. FRIDAY servers do not proxy, inspect, or store those requests.\n\nYour provider may store or process requests under its own terms. Use a provider you trust.</string>
+    <string name="onboarding_terms_privacy_dialog_got_it">Got it</string>
+    <string name="onboarding_terms_agree_cta">I understand and agree</string>
+
+    <!-- Onboarding Feature Tour (FRI-582 P4, design-spec §4, HTML TOUR array lines 1432-1443) -->
+    <string name="onboarding_tour_title">Meet Friday</string>
+    <string name="onboarding_tour_subtitle">A private AI companion built around your phone, your models, and your choices.</string>
+    <string name="onboarding_tour_card1_title">Private by design</string>
+    <string name="onboarding_tour_card1_body">Your conversations, transcripts, documents, memories, and gateway keys stay on this device by default.</string>
+    <string name="onboarding_tour_card2_title">Chat or speak naturally</string>
+    <string name="onboarding_tour_card2_body">Type a message, or hold the mic and speak. Friday can reply by text or voice when voice models are ready.</string>
+    <string name="onboarding_tour_card3_title">Bring your own gateway</string>
+    <string name="onboarding_tour_card3_body">Use Gemini, OpenAI, Anthropic, OpenClaw, Hermes, or a custom endpoint. FRIDAY connects directly from Android.</string>
+    <string name="onboarding_tour_card4_title">Encrypted local history</string>
+    <string name="onboarding_tour_card4_body">Your chat and voice history are stored locally in encrypted storage, not synced to FRIDAY servers.</string>
+    <string name="onboarding_tour_card5_title">Grow when needed</string>
+    <string name="onboarding_tour_card5_body">Add document search, local models, and advanced tools later. Start simple now.</string>
+    <string name="onboarding_tour_continue_cta">Continue</string>
 </resources>

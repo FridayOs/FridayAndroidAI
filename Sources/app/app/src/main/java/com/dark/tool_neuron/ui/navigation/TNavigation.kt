@@ -65,6 +65,11 @@ import com.dark.tool_neuron.ui.screens.friday.FridayChatScreen
 import com.dark.tool_neuron.ui.screens.friday.FridayHistoryScreen
 import com.dark.tool_neuron.ui.screens.friday.FridaySettingsScreen
 import com.dark.tool_neuron.ui.screens.language_selection.LanguageSelectionScreen
+import com.dark.tool_neuron.ui.screens.onboarding_tour.FeatureTourScreen
+import com.dark.tool_neuron.ui.screens.onboarding_providers.OnboardingProvidersScreen
+import com.dark.tool_neuron.ui.screens.onboarding_providers.add.OnboardingAddProviderScreen
+import com.dark.tool_neuron.viewmodel.OnboardingAddProviderViewModel
+import com.dark.tool_neuron.viewmodel.OnboardingProvidersViewModel
 import com.dark.tool_neuron.data.AccountState
 import com.dark.tool_neuron.viewmodel.AccountViewModel
 import com.dark.tool_neuron.ui.screens.terms_conditions.TermsConditionsScreen
@@ -91,6 +96,12 @@ fun TNavigation(
     onUnlocked: () -> Unit = {},
     onSetupComplete: () -> Unit = {},
     onModelSetupComplete: () -> Unit = {},
+    onChooseGateway: () -> Unit = {},
+    onFeatureTourComplete: () -> Unit = {},
+    onContinueToFriday: () -> Unit = {},
+    onAddProvider: (String) -> Unit = { catalogId ->
+        navController.navigate(NavScreens.OnboardingAddProvider.routeFor(catalogId))
+    },
     resolveNext: () -> String = { nextDestination },
 ) {
     val transitions = rememberNavTransitions()
@@ -213,7 +224,8 @@ fun TNavigation(
                     storeVm.importLocalModel(uri, name, size, type)
                     onModelSetupComplete()
                 },
-                onSkip = { onModelSetupComplete() }
+                onSkip = { onModelSetupComplete() },
+                onChooseGateway = onChooseGateway,
             )
         }
         composable(NavScreens.AppGuide.route) {
@@ -537,6 +549,37 @@ fun TNavigation(
                 onContinue = { navController.navigate(resolveNext()) {
                     popUpTo(NavScreens.LanguageSelection.route) { inclusive = true }
                 } },
+            )
+        }
+        composable(NavScreens.FeatureTour.route) {
+            FeatureTourScreen(
+                innerPadding = innerPadding,
+                onContinue = onFeatureTourComplete,
+            )
+        }
+        composable(NavScreens.OnboardingProviders.route) {
+            val viewModel: OnboardingProvidersViewModel = hiltViewModel()
+            OnboardingProvidersScreen(
+                innerPadding = innerPadding,
+                viewModel = viewModel,
+                onBack = { navController.popBackStack() },
+                onAddProvider = onAddProvider,
+                onContinueToFriday = onContinueToFriday,
+            )
+        }
+        composable(
+            route = NavScreens.OnboardingAddProvider.route,
+            arguments = listOf(navArgument(NavScreens.OnboardingAddProvider.ARG_CATALOG_ID) {
+                type = NavType.StringType
+                nullable = true
+                defaultValue = null
+            }),
+        ) {
+            val viewModel: OnboardingAddProviderViewModel = hiltViewModel()
+            OnboardingAddProviderScreen(
+                innerPadding = innerPadding,
+                viewModel = viewModel,
+                onBack = { navController.popBackStack() },
             )
         }
     }

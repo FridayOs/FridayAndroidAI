@@ -27,8 +27,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import com.dark.tool_neuron.ui.components.PinAction
 import com.dark.tool_neuron.ui.components.PinActionRow
 import com.dark.tool_neuron.ui.components.PinDotRow
@@ -37,6 +39,9 @@ import com.dark.tool_neuron.ui.components.SecureScreen
 import com.dark.tool_neuron.ui.icons.TnIcons
 import com.dark.tool_neuron.ui.theme.LocalDimens
 import com.dark.tool_neuron.ui.theme.Motion
+import com.dark.tool_neuron.ui.theme.groteskFamily
+import com.dark.tool_neuron.ui.theme.jakartaFamily
+import com.friday.ai.R
 import kotlinx.coroutines.delay
 
 @Composable
@@ -98,16 +103,26 @@ private fun SetupPasswordScreenContent(
                 Spacer(Modifier.height(dimens.spacingMd))
 
                 Text(
-                    text = if (isConfirmStep) "Confirm your password" else "Create a password",
-                    style = MaterialTheme.typography.titleMedium,
-                    fontWeight = FontWeight.SemiBold
+                    text = stringResource(
+                        if (isConfirmStep) R.string.friday_setup_password_confirm_title
+                        else R.string.friday_setup_password_create_title
+                    ),
+                    fontFamily = groteskFamily,
+                    fontWeight = FontWeight.Bold,
+                    fontSize = 20.sp,
+                    letterSpacing = (-0.3).sp,
                 )
 
                 Spacer(Modifier.height(dimens.spacingXs))
 
                 Text(
-                    text = if (isConfirmStep) "Enter the same password again" else "At least 6 digits",
-                    style = MaterialTheme.typography.bodySmall,
+                    text = stringResource(
+                        if (isConfirmStep) R.string.friday_setup_password_confirm_subtitle
+                        else R.string.friday_setup_password_create_subtitle
+                    ),
+                    fontFamily = jakartaFamily,
+                    fontSize = 12.5.sp,
+                    lineHeight = 19.sp,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
@@ -131,7 +146,8 @@ private fun SetupPasswordScreenContent(
                 )
                 Text(
                     text = error ?: "",
-                    style = MaterialTheme.typography.bodySmall,
+                    fontFamily = jakartaFamily,
+                    fontSize = 12.5.sp,
                     color = MaterialTheme.colorScheme.error,
                     modifier = Modifier.height(20.dp).alpha(errorAlpha)
                 )
@@ -151,10 +167,13 @@ private fun SetupPasswordScreenContent(
 
                 PinActionRow(
                     actions = listOf(
-                        PinAction("Back", onBack),
-                        PinAction("Clear", onClear),
+                        PinAction(stringResource(R.string.friday_setup_password_action_back), onBack),
+                        PinAction(stringResource(R.string.friday_setup_password_action_clear), onClear),
                         PinAction(
-                            label = if (isConfirmStep) "Confirm" else "Next",
+                            label = stringResource(
+                                if (isConfirmStep) R.string.friday_setup_password_action_confirm
+                                else R.string.friday_setup_password_action_next
+                            ),
                             onClick = onSubmit,
                             enabled = password.length >= 4,
                             primary = true

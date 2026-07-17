@@ -8,9 +8,17 @@ import androidx.compose.material3.MotionScheme
 import androidx.compose.material3.Typography
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.dark.tool_neuron.data.ThemeController
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
+import dagger.hilt.android.EntryPointAccessors
+import dagger.hilt.components.SingletonComponent
 
 /*
  * All 15 M3 roles use Figtree. Weight contrast drives hierarchy, not just size:
@@ -93,6 +101,12 @@ private val FigtreeTypography: Typography by lazy {
     )
 }
 
+@EntryPoint
+@InstallIn(SingletonComponent::class)
+private interface ThemeControllerEntryPoint {
+    fun themeController(): ThemeController
+}
+
 @SuppressLint("ConfigurationScreenWidthHeight")
 @OptIn(ExperimentalMaterial3ExpressiveApi::class)
 @Composable
@@ -110,9 +124,30 @@ fun ToolNeuronTheme(
         else -> ExpandedDimens
     }
 
-    val colorScheme = colorSchemeFor(palette, darkTheme, context)
+    // Accent is an orthogonal axis on top of the palette (design-spec §0): the
+    // neutrals stay fixed, only primary/onPrimary swap among the 4 fixed
+    // accents. Fetched via Hilt entry point (not a param) so every existing
+    // ToolNeuronTheme call site picks it up without edits.
+    val themeController = remember(context) {
+        EntryPointAccessors.fromApplication(
+            context.applicationContext,
+            ThemeControllerEntryPoint::class.java
+        ).themeController()
+    }
+    val accent by themeController.accent.collectAsStateWithLifecycle()
 
-    CompositionLocalProvider(LocalDimens provides dimens, LocalTnShapes provides DefaultTnShapes) {
+    val baseScheme = colorSchemeFor(palette, darkTheme, context)
+    val colorScheme = if (palette == ColorPalette.FRIDAY) {
+        baseScheme.copy(primary = accent.color, onPrimary = accent.onColor)
+    } else {
+        baseScheme
+    }
+
+    CompositionLocalProvider(
+        LocalDimens provides dimens,
+        LocalTnShapes provides DefaultTnShapes,
+        LocalFridayAccent provides accent
+    ) {
         MaterialExpressiveTheme(
             colorScheme = colorScheme,
             typography = FigtreeTypography,

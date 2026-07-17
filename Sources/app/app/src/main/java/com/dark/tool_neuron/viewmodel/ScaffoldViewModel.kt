@@ -14,7 +14,6 @@ import com.dark.tool_neuron.data.RootGuard
 import com.dark.tool_neuron.data.SecurityManager
 import com.dark.tool_neuron.data.SessionHolder
 import com.dark.tool_neuron.model.DownloadProgress
-import com.dark.tool_neuron.model.NavScreens
 import com.dark.tool_neuron.repo.InstallProgressTracker
 import com.dark.tool_neuron.service.server.ServerController
 import com.dark.tool_neuron.service.server.ServerState
@@ -114,20 +113,16 @@ class ScaffoldViewModel @Inject constructor(
         _rootWarning.value = null
     }
 
-    fun resolveStartDestination(): String {
-        if (!accountRepository.hasJwt) return NavScreens.FridayLogin.route
-        if (!languageController.isFirstSelectionDone()) return NavScreens.LanguageSelection.route
-        val tcAccepted = prefs.tcAccepted
-        val onboarded = prefs.onboardingComplete
-        val secDone = prefs.securitySetupDone
-        val modelDone = prefs.modelSetupDone
-        if (!tcAccepted) return NavScreens.TermsConditions.route
-        if (!onboarded) return NavScreens.DevNotes.route
-        if (!secDone) return NavScreens.SetupScreen.route
-        if (!modelDone) return NavScreens.ModelSetup.route
-        if (security.isLockEnabled) return NavScreens.PasswordScreen.route
-        return NavScreens.FridayVoice.route
-    }
+    fun resolveStartDestination(): String = OnboardingGateLogic.resolveOnboardingRoute(
+        hasJwt = accountRepository.hasJwt,
+        languageSelected = languageController.isFirstSelectionDone(),
+        tcAccepted = prefs.tcAccepted,
+        onboarded = prefs.onboardingComplete,
+        securityDone = prefs.securitySetupDone,
+        themeSetupDone = prefs.themeSetupDone,
+        modelDone = prefs.modelSetupDone,
+        lockEnabled = security.isLockEnabled,
+    )
 
     fun markOnboardingComplete() {
         prefs.onboardingComplete = true
@@ -137,7 +132,21 @@ class ScaffoldViewModel @Inject constructor(
         if (!prefs.tcAccepted) prefs.tcAccepted = true
     }
 
+    fun markThemeSetupDone() {
+        prefs.themeSetupDone = true
+    }
+
     fun markModelSetupDone() {
         prefs.modelSetupDone = true
+    }
+
+    // Wired by later phases: P4 repoints tour gate DevNotes -> FeatureTour.
+    fun markTourDone() {
+        prefs.tourDone = true
+    }
+
+    // Wired by later phase: P7 adds provider gate + onboarding provider screens.
+    fun markProviderStepDone() {
+        prefs.providerStepDone = true
     }
 }

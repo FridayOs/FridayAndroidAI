@@ -104,7 +104,8 @@ private fun AppScaffoldInner() {
             currentRoute != NavScreens.PasswordScreen.route &&
             currentRoute != NavScreens.SetupScreen.route &&
             currentRoute != NavScreens.IntroScreen.route &&
-            currentRoute != NavScreens.LanguageSelection.route
+            currentRoute != NavScreens.LanguageSelection.route &&
+            currentRoute != NavScreens.FeatureTour.route
         ) {
             navController.navigate(NavScreens.PasswordScreen.route) {
                 popUpTo(0) { inclusive = true }
@@ -116,6 +117,7 @@ private fun AppScaffoldInner() {
             || currentRoute == NavScreens.PasswordScreen.route
             || currentRoute == NavScreens.Credits.route
             || currentRoute == NavScreens.LanguageSelection.route
+            || currentRoute == NavScreens.FeatureTour.route
             || isFridayRoute
 
     val showDrawer = (currentRoute == NavScreens.HomeScreen.route && !serverRunning) ||
@@ -225,6 +227,7 @@ private fun AppScaffoldInner() {
                     navController = navController,
                     onOnboardingComplete = { scaffoldViewModel.markOnboardingComplete() },
                     onThemeSetupComplete = {
+                        scaffoldViewModel.markThemeSetupDone()
                         navController.navigate(NavScreens.ModelSetup.route) {
                             popUpTo(NavScreens.SetupTheme.route) { inclusive = true }
                         }
@@ -233,7 +236,7 @@ private fun AppScaffoldInner() {
                         val cameFromOnboarding = navController.previousBackStackEntry == null
                         scaffoldViewModel.markTermsAccepted()
                         if (cameFromOnboarding) {
-                            navController.navigate(NavScreens.DevNotes.route) {
+                            navController.navigate(NavScreens.FeatureTour.route) {
                                 popUpTo(NavScreens.TermsConditions.route) { inclusive = true }
                             }
                         } else {
@@ -266,6 +269,25 @@ private fun AppScaffoldInner() {
                     navController.navigate(NavScreens.FridayVoice.route) {
                         popUpTo(0) { inclusive = true }
                     }
+                },
+                onChooseGateway = {
+                    navController.navigate(NavScreens.OnboardingProviders.route)
+                },
+                onFeatureTourComplete = {
+                    scaffoldViewModel.markOnboardingComplete()
+                    navController.navigate(NavScreens.SetupScreen.route) {
+                        popUpTo(NavScreens.FeatureTour.route) { inclusive = true }
+                    }
+                },
+                onContinueToFriday = {
+                    scaffoldViewModel.markProviderStepDone()
+                    scaffoldViewModel.markModelSetupDone()
+                    navController.navigate(NavScreens.FridayVoice.route) {
+                        popUpTo(0) { inclusive = true }
+                    }
+                },
+                onAddProvider = { catalogId ->
+                    navController.navigate(NavScreens.OnboardingAddProvider.routeFor(catalogId))
                 },
                 resolveNext = resolveNext,
             )
