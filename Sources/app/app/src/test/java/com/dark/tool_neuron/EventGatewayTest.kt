@@ -3,6 +3,7 @@ package com.dark.tool_neuron
 import com.dark.tool_neuron.model.friday.EventSourceKind
 import com.dark.tool_neuron.model.friday.InboundEvent
 import com.dark.tool_neuron.model.friday.InboundEventEnvelope
+import com.dark.tool_neuron.repo.gateway.event.CorrelationTracker
 import com.dark.tool_neuron.repo.gateway.event.DedupeStore
 import com.dark.tool_neuron.repo.gateway.event.EventDeliverySink
 import com.dark.tool_neuron.repo.gateway.event.EventGateway
@@ -85,10 +86,11 @@ class EventGatewayTest {
             EventSourceTrust("openclaw-1", EventSourceKind.OPENCLAW, key, enabled = true),
         ),
         sink: RecordingSink = RecordingSink(),
+        correlationTracker: CorrelationTracker = CorrelationTracker(),
     ): Pair<EventGateway, RecordingSink> {
-        val verifier = InboundEventVerifier(registry, NonceStore())
-        val policy = InboundEventPolicy(DedupeStore())
-        val gateway = EventGateway(FakeConsent(consentEnabled), verifier, policy, sink) { fixedNow }
+        val verifier = InboundEventVerifier(registry, NonceStore(FakeEventStateStore()))
+        val policy = InboundEventPolicy(DedupeStore(FakeEventStateStore()))
+        val gateway = EventGateway(FakeConsent(consentEnabled), verifier, policy, sink, correlationTracker) { fixedNow }
         return gateway to sink
     }
 
@@ -157,5 +159,122 @@ class EventGatewayTest {
         val second = gateway.accept(rawPayload(overrides = mapOf("nonce" to "n-2")))
         assertFalse(second)
         assertEquals(1, sink.published.size)
+    }
+
+    // FRI-555 B2: a partial envelope (routed to the gateway per EventRouting because it carries
+    // SOME envelope-distinctive key) must still fail closed at parse -- missing a required field
+    // means InboundEventEnvelope.parse returns null, so accept() must return false with no
+    // publish, regardless of which field is missing.
+    @Test
+    fun accept_partialEnvelope_missingNonce_returnsFalse_noSinkCall() {
+        val (gateway, sink) = buildGateway(consentEnabled = true)
+        val partial = rawPayload().minus("nonce")
+        assertFalse(gateway.accept(partial))
+        assertTrue(sink.published.isEmpty())
+    }
+
+    @Test
+    fun accept_partialEnvelope_missingVersion_returnsFalse_noSinkCall() {
+        val (gateway, sink) = buildGateway(consentEnabled = true)
+        val partial = rawPayload().minus("version")
+        assertFalse(gateway.accept(partial))
+        assertTrue(sink.published.isEmpty())
+    }
+
+    @Test
+    fun accept_partialEnvelope_missingSourceId_returnsFalse_noSinkCall() {
+        val (gateway, sink) = buildGateway(consentEnabled = true)
+        val partial = rawPayload().minus("sourceId")
+        assertFalse(gateway.accept(partial))
+        assertTrue(sink.published.isEmpty())
+    }
+
+    // FRI-555 B3: a same-correlation envelope that is not strictly newer than the last accepted one
+    // (e.g. a delayed PROGRESS arriving after a later-issued one) must drop with no publish, distinct
+    // from dedupe (different eventId here, so DedupeStore alone would accept it).
+    @Test
+    fun accept_outOfOrderCorrelation_dropsStale_noPublish() {
+        val (gateway, sink) = buildGateway(consentEnabled = true)
+        val first = gateway.accept(
+            rawPayload(overrides = mapOf("eventId" to "ev-1", "nonce" to "n-1", "correlationId" to "c-1", "issuedAt" to "10000")),
+        )
+        assertTrue(first)
+        val second = gateway.accept(
+            rawPayload(overrides = mapOf("eventId" to "ev-2", "nonce" to "n-2", "correlationId" to "c-1", "issuedAt" to "9000")),
+        )
+        assertFalse(second)
+        assertEquals(1, sink.published.size)
+    }
+
+    @Test
+    fun accept_equalTimestampSameCorrelation_dropsStale() {
+        val (gateway, sink) = buildGateway(consentEnabled = true)
+        val first = gateway.accept(
+            rawPayload(overrides = mapOf("eventId" to "ev-1", "nonce" to "n-1", "correlationId" to "c-1", "issuedAt" to "10000")),
+        )
+        assertTrue(first)
+        val second = gateway.accept(
+            rawPayload(overrides = mapOf("eventId" to "ev-2", "nonce" to "n-2", "correlationId" to "c-1", "issuedAt" to "10000")),
+        )
+        assertFalse("not strictly newer must be rejected as stale", second)
+        assertEquals(1, sink.published.size)
+    }
+
+    // FRI-555 B3: a verified CANCEL must clear the correlation tracker's key, so a subsequent
+    // envelope for the same correlation is judged fresh again (a new task can reuse the correlation).
+    // The CANCEL itself must be strictly newer than the last accepted envelope (same ordering guard
+    // as Deliver) to be accepted in the first place -- see B3-rework tests below for the stale case.
+    @Test
+    fun accept_cancelClearsCorrelationTracker_subsequentEqualTimestampAccepted() {
+        val (gateway, sink) = buildGateway(consentEnabled = true)
+        val first = gateway.accept(
+            rawPayload(overrides = mapOf("eventId" to "ev-1", "nonce" to "n-1", "correlationId" to "c-1", "issuedAt" to "10000")),
+        )
+        assertTrue(first)
+        val cancel = gateway.accept(
+            rawPayload(overrides = mapOf("eventId" to "ev-2", "nonce" to "n-2", "type" to "CANCEL", "correlationId" to "c-1", "issuedAt" to "10001")),
+        )
+        assertTrue(cancel)
+        val third = gateway.accept(
+            rawPayload(overrides = mapOf("eventId" to "ev-3", "nonce" to "n-3", "correlationId" to "c-1", "issuedAt" to "10000")),
+        )
+        assertTrue("tracker cleared by cancel, so a timestamp equal to the original first is accepted again", third)
+        assertEquals(2, sink.published.size)
+    }
+
+    // FRI-555 B3-rework (Codex QA H1): a legitimately-signed, non-replay CANCEL that arrives
+    // network-reordered *after* a newer envelope for the same correlation (issuedAt <= last
+    // accepted) must be dropped with no side effect -- it must not tear down an already-progressed
+    // task just because it happens to be a CANCEL.
+    @Test
+    fun accept_staleCancelAfterNewerEnvelope_dropsNoSideEffect() {
+        val sink = RecordingSink()
+        val (gateway, _) = buildGateway(consentEnabled = true, sink = sink)
+        val newer = gateway.accept(
+            rawPayload(overrides = mapOf("eventId" to "ev-1", "nonce" to "n-1", "correlationId" to "c-1", "issuedAt" to "10000")),
+        )
+        assertTrue(newer)
+        val staleCancel = gateway.accept(
+            rawPayload(overrides = mapOf("eventId" to "ev-2", "nonce" to "n-2", "type" to "CANCEL", "correlationId" to "c-1", "issuedAt" to "9000")),
+        )
+        assertFalse("a cancel not strictly newer than the last accepted envelope must be dropped as stale", staleCancel)
+        assertTrue("stale cancel must never reach the sink", sink.dismissedCorrelationIds.isEmpty())
+    }
+
+    // FRI-555 B3-rework (Codex QA H1): a CANCEL strictly newer than the last accepted envelope for
+    // the same correlation is still accepted and dismisses normally.
+    @Test
+    fun accept_newerCancelAfterPriorEnvelope_stillCancels() {
+        val sink = RecordingSink()
+        val (gateway, _) = buildGateway(consentEnabled = true, sink = sink)
+        val first = gateway.accept(
+            rawPayload(overrides = mapOf("eventId" to "ev-1", "nonce" to "n-1", "correlationId" to "c-1", "issuedAt" to "10000")),
+        )
+        assertTrue(first)
+        val newerCancel = gateway.accept(
+            rawPayload(overrides = mapOf("eventId" to "ev-2", "nonce" to "n-2", "type" to "CANCEL", "correlationId" to "c-1", "issuedAt" to "10001")),
+        )
+        assertTrue("a cancel strictly newer than the last accepted envelope must still cancel", newerCancel)
+        assertEquals(listOf("c-1"), sink.dismissedCorrelationIds)
     }
 }

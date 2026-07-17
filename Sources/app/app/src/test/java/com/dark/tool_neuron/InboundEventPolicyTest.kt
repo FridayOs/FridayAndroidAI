@@ -41,7 +41,7 @@ class InboundEventPolicyTest {
 
     @Test
     fun decide_duplicateEventId_dropsSecondCall() {
-        val policy = InboundEventPolicy(DedupeStore())
+        val policy = InboundEventPolicy(DedupeStore(FakeEventStateStore()))
         val env = envelope()
         val first = policy.decide(env, nowMs = 5_000L)
         assertTrue(first is PolicyDecision.Deliver)
@@ -51,7 +51,7 @@ class InboundEventPolicyTest {
 
     @Test
     fun decide_duplicateCancel_alsoDropped() {
-        val policy = InboundEventPolicy(DedupeStore())
+        val policy = InboundEventPolicy(DedupeStore(FakeEventStateStore()))
         val env = envelope(type = InboundEventType.CANCEL)
         policy.decide(env, nowMs = 5_000L)
         val second = policy.decide(env, nowMs = 5_001L)
@@ -60,7 +60,7 @@ class InboundEventPolicyTest {
 
     @Test
     fun decide_cancelType_returnsCancelWithCorrelationId() {
-        val policy = InboundEventPolicy(DedupeStore())
+        val policy = InboundEventPolicy(DedupeStore(FakeEventStateStore()))
         val env = envelope(type = InboundEventType.CANCEL, correlationId = "c-1")
         val decision = policy.decide(env, nowMs = 5_000L)
         assertEquals(PolicyDecision.Cancel("c-1"), decision)
@@ -68,7 +68,7 @@ class InboundEventPolicyTest {
 
     @Test
     fun decide_cancelType_withNullCorrelationId() {
-        val policy = InboundEventPolicy(DedupeStore())
+        val policy = InboundEventPolicy(DedupeStore(FakeEventStateStore()))
         val env = envelope(type = InboundEventType.CANCEL, correlationId = null)
         val decision = policy.decide(env, nowMs = 5_000L)
         assertEquals(PolicyDecision.Cancel(null), decision)
@@ -76,7 +76,7 @@ class InboundEventPolicyTest {
 
     @Test
     fun decide_taskAssigned_deliversTaskKind() {
-        val policy = InboundEventPolicy(DedupeStore())
+        val policy = InboundEventPolicy(DedupeStore(FakeEventStateStore()))
         val decision = policy.decide(envelope(type = InboundEventType.TASK_ASSIGNED), nowMs = 5_000L)
         val deliver = decision as PolicyDecision.Deliver
         assertEquals(InboundEventKind.TASK, deliver.event.kind)
@@ -86,7 +86,7 @@ class InboundEventPolicyTest {
 
     @Test
     fun decide_progressCompletionFailure_deliverStatusKind() {
-        val policy = InboundEventPolicy(DedupeStore())
+        val policy = InboundEventPolicy(DedupeStore(FakeEventStateStore()))
         for ((idx, type) in listOf(InboundEventType.PROGRESS, InboundEventType.COMPLETION, InboundEventType.FAILURE).withIndex()) {
             val decision = policy.decide(envelope(eventId = "ev-$idx", type = type), nowMs = 5_000L)
             val deliver = decision as PolicyDecision.Deliver
@@ -96,7 +96,7 @@ class InboundEventPolicyTest {
 
     @Test
     fun decide_confirmationRequested_deliversConfirmationKind() {
-        val policy = InboundEventPolicy(DedupeStore())
+        val policy = InboundEventPolicy(DedupeStore(FakeEventStateStore()))
         val decision = policy.decide(envelope(type = InboundEventType.CONFIRMATION_REQUESTED), nowMs = 5_000L)
         val deliver = decision as PolicyDecision.Deliver
         assertEquals(InboundEventKind.CONFIRMATION, deliver.event.kind)
@@ -104,7 +104,7 @@ class InboundEventPolicyTest {
 
     @Test
     fun decide_failureDefaultsUrgencyToHigh_whenEnvelopeUrgencyLower() {
-        val policy = InboundEventPolicy(DedupeStore())
+        val policy = InboundEventPolicy(DedupeStore(FakeEventStateStore()))
         val decision = policy.decide(
             envelope(type = InboundEventType.FAILURE, urgency = InboundUrgency.NORMAL),
             nowMs = 5_000L,
@@ -115,7 +115,7 @@ class InboundEventPolicyTest {
 
     @Test
     fun decide_confirmationRequested_defaultsUrgencyToHigh() {
-        val policy = InboundEventPolicy(DedupeStore())
+        val policy = InboundEventPolicy(DedupeStore(FakeEventStateStore()))
         val decision = policy.decide(
             envelope(type = InboundEventType.CONFIRMATION_REQUESTED, urgency = InboundUrgency.NORMAL),
             nowMs = 5_000L,
@@ -126,7 +126,7 @@ class InboundEventPolicyTest {
 
     @Test
     fun decide_envelopeUrgencyHigherThanDefault_wins() {
-        val policy = InboundEventPolicy(DedupeStore())
+        val policy = InboundEventPolicy(DedupeStore(FakeEventStateStore()))
         val decision = policy.decide(
             envelope(type = InboundEventType.FAILURE, urgency = InboundUrgency.URGENT),
             nowMs = 5_000L,
@@ -137,7 +137,7 @@ class InboundEventPolicyTest {
 
     @Test
     fun decide_taskAssigned_keepsNormalUrgency_whenEnvelopeNormal() {
-        val policy = InboundEventPolicy(DedupeStore())
+        val policy = InboundEventPolicy(DedupeStore(FakeEventStateStore()))
         val decision = policy.decide(
             envelope(type = InboundEventType.TASK_ASSIGNED, urgency = InboundUrgency.NORMAL),
             nowMs = 5_000L,

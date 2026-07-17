@@ -3,14 +3,14 @@ package com.dark.tool_neuron.repo.gateway.event
 import com.dark.tool_neuron.repo.InboundEventCenter
 import dagger.Binds
 import dagger.Module
-import dagger.Provides
 import dagger.hilt.InstallIn
 import dagger.hilt.components.SingletonComponent
 import javax.inject.Singleton
 
-// FRI-555: DI wiring for the event gateway. NonceStore/DedupeStore have no @Inject constructor
-// (plain JVM classes shared with pure unit tests) so they need @Provides; the trust/consent seams
-// and the delivery sink are interfaces bound to their concrete implementations.
+// FRI-555: DI wiring for the event gateway. NonceStore/DedupeStore (B4: EventStateStore-backed)
+// and CorrelationTracker (B3) each carry their own @Inject constructor, so Hilt resolves them by
+// constructor injection alone -- no @Provides needed here (adding one would duplicate-bind). The
+// trust/consent/state/delivery seams are interfaces bound to their concrete implementations.
 @Module
 @InstallIn(SingletonComponent::class)
 abstract class EventGatewayModule {
@@ -27,13 +27,7 @@ abstract class EventGatewayModule {
     @Singleton
     abstract fun bindEventDeliverySink(impl: InboundEventCenter): EventDeliverySink
 
-    companion object {
-        @Provides
-        @Singleton
-        fun provideNonceStore(): NonceStore = NonceStore()
-
-        @Provides
-        @Singleton
-        fun provideDedupeStore(): DedupeStore = DedupeStore()
-    }
+    @Binds
+    @Singleton
+    abstract fun bindEventStateStore(impl: PrefsEventStateStore): EventStateStore
 }

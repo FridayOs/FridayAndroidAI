@@ -39,9 +39,10 @@ class InboundEventVerifierTest {
         issuedAtMs: Long = 10_000L,
         nonce: String = "n-1",
         type: InboundEventType = InboundEventType.TASK_ASSIGNED,
+        version: Int = 1,
     ): InboundEventEnvelope {
         val unsigned = InboundEventEnvelope(
-            version = 1,
+            version = version,
             eventId = "ev-1",
             sourceId = sourceId,
             sourceKind = sourceKind,
@@ -61,14 +62,40 @@ class InboundEventVerifierTest {
     @Test
     fun verify_validEnvelope_accepted() {
         val trust = EventSourceTrust("openclaw-1", EventSourceKind.OPENCLAW, key, enabled = true)
-        val verifier = InboundEventVerifier(FakeRegistry(trust), NonceStore())
+        val verifier = InboundEventVerifier(FakeRegistry(trust), NonceStore(FakeEventStateStore()))
         val result = verifier.verify(envelope(key), nowMs = 10_000L)
         assertEquals(VerifyResult.Accepted, result)
     }
 
+    // FRI-555 B5: version contract -- unsupported versions rejected before any registry/signature
+    // work; only SUPPORTED_VERSION (1) passes.
+    @Test
+    fun verify_unsupportedVersion_zero_rejected() {
+        val trust = EventSourceTrust("openclaw-1", EventSourceKind.OPENCLAW, key, enabled = true)
+        val verifier = InboundEventVerifier(FakeRegistry(trust), NonceStore(FakeEventStateStore()))
+        val result = verifier.verify(envelope(key, version = 0), nowMs = 10_000L)
+        assertEquals(VerifyResult.Rejected("unsupported_version"), result)
+    }
+
+    @Test
+    fun verify_unsupportedVersion_two_rejected() {
+        val trust = EventSourceTrust("openclaw-1", EventSourceKind.OPENCLAW, key, enabled = true)
+        val verifier = InboundEventVerifier(FakeRegistry(trust), NonceStore(FakeEventStateStore()))
+        val result = verifier.verify(envelope(key, version = 2), nowMs = 10_000L)
+        assertEquals(VerifyResult.Rejected("unsupported_version"), result)
+    }
+
+    @Test
+    fun verify_unsupportedVersion_999_rejected() {
+        val trust = EventSourceTrust("openclaw-1", EventSourceKind.OPENCLAW, key, enabled = true)
+        val verifier = InboundEventVerifier(FakeRegistry(trust), NonceStore(FakeEventStateStore()))
+        val result = verifier.verify(envelope(key, version = 999), nowMs = 10_000L)
+        assertEquals(VerifyResult.Rejected("unsupported_version"), result)
+    }
+
     @Test
     fun verify_unknownSource_rejected() {
-        val verifier = InboundEventVerifier(FakeRegistry(null), NonceStore())
+        val verifier = InboundEventVerifier(FakeRegistry(null), NonceStore(FakeEventStateStore()))
         val result = verifier.verify(envelope(key), nowMs = 10_000L)
         assertEquals(VerifyResult.Rejected("unknown_source"), result)
     }
@@ -76,7 +103,7 @@ class InboundEventVerifierTest {
     @Test
     fun verify_disabledSource_rejected() {
         val trust = EventSourceTrust("openclaw-1", EventSourceKind.OPENCLAW, key, enabled = false)
-        val verifier = InboundEventVerifier(FakeRegistry(trust), NonceStore())
+        val verifier = InboundEventVerifier(FakeRegistry(trust), NonceStore(FakeEventStateStore()))
         val result = verifier.verify(envelope(key), nowMs = 10_000L)
         assertEquals(VerifyResult.Rejected("disabled_source"), result)
     }
@@ -84,7 +111,7 @@ class InboundEventVerifierTest {
     @Test
     fun verify_sourceKindMismatch_rejected() {
         val trust = EventSourceTrust("openclaw-1", EventSourceKind.HERMES, key, enabled = true)
-        val verifier = InboundEventVerifier(FakeRegistry(trust), NonceStore())
+        val verifier = InboundEventVerifier(FakeRegistry(trust), NonceStore(FakeEventStateStore()))
         val result = verifier.verify(envelope(key, sourceKind = EventSourceKind.OPENCLAW), nowMs = 10_000L)
         assertEquals(VerifyResult.Rejected("source_kind_mismatch"), result)
     }
@@ -92,7 +119,7 @@ class InboundEventVerifierTest {
     @Test
     fun verify_missingTrustKey_rejected_noThrow() {
         val trust = EventSourceTrust("openclaw-1", EventSourceKind.OPENCLAW, ByteArray(0), enabled = true)
-        val verifier = InboundEventVerifier(FakeRegistry(trust), NonceStore())
+        val verifier = InboundEventVerifier(FakeRegistry(trust), NonceStore(FakeEventStateStore()))
         val result = verifier.verify(envelope(key), nowMs = 10_000L)
         assertEquals(VerifyResult.Rejected("missing_trust_key"), result)
     }
@@ -100,7 +127,7 @@ class InboundEventVerifierTest {
     @Test
     fun verify_badSignature_rejected() {
         val trust = EventSourceTrust("openclaw-1", EventSourceKind.OPENCLAW, key, enabled = true)
-        val verifier = InboundEventVerifier(FakeRegistry(trust), NonceStore())
+        val verifier = InboundEventVerifier(FakeRegistry(trust), NonceStore(FakeEventStateStore()))
         val tampered = envelope(key).copy(body = "tampered body, signature stale now")
         val result = verifier.verify(tampered, nowMs = 10_000L)
         assertEquals(VerifyResult.Rejected("bad_signature"), result)
@@ -109,7 +136,7 @@ class InboundEventVerifierTest {
     @Test
     fun verify_expiredTimestamp_rejected() {
         val trust = EventSourceTrust("openclaw-1", EventSourceKind.OPENCLAW, key, enabled = true)
-        val verifier = InboundEventVerifier(FakeRegistry(trust), NonceStore(), skewMs = 1_000L)
+        val verifier = InboundEventVerifier(FakeRegistry(trust), NonceStore(FakeEventStateStore()), skewMs = 1_000L)
         // issuedAt=10_000, now=12_000 -> age 2_000 > skew 1_000
         val result = verifier.verify(envelope(key, issuedAtMs = 10_000L), nowMs = 12_000L)
         assertEquals(VerifyResult.Rejected("expired"), result)
@@ -118,7 +145,7 @@ class InboundEventVerifierTest {
     @Test
     fun verify_futureTimestamp_rejected() {
         val trust = EventSourceTrust("openclaw-1", EventSourceKind.OPENCLAW, key, enabled = true)
-        val verifier = InboundEventVerifier(FakeRegistry(trust), NonceStore(), skewMs = 1_000L)
+        val verifier = InboundEventVerifier(FakeRegistry(trust), NonceStore(FakeEventStateStore()), skewMs = 1_000L)
         // issuedAt=10_000, now=8_000 -> age -2_000 < -skew 1_000
         val result = verifier.verify(envelope(key, issuedAtMs = 10_000L), nowMs = 8_000L)
         assertEquals(VerifyResult.Rejected("future_timestamp"), result)
@@ -127,7 +154,7 @@ class InboundEventVerifierTest {
     @Test
     fun verify_replayedNonce_rejectedOnSecondUse() {
         val trust = EventSourceTrust("openclaw-1", EventSourceKind.OPENCLAW, key, enabled = true)
-        val nonceStore = NonceStore()
+        val nonceStore = NonceStore(FakeEventStateStore())
         val verifier = InboundEventVerifier(FakeRegistry(trust), nonceStore)
         val env = envelope(key)
         assertTrue(verifier.verify(env, nowMs = 10_000L) is VerifyResult.Accepted)

@@ -15,6 +15,7 @@ import com.dark.tool_neuron.model.friday.InboundEventKind
 import com.dark.tool_neuron.model.friday.InboundSource
 import com.dark.tool_neuron.model.friday.InboundUrgency
 import com.dark.tool_neuron.repo.gateway.event.EventDeliverySink
+import com.dark.tool_neuron.repo.gateway.event.InboundConfirmationCenter
 import com.friday.ai.R
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -31,6 +32,10 @@ internal interface ForegroundSignal {
 // Delivers a system notification for an event. Seam so JVM tests assert channel routing without Android.
 internal interface EventNotifier {
     fun notify(event: InboundEvent, channelId: String)
+
+    // FRI-555 B3: cancels the OS notification posted under notificationKeyFor(event)'s id. Safe to
+    // call even when nothing is currently posted under that key (no-op).
+    fun cancel(notificationKey: String)
 }
 
 // Single consumer of InboundEventPort. Foreground -> in-app card (activeEvent flow); background ->
@@ -41,11 +46,15 @@ internal interface EventNotifier {
 class InboundEventCenter internal constructor(
     private val foreground: ForegroundSignal,
     private val notifier: EventNotifier,
+    // FRI-555 B1: default keeps every pre-B1 2-arg test call site compiling unchanged; production
+    // wiring goes through the @Inject constructor below with the real Hilt-provided singleton.
+    private val confirmationCenter: InboundConfirmationCenter = InboundConfirmationCenter(),
 ) : InboundEventPort, EventDeliverySink {
 
-    @Inject constructor(@ApplicationContext context: Context) : this(
+    @Inject constructor(@ApplicationContext context: Context, confirmationCenter: InboundConfirmationCenter) : this(
         ProcessForegroundSignal(),
         AndroidEventNotifier(context),
+        confirmationCenter,
     )
 
     private val _activeEvent = MutableStateFlow<InboundEvent?>(null)
@@ -71,6 +80,15 @@ class InboundEventCenter internal constructor(
             val existing = recent[safe.eventId]
             val protectVerified = existing?.sourceType == InboundSource.VERIFIED && safe.sourceType != InboundSource.VERIFIED
             if (!protectVerified) recent[safe.eventId] = safe
+        }
+        // FRI-555 B1: arm on the POST-coercion kind only — coercePush() already downgrades any PUSH
+        // CONFIRMATION to STATUS above, so this alone guarantees an unverified/coerced push can never
+        // arm a pending confirmation; only a genuinely VERIFIED (or LOCAL) CONFIRMATION reaches here.
+        // Defense-in-depth: kind==CONFIRMATION already implies VERIFIED today (coercePush downgrades
+        // PUSH confirmations to STATUS before this point), but gate on sourceType explicitly too so a
+        // future LOCAL confirmation producer can never arm without going through verification.
+        if (safe.sourceType == InboundSource.VERIFIED && safe.kind == InboundEventKind.CONFIRMATION) {
+            confirmationCenter.arm(safe)
         }
         if (foreground.isForeground()) {
             _activeEvent.value = safe
@@ -100,13 +118,27 @@ class InboundEventCenter internal constructor(
 
     fun dismiss() { _activeEvent.value = null }
 
-    // FRI-555: verified CANCEL support. Only clears the active card when it is the one being
-    // cancelled (correlationId match) — an unrelated or already-dismissed event is left alone.
+    // FRI-555 B3: verified CANCEL support. Clears the active card (if it's the one being cancelled),
+    // purges every retained `recent` entry sharing the correlation (so a later notification tap
+    // can't re-surface a cancelled task), and unconditionally cancels the OS notification posted
+    // under this correlation's key — NotificationManagerCompat.cancel is a safe no-op when nothing
+    // is posted, so this stays correct whether or not anything was actually showing.
+    // FRI-555 B1: a verified CANCEL for this correlation also clears any pending inbound
+    // confirmation sharing it, so a stale confirm/cancel tap can't resolve an already-cancelled task.
     override fun dismissIfCorrelated(correlationId: String): Boolean {
-        val current = _activeEvent.value ?: return false
-        if (current.correlationId != correlationId) return false
-        _activeEvent.value = null
-        return true
+        val current = _activeEvent.value
+        val cardCleared = current?.correlationId == correlationId
+        if (cardCleared) _activeEvent.value = null
+
+        val purged = synchronized(recent) {
+            val toRemove = recent.entries.filter { it.value.correlationId == correlationId }.map { it.key }
+            toRemove.forEach { recent.remove(it) }
+            toRemove.isNotEmpty()
+        }
+
+        val confirmationCleared = confirmationCenter.cancelByCorrelation(correlationId)
+        notifier.cancel(correlationId)
+        return cardCleared || purged || confirmationCleared
     }
 
     companion object {
@@ -116,6 +148,11 @@ class InboundEventCenter internal constructor(
         const val TITLE_CAP = 120
         const val BODY_CAP = 400
         const val RECENT_CAP = 32
+
+        // FRI-555 B3: notification identity. Same-correlation events (e.g. PROGRESS -> COMPLETION
+        // for one task) share this key so they REPLACE the tray notification instead of stacking;
+        // events with no correlationId fall back to their own eventId.
+        fun notificationKeyFor(event: InboundEvent): String = event.correlationId ?: event.eventId
 
         fun channelIdFor(urgency: InboundUrgency): String = when (urgency) {
             InboundUrgency.NORMAL -> CHANNEL_NORMAL
@@ -227,7 +264,15 @@ private class AndroidEventNotifier(private val context: Context) : EventNotifier
             .setContentIntent(pi)
             .build()
         // OS silently drops when POST_NOTIFICATIONS (API 33+) isn't granted — card path is unaffected.
-        NotificationManagerCompat.from(context).notify(event.eventId.hashCode(), notification)
+        // Keyed by correlation (fallback eventId) so same-task PROGRESS/COMPLETION replace, not stack.
+        NotificationManagerCompat.from(context).notify(
+            InboundEventCenter.notificationKeyFor(event).hashCode(),
+            notification,
+        )
+    }
+
+    override fun cancel(notificationKey: String) {
+        NotificationManagerCompat.from(context).cancel(notificationKey.hashCode())
     }
 
     private fun ensureChannel(channelId: String, urgency: InboundUrgency) {

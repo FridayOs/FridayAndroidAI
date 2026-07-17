@@ -24,6 +24,12 @@ class InboundEventVerifier internal constructor(
     ) : this(registry, nonceStore, SKEW_MS)
 
     fun verify(env: InboundEventEnvelope, nowMs: Long): VerifyResult {
+        // FRI-555 (B5): version contract checked first -- any Int used to be accepted, which
+        // would silently misinterpret a future/incompatible wire shape as valid.
+        if (env.version != InboundEventEnvelope.SUPPORTED_VERSION) {
+            return VerifyResult.Rejected("unsupported_version")
+        }
+
         val trust = registry.trustFor(env.sourceId) ?: return VerifyResult.Rejected("unknown_source")
         if (!trust.enabled) return VerifyResult.Rejected("disabled_source")
         if (trust.kind != env.sourceKind) return VerifyResult.Rejected("source_kind_mismatch")

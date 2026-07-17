@@ -6,6 +6,7 @@ import com.dark.tool_neuron.model.friday.InboundEventKind
 import com.dark.tool_neuron.model.friday.InboundSource
 import com.dark.tool_neuron.model.friday.InboundUrgency
 import com.dark.tool_neuron.repo.InboundEventCenter
+import com.dark.tool_neuron.repo.gateway.event.InboundConfirmationCenter
 import com.dark.tool_neuron.viewmodel.FridayEventsViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -52,6 +53,7 @@ class FridayEventsViewModelTest {
 
     private class NoopNotifier : com.dark.tool_neuron.repo.EventNotifier {
         override fun notify(event: InboundEvent, channelId: String) {}
+        override fun cancel(notificationKey: String) {}
     }
 
     private fun center() = InboundEventCenter(FakeForeground(false), NoopNotifier())
@@ -63,7 +65,7 @@ class FridayEventsViewModelTest {
         val retained = localEvent("e1")
         center.publish(retained)
         assertNull("background publish must not auto-surface", center.activeEvent.value)
-        val vm = FridayEventsViewModel(center, pending)
+        val vm = FridayEventsViewModel(center, pending, InboundConfirmationCenter())
         // Notification tap hands back a reconstructed PUSH copy; resolve prefers the retained LOCAL one.
         pending.set(pushEvent("e1"))
         advanceUntilIdle()
@@ -76,7 +78,7 @@ class FridayEventsViewModelTest {
         // extras are re-coerced — a forged CONFIRMATION surfaces only as a non-actionable STATUS card.
         val center = center()
         val pending = PendingInboundEvent()
-        val vm = FridayEventsViewModel(center, pending)
+        val vm = FridayEventsViewModel(center, pending, InboundConfirmationCenter())
         pending.set(pushEvent("forged", kind = InboundEventKind.CONFIRMATION))
         advanceUntilIdle()
         val surfaced = vm.activeEvent.value
@@ -90,12 +92,54 @@ class FridayEventsViewModelTest {
         val center = center()
         val pending = PendingInboundEvent()
         center.publish(localEvent("e1"))
-        val vm = FridayEventsViewModel(center, pending)
+        val vm = FridayEventsViewModel(center, pending, InboundConfirmationCenter())
         pending.set(pushEvent("e1"))
         advanceUntilIdle()
         assertEquals("e1", vm.activeEvent.value!!.eventId)
         vm.dismiss()
         advanceUntilIdle()
         assertNull("one-shot consume must not re-fire the same intent", vm.activeEvent.value)
+    }
+
+    @Test
+    fun confirmInbound_delegatesToConfirmationCenter_clearsPending() {
+        val confirmationCenter = InboundConfirmationCenter()
+        confirmationCenter.arm(
+            InboundEvent(
+                eventId = "conf-vm-1",
+                sourceType = InboundSource.VERIFIED,
+                correlationId = null,
+                kind = InboundEventKind.CONFIRMATION,
+                title = "t",
+                body = "b",
+                urgency = InboundUrgency.NORMAL,
+                receivedAt = 0L,
+            )
+        )
+        val vm = FridayEventsViewModel(center(), PendingInboundEvent(), confirmationCenter)
+        assertEquals("conf-vm-1", vm.pendingInboundConfirmation.value!!.eventId)
+        vm.confirmInbound()
+        assertNull("confirmInbound must delegate to the center and clear the pending record", confirmationCenter.pending.value)
+    }
+
+    @Test
+    fun cancelInbound_delegatesToConfirmationCenter_clearsPending() {
+        val confirmationCenter = InboundConfirmationCenter()
+        confirmationCenter.arm(
+            InboundEvent(
+                eventId = "conf-vm-2",
+                sourceType = InboundSource.VERIFIED,
+                correlationId = null,
+                kind = InboundEventKind.CONFIRMATION,
+                title = "t",
+                body = "b",
+                urgency = InboundUrgency.NORMAL,
+                receivedAt = 0L,
+            )
+        )
+        val vm = FridayEventsViewModel(center(), PendingInboundEvent(), confirmationCenter)
+        assertEquals("conf-vm-2", vm.pendingInboundConfirmation.value!!.eventId)
+        vm.cancelInbound()
+        assertNull("cancelInbound must delegate to the center and clear the pending record", confirmationCenter.pending.value)
     }
 }

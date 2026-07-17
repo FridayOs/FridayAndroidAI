@@ -5,6 +5,7 @@ import com.dark.tool_neuron.model.friday.InboundEventKind
 import com.dark.tool_neuron.model.friday.InboundSource
 import com.dark.tool_neuron.model.friday.InboundUrgency
 import com.dark.tool_neuron.repo.InboundEventCenter
+import com.dark.tool_neuron.repo.gateway.event.InboundConfirmationCenter
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -97,7 +98,9 @@ class InboundEventCenterTest {
 
     private class RecordingNotifier : com.dark.tool_neuron.repo.EventNotifier {
         val notified = mutableListOf<Pair<InboundEvent, String>>()
+        val cancelled = mutableListOf<String>()
         override fun notify(event: InboundEvent, channelId: String) { notified += event to channelId }
+        override fun cancel(notificationKey: String) { cancelled += notificationKey }
     }
 
     @Test
@@ -239,5 +242,106 @@ class InboundEventCenterTest {
         assertFalse(surfaced.requiresConfirmation)
         assertEquals(InboundEventCenter.TITLE_CAP, surfaced.title.length)
         assertEquals(InboundEventCenter.BODY_CAP, surfaced.body.length)
+    }
+
+    // FRI-555 B3: notification identity keying.
+    @Test
+    fun notificationKeyFor_prefersCorrelationId_fallsBackToEventId() {
+        val withCorrelation = event().copy(eventId = "e1", correlationId = "c-1")
+        assertEquals("c-1", InboundEventCenter.notificationKeyFor(withCorrelation))
+        val withoutCorrelation = event().copy(eventId = "e1", correlationId = null)
+        assertEquals("e1", InboundEventCenter.notificationKeyFor(withoutCorrelation))
+    }
+
+    @Test
+    fun notificationKeyFor_sameForSharedCorrelation_evenWithDifferentEventIds() {
+        val progress = event().copy(eventId = "e1", correlationId = "c-1")
+        val completion = event().copy(eventId = "e2", correlationId = "c-1")
+        assertEquals(
+            InboundEventCenter.notificationKeyFor(progress),
+            InboundEventCenter.notificationKeyFor(completion),
+        )
+    }
+
+    // FRI-555 B3: cancel support — clears the card, purges retained entries sharing the
+    // correlation, and always tells the notifier to cancel the OS notification.
+    @Test
+    fun dismissIfCorrelated_clearsCard_purgesRecent_cancelsNotification() {
+        val notifier = RecordingNotifier()
+        val center = InboundEventCenter(FakeForeground(true), notifier)
+        val active = event().copy(eventId = "e1", correlationId = "c-1")
+        center.publish(active)
+        assertEquals(active, center.activeEvent.value)
+
+        val result = center.dismissIfCorrelated("c-1")
+
+        assertTrue(result)
+        assertNull("active card must be cleared", center.activeEvent.value)
+        assertEquals(listOf("c-1"), notifier.cancelled)
+    }
+
+    @Test
+    fun dismissIfCorrelated_purgesMatchingRecentEntries_leavesUnrelatedAlone() {
+        val notifier = RecordingNotifier()
+        val center = InboundEventCenter(FakeForeground(false), notifier)
+        center.publish(event().copy(eventId = "e1", correlationId = "c-1"))
+        center.publish(event().copy(eventId = "e2", correlationId = "c-1"))
+        center.publish(event().copy(eventId = "e3", correlationId = "other"))
+
+        val result = center.dismissIfCorrelated("c-1")
+
+        assertTrue(result)
+        assertNull("matching entry e1 purged", center.resolve("e1", null))
+        assertNull("matching entry e2 purged", center.resolve("e2", null))
+        assertEquals("unrelated correlation left alone", "e3", center.resolve("e3", null)!!.eventId)
+    }
+
+    @Test
+    fun dismissIfCorrelated_nothingMatches_returnsFalse_stillCancelsNotification() {
+        val notifier = RecordingNotifier()
+        val center = InboundEventCenter(FakeForeground(false), notifier)
+        center.publish(event().copy(eventId = "e1", correlationId = "unrelated"))
+
+        val result = center.dismissIfCorrelated("c-none")
+
+        assertFalse(result)
+        assertEquals("cancel is a safe no-op, always attempted", listOf("c-none"), notifier.cancelled)
+    }
+
+    // FRI-555 B1: publish() arms the InboundConfirmationCenter on the POST-coercion kind only.
+    @Test
+    fun publish_verifiedConfirmation_armsConfirmationCenter() {
+        val confirmationCenter = InboundConfirmationCenter()
+        val center = InboundEventCenter(FakeForeground(true), RecordingNotifier(), confirmationCenter)
+        center.publish(
+            event(kind = InboundEventKind.CONFIRMATION, source = InboundSource.VERIFIED).copy(eventId = "conf-1")
+        )
+        assertEquals("verified confirmation must arm the pending confirmation", "conf-1", confirmationCenter.pending.value!!.eventId)
+    }
+
+    @Test
+    fun publish_pushConfirmation_isCoercedBeforeArming_neverArmsConfirmationCenter() {
+        val confirmationCenter = InboundConfirmationCenter()
+        val center = InboundEventCenter(FakeForeground(true), RecordingNotifier(), confirmationCenter)
+        center.publish(
+            event(kind = InboundEventKind.CONFIRMATION, source = InboundSource.PUSH).copy(eventId = "conf-2")
+        )
+        assertNull("unverified/coerced push must never arm a pending confirmation", confirmationCenter.pending.value)
+    }
+
+    @Test
+    fun dismissIfCorrelated_clearsPendingConfirmation_sharingCorrelation() {
+        val confirmationCenter = InboundConfirmationCenter()
+        val center = InboundEventCenter(FakeForeground(true), RecordingNotifier(), confirmationCenter)
+        center.publish(
+            event(kind = InboundEventKind.CONFIRMATION, source = InboundSource.VERIFIED)
+                .copy(eventId = "conf-3", correlationId = "corr-x")
+        )
+        assertEquals("conf-3", confirmationCenter.pending.value!!.eventId)
+
+        val result = center.dismissIfCorrelated("corr-x")
+
+        assertTrue(result)
+        assertNull("cancel must also clear the pending confirmation sharing this correlation", confirmationCenter.pending.value)
     }
 }

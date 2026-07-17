@@ -47,6 +47,11 @@ data class InboundEventEnvelope(
     }
 
     companion object {
+        // FRI-555 (B5): only this wire version is accepted by the verifier. Parse stays
+        // shape-only (does not reject on version) so callers can distinguish "malformed" from
+        // "well-formed but unsupported version" -- the version-contract check lives in
+        // InboundEventVerifier.verify.
+        const val SUPPORTED_VERSION = 1
         private const val FIELD_VERSION = "version"
         private const val FIELD_EVENT_ID = "eventId"
         private const val FIELD_SOURCE_ID = "sourceId"

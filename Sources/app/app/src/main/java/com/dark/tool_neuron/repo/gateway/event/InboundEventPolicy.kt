@@ -10,15 +10,15 @@ import javax.inject.Inject
 
 // FRI-555: maps a verified envelope to a delivery decision. `nowMs` is explicit (not read from
 // the envelope) so InboundEvent.receivedAt reflects local receipt time, matching NonceStore's/
-// InboundEventVerifier's clock-injection convention. actionIntent is intentionally dropped here —
-// InboundEvent has no field for it, so there is no path that could ever auto-execute it.
+// InboundEventVerifier's clock-injection convention. actionIntent is carried through ONLY for
+// CONFIRMATION_REQUESTED (data-only; InboundConfirmationCenter/UI display it, nothing executes it).
 class InboundEventPolicy @Inject constructor(
     private val dedupeStore: DedupeStore,
 ) {
     fun decide(env: InboundEventEnvelope, nowMs: Long): PolicyDecision {
         // Redelivery of a legitimate at-least-once retry (same eventId) must drop before any other
         // processing, including CANCEL — a duplicate cancel is still a duplicate.
-        if (!dedupeStore.firstSeen(env.eventId)) return PolicyDecision.Drop("duplicate")
+        if (!dedupeStore.firstSeen(env.eventId, nowMs)) return PolicyDecision.Drop("duplicate")
 
         if (env.type == InboundEventType.CANCEL) return PolicyDecision.Cancel(env.correlationId)
 
@@ -32,6 +32,7 @@ class InboundEventPolicy @Inject constructor(
             body = env.body,
             urgency = effectiveUrgency(env),
             receivedAt = nowMs,
+            actionIntent = if (env.type == InboundEventType.CONFIRMATION_REQUESTED) env.actionIntent else null,
         )
         return PolicyDecision.Deliver(event)
     }

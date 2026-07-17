@@ -12,6 +12,11 @@ data class InboundEvent(
     val body: String,
     val urgency: InboundUrgency,
     val receivedAt: Long,
+    // FRI-555 B1: data-only action payload from a VERIFIED CONFIRMATION_REQUESTED envelope. Never
+    // executed anywhere in this codebase — it is surfaced to InboundConfirmationCenter for display
+    // only; user confirm/cancel just resolves the pending record. Defaults to null so every existing
+    // constructor call (LOCAL/PUSH events, all pre-B1 tests) keeps compiling unchanged.
+    val actionIntent: String? = null,
 ) {
     // Derived: only CONFIRMATION events render actionable confirm/cancel UI.
     val requiresConfirmation: Boolean get() = kind == InboundEventKind.CONFIRMATION

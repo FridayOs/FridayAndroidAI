@@ -70,6 +70,9 @@ fun FridayVoiceScreen(
     val pendingAssist by viewModel.pendingAssistInvocation.collectAsStateWithLifecycle()
     val activeInboundEvent by eventsViewModel.activeEvent.collectAsStateWithLifecycle()
     val awaitingConfirmation by viewModel.awaitingConfirmationState.collectAsStateWithLifecycle()
+    // FRI-555 B1: verified inbound CONFIRMATION_REQUESTED, separate from the brain-local
+    // awaitingConfirmation gate above — do not cross-wire the two.
+    val pendingInboundConfirmation by eventsViewModel.pendingInboundConfirmation.collectAsStateWithLifecycle()
     val context = LocalContext.current
 
     var micGranted by remember {
@@ -184,7 +187,10 @@ fun FridayVoiceScreen(
             }
         }
 
-        activeInboundEvent?.let { event ->
+        // A confirmation-kind event renders only via the ConfirmationCard block below (it needs the
+        // confirm/cancel affordance, not a plain dismiss) — otherwise a verified CONFIRMATION would
+        // show both cards, and dismissing this one would orphan the pending confirmation.
+        activeInboundEvent?.takeIf { !it.requiresConfirmation }?.let { event ->
             InboundEventCard(
                 event = event,
                 onDismiss = eventsViewModel::dismiss,
@@ -196,6 +202,16 @@ fun FridayVoiceScreen(
             ConfirmationCard(
                 onConfirm = viewModel::confirm,
                 onCancel = viewModel::reset,
+                modifier = Modifier.padding(vertical = 6.dp),
+            )
+        }
+
+        // FRI-555 B1: verified inbound confirmation card. Confirm/cancel only resolve the pending
+        // record via eventsViewModel — actionIntent is never executed here or anywhere downstream.
+        if (pendingInboundConfirmation != null) {
+            ConfirmationCard(
+                onConfirm = eventsViewModel::confirmInbound,
+                onCancel = eventsViewModel::cancelInbound,
                 modifier = Modifier.padding(vertical = 6.dp),
             )
         }
