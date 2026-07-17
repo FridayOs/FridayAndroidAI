@@ -73,4 +73,17 @@ class NonceStoreTest {
         // Every seed line is unparseable, so the store behaves as if empty.
         assertTrue(store.checkAndRecord("src-1", "n-1", 2_000L))
     }
+
+    // FRI-555 (B4): adversarial defense-in-depth -- even if a raw persisted value somehow spanned
+    // multiple physical lines (e.g. a legacy record written before InboundEventEnvelope.isCleanId
+    // rejected embedded newlines at parse time), the genuine "atMs\tnonce" prefix line must still be
+    // read back and honored as seen. A corrupted trailing fragment must never cause an already-seen
+    // nonce to be reported as a false "unseen" (which would let a replay through).
+    @Test
+    fun checkAndRecord_rawMultiLineValueWritten_neverFalseUnseenForRecordedPrefix() {
+        val backing = FakeEventStateStore()
+        backing.write("fri555.nonce.src-1", "1000\tn-1\ninjected-garbage-line-not-a-valid-record")
+        val store = NonceStore(backing)
+        assertFalse("prefix line 'n-1' was genuinely recorded; read-back must still reject it as a replay", store.checkAndRecord("src-1", "n-1", 1_500L))
+    }
 }

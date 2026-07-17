@@ -38,15 +38,17 @@ class EventGatewayTest {
 
     private class RecordingSink : EventDeliverySink {
         val published = mutableListOf<InboundEvent>()
-        val dismissedCorrelationIds = mutableListOf<String>()
+        // FRI-555 B3: source-scoped dismiss calls, recorded as (sourceId, correlationId) pairs so
+        // tests can assert the gateway forwards the envelope's actual sourceId, not just the id.
+        val dismissed = mutableListOf<Pair<String, String>>()
         var dismissResult = true
 
         override fun publish(event: InboundEvent) {
             published += event
         }
 
-        override fun dismissIfCorrelated(correlationId: String): Boolean {
-            dismissedCorrelationIds += correlationId
+        override fun dismissIfCorrelated(sourceId: String, correlationId: String): Boolean {
+            dismissed += sourceId to correlationId
             return dismissResult
         }
     }
@@ -86,7 +88,7 @@ class EventGatewayTest {
             EventSourceTrust("openclaw-1", EventSourceKind.OPENCLAW, key, enabled = true),
         ),
         sink: RecordingSink = RecordingSink(),
-        correlationTracker: CorrelationTracker = CorrelationTracker(),
+        correlationTracker: CorrelationTracker = CorrelationTracker(FakeEventStateStore()),
     ): Pair<EventGateway, RecordingSink> {
         val verifier = InboundEventVerifier(registry, NonceStore(FakeEventStateStore()))
         val policy = InboundEventPolicy(DedupeStore(FakeEventStateStore()))
@@ -100,7 +102,7 @@ class EventGatewayTest {
         val result = gateway.accept(rawPayload())
         assertFalse(result)
         assertTrue(sink.published.isEmpty())
-        assertTrue(sink.dismissedCorrelationIds.isEmpty())
+        assertTrue(sink.dismissed.isEmpty())
     }
 
     @Test
@@ -137,7 +139,7 @@ class EventGatewayTest {
         val cancelPayload = rawPayload(overrides = mapOf("type" to "CANCEL", "correlationId" to "c-1"))
         val result = gateway.accept(cancelPayload)
         assertTrue(result)
-        assertEquals(listOf("c-1"), sink.dismissedCorrelationIds)
+        assertEquals(listOf("openclaw-1" to "c-1"), sink.dismissed)
         assertTrue(sink.published.isEmpty())
     }
 
@@ -148,7 +150,7 @@ class EventGatewayTest {
         val cancelPayload = rawPayload(overrides = mapOf("type" to "CANCEL")).minus("correlationId")
         val result = gateway.accept(cancelPayload)
         assertFalse(result)
-        assertTrue(sink.dismissedCorrelationIds.isEmpty())
+        assertTrue(sink.dismissed.isEmpty())
     }
 
     @Test
@@ -220,12 +222,13 @@ class EventGatewayTest {
         assertEquals(1, sink.published.size)
     }
 
-    // FRI-555 B3: a verified CANCEL must clear the correlation tracker's key, so a subsequent
-    // envelope for the same correlation is judged fresh again (a new task can reuse the correlation).
-    // The CANCEL itself must be strictly newer than the last accepted envelope (same ordering guard
-    // as Deliver) to be accepted in the first place -- see B3-rework tests below for the stale case.
+    // FRI-555 B3 (Codex-QA round 2 fix): a verified CANCEL is now recorded as a permanent watermark,
+    // never cleared -- there is no more tracker.clear() call. A subsequent delayed envelope for the
+    // same correlation whose issuedAt is not strictly newer than the CANCEL's must be REJECTED, not
+    // resurrected. This replaces the prior (buggy) expectation that a cancel reopened the
+    // correlation for reuse at an equal timestamp.
     @Test
-    fun accept_cancelClearsCorrelationTracker_subsequentEqualTimestampAccepted() {
+    fun accept_cancelWatermark_subsequentOlderOrEqualTimestamp_rejectedNoResurrection() {
         val (gateway, sink) = buildGateway(consentEnabled = true)
         val first = gateway.accept(
             rawPayload(overrides = mapOf("eventId" to "ev-1", "nonce" to "n-1", "correlationId" to "c-1", "issuedAt" to "10000")),
@@ -235,11 +238,31 @@ class EventGatewayTest {
             rawPayload(overrides = mapOf("eventId" to "ev-2", "nonce" to "n-2", "type" to "CANCEL", "correlationId" to "c-1", "issuedAt" to "10001")),
         )
         assertTrue(cancel)
-        val third = gateway.accept(
+        val delayed = gateway.accept(
             rawPayload(overrides = mapOf("eventId" to "ev-3", "nonce" to "n-3", "correlationId" to "c-1", "issuedAt" to "10000")),
         )
-        assertTrue("tracker cleared by cancel, so a timestamp equal to the original first is accepted again", third)
-        assertEquals(2, sink.published.size)
+        assertFalse(
+            "cancel watermark must never be cleared -- a delayed envelope no newer than the cancel is rejected, not resurrected",
+            delayed,
+        )
+        assertEquals(1, sink.published.size)
+    }
+
+    // FRI-555 B3: two different sourceIds sharing the same correlationId must be judged
+    // independently by the gateway -- a CANCEL for one source's task must not affect the other's.
+    // FakeRegistry only trusts one sourceId at a time, so this is proven by wiring: the gateway
+    // must forward the envelope's OWN sourceId (not a hardcoded one) to dismissIfCorrelated.
+    @Test
+    fun accept_cancel_forwardsEnvelopeSourceId_notHardcoded() {
+        val sink = RecordingSink()
+        val registry = FakeRegistry(EventSourceTrust("hermes-1", EventSourceKind.HERMES, key, enabled = true))
+        val (gateway, _) = buildGateway(consentEnabled = true, registry = registry, sink = sink)
+        val cancelPayload = rawPayload(
+            overrides = mapOf("sourceId" to "hermes-1", "sourceKind" to "HERMES", "type" to "CANCEL", "correlationId" to "c-1"),
+        )
+        val result = gateway.accept(cancelPayload)
+        assertTrue(result)
+        assertEquals(listOf("hermes-1" to "c-1"), sink.dismissed)
     }
 
     // FRI-555 B3-rework (Codex QA H1): a legitimately-signed, non-replay CANCEL that arrives
@@ -258,7 +281,7 @@ class EventGatewayTest {
             rawPayload(overrides = mapOf("eventId" to "ev-2", "nonce" to "n-2", "type" to "CANCEL", "correlationId" to "c-1", "issuedAt" to "9000")),
         )
         assertFalse("a cancel not strictly newer than the last accepted envelope must be dropped as stale", staleCancel)
-        assertTrue("stale cancel must never reach the sink", sink.dismissedCorrelationIds.isEmpty())
+        assertTrue("stale cancel must never reach the sink", sink.dismissed.isEmpty())
     }
 
     // FRI-555 B3-rework (Codex QA H1): a CANCEL strictly newer than the last accepted envelope for
@@ -275,6 +298,6 @@ class EventGatewayTest {
             rawPayload(overrides = mapOf("eventId" to "ev-2", "nonce" to "n-2", "type" to "CANCEL", "correlationId" to "c-1", "issuedAt" to "10001")),
         )
         assertTrue("a cancel strictly newer than the last accepted envelope must still cancel", newerCancel)
-        assertEquals(listOf("c-1"), sink.dismissedCorrelationIds)
+        assertEquals(listOf("openclaw-1" to "c-1"), sink.dismissed)
     }
 }

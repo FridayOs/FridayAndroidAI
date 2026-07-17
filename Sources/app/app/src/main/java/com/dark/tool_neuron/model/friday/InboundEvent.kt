@@ -17,6 +17,12 @@ data class InboundEvent(
     // only; user confirm/cancel just resolves the pending record. Defaults to null so every existing
     // constructor call (LOCAL/PUSH events, all pre-B1 tests) keeps compiling unchanged.
     val actionIntent: String? = null,
+    // FRI-555 B3: the signed envelope's sourceId (OPENCLAW/HERMES instance id), set only for
+    // VERIFIED events by InboundEventPolicy. Defaults to null so every existing constructor call
+    // (LOCAL/PUSH events, all pre-B3 tests) keeps compiling unchanged. Used to scope notification
+    // identity and cancel/dismiss to the correct source so one source's cancel can never purge
+    // another source's event sharing the same correlationId.
+    val sourceId: String? = null,
 ) {
     // Derived: only CONFIRMATION events render actionable confirm/cancel UI.
     val requiresConfirmation: Boolean get() = kind == InboundEventKind.CONFIRMATION

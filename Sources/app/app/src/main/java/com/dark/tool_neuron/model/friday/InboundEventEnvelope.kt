@@ -66,20 +66,32 @@ data class InboundEventEnvelope(
         private const val FIELD_ACTION_INTENT = "actionIntent"
         private const val FIELD_SIGNATURE = "signature"
 
+        // FRI-555 (B4): identity fields (eventId/nonce/sourceId/correlationId) are persisted
+        // downstream as delimiter-joined records ("atMs\tvalue" in NonceStore/DedupeStore,
+        // "sourceId|correlationId" composite keys in CorrelationTracker/notification keying). A
+        // value containing the record separator ('\t'), the composite-key separator ('|'), a
+        // control character (incl. '\n'/'\r'), or an excessive length could corrupt a persisted
+        // record on read-back and let a forged id bypass replay/dedupe/ordering. Reject at parse
+        // (fail-closed) so every identity field reaching a store is always single-line and
+        // delimiter-free.
+        const val ID_MAX = 256
+
         // Flat-field parse. Required: version, eventId, sourceId, sourceKind, issuedAt, nonce, type,
         // title, signature. Any missing/blank required field, or an unparseable enum/number -> null.
         // No content logging here or anywhere downstream in the caller chain.
         fun parse(data: Map<String, String>): InboundEventEnvelope? {
             val version = data[FIELD_VERSION]?.trim()?.toIntOrNull() ?: return null
-            val eventId = data[FIELD_EVENT_ID]?.takeIf { it.isNotBlank() } ?: return null
-            val sourceId = data[FIELD_SOURCE_ID]?.takeIf { it.isNotBlank() } ?: return null
+            val eventId = data[FIELD_EVENT_ID]?.takeIf { it.isNotBlank() && isCleanId(it) } ?: return null
+            val sourceId = data[FIELD_SOURCE_ID]?.takeIf { it.isNotBlank() && isCleanId(it) } ?: return null
             val sourceKind = data[FIELD_SOURCE_KIND]?.let { parseSourceKind(it) } ?: return null
             val issuedAtMs = data[FIELD_ISSUED_AT]?.trim()?.toLongOrNull() ?: return null
-            val nonce = data[FIELD_NONCE]?.takeIf { it.isNotBlank() } ?: return null
+            val nonce = data[FIELD_NONCE]?.takeIf { it.isNotBlank() && isCleanId(it) } ?: return null
             val type = data[FIELD_TYPE]?.let { parseType(it) } ?: return null
             val title = data[FIELD_TITLE]?.takeIf { it.isNotBlank() } ?: return null
             val signature = data[FIELD_SIGNATURE]?.takeIf { it.isNotBlank() } ?: return null
             val urgency = data[FIELD_URGENCY]?.let { parseUrgency(it) } ?: InboundUrgency.NORMAL
+            val correlationId = data[FIELD_CORRELATION_ID]?.takeIf { it.isNotBlank() }
+            if (correlationId != null && !isCleanId(correlationId)) return null
 
             return InboundEventEnvelope(
                 version = version,
@@ -89,13 +101,24 @@ data class InboundEventEnvelope(
                 issuedAtMs = issuedAtMs,
                 nonce = nonce,
                 type = type,
-                correlationId = data[FIELD_CORRELATION_ID]?.takeIf { it.isNotBlank() },
+                correlationId = correlationId,
                 title = title,
                 body = data[FIELD_BODY].orEmpty(),
                 urgency = urgency,
                 actionIntent = data[FIELD_ACTION_INTENT]?.takeIf { it.isNotBlank() },
                 signature = signature,
             )
+        }
+
+        // FRI-555 (B4): a "clean" identity value has no control chars (incl. \n \r \t), no reserved
+        // delimiter ('|' used by CorrelationTracker composite keys, '\t' used by store record
+        // fields), and stays within ID_MAX so persisted records can't be grown unboundedly.
+        private fun isCleanId(s: String): Boolean {
+            if (s.length > ID_MAX) return false
+            for (c in s) {
+                if (c.isISOControl() || c == '|' || c == '\t') return false
+            }
+            return true
         }
 
         private fun parseSourceKind(raw: String): EventSourceKind? =

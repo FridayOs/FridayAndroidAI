@@ -208,11 +208,14 @@ fun FridayVoiceScreen(
 
         // FRI-555 B1: verified inbound confirmation card. Confirm/cancel only resolve the pending
         // record via eventsViewModel — actionIntent is never executed here or anywhere downstream.
-        if (pendingInboundConfirmation != null) {
+        pendingInboundConfirmation?.let { pending ->
             ConfirmationCard(
                 onConfirm = eventsViewModel::confirmInbound,
                 onCancel = eventsViewModel::cancelInbound,
                 modifier = Modifier.padding(vertical = 6.dp),
+                title = pending.title,
+                body = pending.body,
+                actionLabel = pending.actionIntent,
             )
         }
 

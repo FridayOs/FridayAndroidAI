@@ -50,9 +50,10 @@ class EventGateway internal constructor(
         return when (val decision = policy.decide(env, now)) {
             is PolicyDecision.Deliver -> {
                 // Out-of-order guard: a same-correlation envelope that isn't newer than the last
-                // accepted one (e.g. a delayed PROGRESS arriving after COMPLETION) is dropped with
-                // no publish. No correlationId means no ordering constraint (always accepted).
-                if (!correlationTracker.accept(env.sourceId, env.correlationId, env.issuedAtMs)) {
+                // accepted one (e.g. a delayed PROGRESS arriving after COMPLETION, or after that
+                // correlation's CANCEL watermark) is dropped with no publish. No correlationId means
+                // no ordering constraint (always accepted).
+                if (!correlationTracker.accept(env.sourceId, env.correlationId, env.issuedAtMs, now)) {
                     Log.i(TAG, "dropped (stale)")
                     return false
                 }
@@ -63,15 +64,17 @@ class EventGateway internal constructor(
                 // Same ordering guard as Deliver: a legitimately-signed, non-replay CANCEL that
                 // arrives network-reordered after a newer PROGRESS/COMPLETION for the same
                 // correlation must not tear down an already-progressed task. accept() performs the
-                // monotonic check AND records issuedAt; clear() then removes the key entirely so a
-                // later Deliver for a fresh correlation isn't blocked by this stale bookkeeping.
+                // monotonic check AND records the cancel's issuedAt as a durable watermark -- it is
+                // NEVER cleared, so any later event with an issuedAt <= this cancel is rejected as
+                // stale by the Deliver branch above (no resurrection). dismissIfCorrelated is scoped
+                // to this envelope's sourceId so an OpenClaw cancel can never purge a Hermes event
+                // sharing the same correlationId.
                 val correlationId = decision.correlationId ?: return false
-                if (!correlationTracker.accept(env.sourceId, correlationId, env.issuedAtMs)) {
+                if (!correlationTracker.accept(env.sourceId, correlationId, env.issuedAtMs, now)) {
                     Log.i(TAG, "dropped (stale)")
                     return false
                 }
-                correlationTracker.clear(env.sourceId, correlationId)
-                sink.dismissIfCorrelated(correlationId)
+                sink.dismissIfCorrelated(env.sourceId, correlationId)
             }
             is PolicyDecision.Drop -> {
                 Log.i(TAG, "dropped (${decision.reason})")
@@ -91,5 +94,7 @@ class EventGateway internal constructor(
 // method; only dismissIfCorrelated is new.
 interface EventDeliverySink {
     fun publish(event: InboundEvent)
-    fun dismissIfCorrelated(correlationId: String): Boolean
+    // FRI-555 B3: scoped to sourceId so an OpenClaw cancel can never purge a Hermes event (or vice
+    // versa) sharing the same correlationId.
+    fun dismissIfCorrelated(sourceId: String, correlationId: String): Boolean
 }

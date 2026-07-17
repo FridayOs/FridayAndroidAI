@@ -112,32 +112,66 @@ class InboundEventCenter internal constructor(
     // retained (already-coerced) copy; if `recent` was cleared (process death), re-coerce the reconstructed
     // one so the card still surfaces. Re-coercion is why the extras being attacker-reachable on the exported
     // activity is safe: a forged CONFIRMATION cold-starts only as a capped, non-actionable STATUS card.
+    // FRI-555 B1: EXCEPT when a durable verified pending confirmation exists for this exact tapped
+    // eventId (or its source+correlation) -- then that verified record, never the untrusted PUSH-tagged
+    // extras, is what gets (re)armed and surfaced, so a real confirmation cold-starts as a confirmation
+    // instead of being downgraded to STATUS. A forged tap that doesn't match any durable pending
+    // confirmation still falls through to the existing re-coerce-to-STATUS path below.
     fun surfaceFromNotification(reconstructed: InboundEvent) {
+        val durablePending = confirmationCenter.pending.value
+        val matchesPending = durablePending != null && (
+            durablePending.eventId == reconstructed.eventId ||
+                (
+                    durablePending.sourceId != null && durablePending.sourceId == reconstructed.sourceId &&
+                        durablePending.correlationId != null && durablePending.correlationId == reconstructed.correlationId
+                    )
+            )
+        if (durablePending != null && matchesPending) {
+            val verified = InboundEvent(
+                eventId = durablePending.eventId,
+                sourceType = InboundSource.VERIFIED,
+                correlationId = durablePending.correlationId,
+                kind = InboundEventKind.CONFIRMATION,
+                title = durablePending.title,
+                body = durablePending.body,
+                urgency = reconstructed.urgency,
+                receivedAt = reconstructed.receivedAt,
+                actionIntent = durablePending.actionIntent,
+                sourceId = durablePending.sourceId,
+            )
+            confirmationCenter.arm(verified)
+            surface(verified)
+            return
+        }
         surface(resolve(reconstructed.eventId, reconstructed.correlationId) ?: coercePush(reconstructed))
     }
 
     fun dismiss() { _activeEvent.value = null }
 
-    // FRI-555 B3: verified CANCEL support. Clears the active card (if it's the one being cancelled),
-    // purges every retained `recent` entry sharing the correlation (so a later notification tap
-    // can't re-surface a cancelled task), and unconditionally cancels the OS notification posted
-    // under this correlation's key — NotificationManagerCompat.cancel is a safe no-op when nothing
-    // is posted, so this stays correct whether or not anything was actually showing.
-    // FRI-555 B1: a verified CANCEL for this correlation also clears any pending inbound
+    // FRI-555 B3: verified CANCEL support, scoped to sourceId+correlationId so an OpenClaw cancel can
+    // never purge a Hermes card/notification/confirmation sharing the same correlationId. Clears the
+    // active card (if it's the one being cancelled, matched on BOTH keys), purges every retained
+    // `recent` entry sharing BOTH keys (so a later notification tap can't re-surface a cancelled
+    // task), and unconditionally cancels the OS notification posted under the composite key —
+    // NotificationManagerCompat.cancel is a safe no-op when nothing is posted, so this stays correct
+    // whether or not anything was actually showing.
+    // FRI-555 B1: a verified CANCEL for this source+correlation also clears any pending inbound
     // confirmation sharing it, so a stale confirm/cancel tap can't resolve an already-cancelled task.
-    override fun dismissIfCorrelated(correlationId: String): Boolean {
+    override fun dismissIfCorrelated(sourceId: String, correlationId: String): Boolean {
         val current = _activeEvent.value
-        val cardCleared = current?.correlationId == correlationId
+        val cardCleared = current?.sourceId == sourceId && current.correlationId == correlationId
         if (cardCleared) _activeEvent.value = null
 
         val purged = synchronized(recent) {
-            val toRemove = recent.entries.filter { it.value.correlationId == correlationId }.map { it.key }
+            val toRemove = recent.entries
+                .filter { it.value.sourceId == sourceId && it.value.correlationId == correlationId }
+                .map { it.key }
             toRemove.forEach { recent.remove(it) }
             toRemove.isNotEmpty()
         }
 
-        val confirmationCleared = confirmationCenter.cancelByCorrelation(correlationId)
-        notifier.cancel(correlationId)
+        val confirmationCleared = confirmationCenter.cancelByCorrelation(sourceId, correlationId)
+        notifier.cancel(compositeKey(sourceId, correlationId))
         return cardCleared || purged || confirmationCleared
     }
 
@@ -149,10 +183,20 @@ class InboundEventCenter internal constructor(
         const val BODY_CAP = 400
         const val RECENT_CAP = 32
 
-        // FRI-555 B3: notification identity. Same-correlation events (e.g. PROGRESS -> COMPLETION
-        // for one task) share this key so they REPLACE the tray notification instead of stacking;
-        // events with no correlationId fall back to their own eventId.
-        fun notificationKeyFor(event: InboundEvent): String = event.correlationId ?: event.eventId
+        // FRI-555 B3: notification identity. Same-source-same-correlation events (e.g. PROGRESS ->
+        // COMPLETION for one task) share this key so they REPLACE the tray notification instead of
+        // stacking; a source+correlationId pair scopes identity so an OpenClaw and a Hermes event
+        // sharing the same correlationId never collide/replace each other. Falls back to the bare
+        // eventId when either sourceId or correlationId is absent (no ordering/identity constraint).
+        fun notificationKeyFor(event: InboundEvent): String {
+            val sourceId = event.sourceId
+            val correlationId = event.correlationId
+            return if (sourceId != null && correlationId != null) compositeKey(sourceId, correlationId) else event.eventId
+        }
+
+        // FRI-555 B3: shared composite-key format for dismissIfCorrelated's OS-notification cancel and
+        // notificationKeyFor's posting key, so a cancel always targets exactly what was posted.
+        fun compositeKey(sourceId: String, correlationId: String): String = "$sourceId|$correlationId"
 
         fun channelIdFor(urgency: InboundUrgency): String = when (urgency) {
             InboundUrgency.NORMAL -> CHANNEL_NORMAL

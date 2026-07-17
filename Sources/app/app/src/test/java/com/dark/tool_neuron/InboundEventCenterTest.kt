@@ -5,7 +5,9 @@ import com.dark.tool_neuron.model.friday.InboundEventKind
 import com.dark.tool_neuron.model.friday.InboundSource
 import com.dark.tool_neuron.model.friday.InboundUrgency
 import com.dark.tool_neuron.repo.InboundEventCenter
+import com.dark.tool_neuron.repo.gateway.event.InboundActionBridge
 import com.dark.tool_neuron.repo.gateway.event.InboundConfirmationCenter
+import com.dark.tool_neuron.repo.gateway.event.PendingInboundConfirmation
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
@@ -244,51 +246,74 @@ class InboundEventCenterTest {
         assertEquals(InboundEventCenter.BODY_CAP, surfaced.body.length)
     }
 
-    // FRI-555 B3: notification identity keying.
+    // FRI-555 B3: notification identity keying, scoped to sourceId+correlationId so two sources
+    // sharing a correlationId never collide/replace each other.
     @Test
-    fun notificationKeyFor_prefersCorrelationId_fallsBackToEventId() {
-        val withCorrelation = event().copy(eventId = "e1", correlationId = "c-1")
-        assertEquals("c-1", InboundEventCenter.notificationKeyFor(withCorrelation))
-        val withoutCorrelation = event().copy(eventId = "e1", correlationId = null)
+    fun notificationKeyFor_compositeWhenBothSourceIdAndCorrelationIdPresent() {
+        val withBoth = event().copy(eventId = "e1", correlationId = "c-1", sourceId = "src-1")
+        assertEquals(InboundEventCenter.compositeKey("src-1", "c-1"), InboundEventCenter.notificationKeyFor(withBoth))
+    }
+
+    @Test
+    fun notificationKeyFor_fallsBackToEventId_whenSourceIdMissing() {
+        val withoutSourceId = event().copy(eventId = "e1", correlationId = "c-1", sourceId = null)
+        assertEquals("e1", InboundEventCenter.notificationKeyFor(withoutSourceId))
+    }
+
+    @Test
+    fun notificationKeyFor_fallsBackToEventId_whenCorrelationIdMissing() {
+        val withoutCorrelation = event().copy(eventId = "e1", correlationId = null, sourceId = "src-1")
         assertEquals("e1", InboundEventCenter.notificationKeyFor(withoutCorrelation))
     }
 
     @Test
-    fun notificationKeyFor_sameForSharedCorrelation_evenWithDifferentEventIds() {
-        val progress = event().copy(eventId = "e1", correlationId = "c-1")
-        val completion = event().copy(eventId = "e2", correlationId = "c-1")
+    fun notificationKeyFor_sameForSharedSourceAndCorrelation_evenWithDifferentEventIds() {
+        val progress = event().copy(eventId = "e1", correlationId = "c-1", sourceId = "src-1")
+        val completion = event().copy(eventId = "e2", correlationId = "c-1", sourceId = "src-1")
         assertEquals(
             InboundEventCenter.notificationKeyFor(progress),
             InboundEventCenter.notificationKeyFor(completion),
         )
     }
 
-    // FRI-555 B3: cancel support — clears the card, purges retained entries sharing the
-    // correlation, and always tells the notifier to cancel the OS notification.
+    // FRI-555 B3: two sources sharing a correlationId must never collide/replace each other's
+    // tray notification.
+    @Test
+    fun notificationKeyFor_differsAcrossSourceId_sameCorrelationId() {
+        val hermes = event().copy(eventId = "e1", correlationId = "c-1", sourceId = "hermes-1")
+        val openclaw = event().copy(eventId = "e2", correlationId = "c-1", sourceId = "openclaw-1")
+        assertTrue(
+            "different sourceIds sharing a correlationId must have distinct notification identity",
+            InboundEventCenter.notificationKeyFor(hermes) != InboundEventCenter.notificationKeyFor(openclaw),
+        )
+    }
+
+    // FRI-555 B3: cancel support — clears the card, purges retained entries sharing BOTH sourceId
+    // and correlationId, and always tells the notifier to cancel the OS notification.
     @Test
     fun dismissIfCorrelated_clearsCard_purgesRecent_cancelsNotification() {
         val notifier = RecordingNotifier()
         val center = InboundEventCenter(FakeForeground(true), notifier)
-        val active = event().copy(eventId = "e1", correlationId = "c-1")
+        val active = event().copy(eventId = "e1", correlationId = "c-1", sourceId = "src-1")
         center.publish(active)
         assertEquals(active, center.activeEvent.value)
 
-        val result = center.dismissIfCorrelated("c-1")
+        val result = center.dismissIfCorrelated("src-1", "c-1")
 
         assertTrue(result)
         assertNull("active card must be cleared", center.activeEvent.value)
-        assertEquals(listOf("c-1"), notifier.cancelled)
+        assertEquals(listOf(InboundEventCenter.compositeKey("src-1", "c-1")), notifier.cancelled)
     }
 
     @Test
     fun dismissIfCorrelated_purgesMatchingRecentEntries_leavesUnrelatedAlone() {
         val notifier = RecordingNotifier()
         val center = InboundEventCenter(FakeForeground(false), notifier)
-        center.publish(event().copy(eventId = "e1", correlationId = "c-1"))
-        center.publish(event().copy(eventId = "e2", correlationId = "c-1"))
-        center.publish(event().copy(eventId = "e3", correlationId = "other"))
+        center.publish(event().copy(eventId = "e1", correlationId = "c-1", sourceId = "src-1"))
+        center.publish(event().copy(eventId = "e2", correlationId = "c-1", sourceId = "src-1"))
+        center.publish(event().copy(eventId = "e3", correlationId = "other", sourceId = "src-1"))
 
-        val result = center.dismissIfCorrelated("c-1")
+        val result = center.dismissIfCorrelated("src-1", "c-1")
 
         assertTrue(result)
         assertNull("matching entry e1 purged", center.resolve("e1", null))
@@ -300,12 +325,56 @@ class InboundEventCenterTest {
     fun dismissIfCorrelated_nothingMatches_returnsFalse_stillCancelsNotification() {
         val notifier = RecordingNotifier()
         val center = InboundEventCenter(FakeForeground(false), notifier)
-        center.publish(event().copy(eventId = "e1", correlationId = "unrelated"))
+        center.publish(event().copy(eventId = "e1", correlationId = "unrelated", sourceId = "src-1"))
 
-        val result = center.dismissIfCorrelated("c-none")
+        val result = center.dismissIfCorrelated("src-x", "c-none")
 
         assertFalse(result)
-        assertEquals("cancel is a safe no-op, always attempted", listOf("c-none"), notifier.cancelled)
+        assertEquals(
+            "cancel is a safe no-op, always attempted",
+            listOf(InboundEventCenter.compositeKey("src-x", "c-none")),
+            notifier.cancelled,
+        )
+    }
+
+    // FRI-555 B3: an OpenClaw cancel must never purge a Hermes entry sharing the same
+    // correlationId (or vice versa) — dismissIfCorrelated is scoped to BOTH keys.
+    @Test
+    fun dismissIfCorrelated_differentSourceId_sameCorrelation_doesNotAffectOtherSource() {
+        val notifier = RecordingNotifier()
+        val center = InboundEventCenter(FakeForeground(false), notifier)
+        val hermesEvent = event().copy(eventId = "h-1", correlationId = "c-1", sourceId = "hermes-1")
+        val openclawEvent = event().copy(eventId = "o-1", correlationId = "c-1", sourceId = "openclaw-1")
+        center.publish(hermesEvent)
+        center.publish(openclawEvent)
+
+        val result = center.dismissIfCorrelated("openclaw-1", "c-1")
+
+        assertTrue(result)
+        assertEquals(
+            "hermes entry sharing the correlationId but a different sourceId must survive",
+            hermesEvent,
+            center.resolve("h-1", null),
+        )
+        assertNull("openclaw entry purged", center.resolve("o-1", null))
+    }
+
+    @Test
+    fun dismissIfCorrelated_differentSourceId_sameCorrelation_doesNotClearActiveCard() {
+        val notifier = RecordingNotifier()
+        val center = InboundEventCenter(FakeForeground(true), notifier)
+        val hermesActive = event().copy(eventId = "h-2", correlationId = "c-2", sourceId = "hermes-1")
+        center.publish(hermesActive)
+        assertEquals(hermesActive, center.activeEvent.value)
+
+        val result = center.dismissIfCorrelated("openclaw-1", "c-2")
+
+        assertFalse("no matching source+correlation pair, dismiss reports false", result)
+        assertEquals(
+            "active card from a different source sharing the correlationId must survive",
+            hermesActive,
+            center.activeEvent.value,
+        )
     }
 
     // FRI-555 B1: publish() arms the InboundConfirmationCenter on the POST-coercion kind only.
@@ -335,13 +404,107 @@ class InboundEventCenterTest {
         val center = InboundEventCenter(FakeForeground(true), RecordingNotifier(), confirmationCenter)
         center.publish(
             event(kind = InboundEventKind.CONFIRMATION, source = InboundSource.VERIFIED)
-                .copy(eventId = "conf-3", correlationId = "corr-x")
+                .copy(eventId = "conf-3", correlationId = "corr-x", sourceId = "src-1")
         )
         assertEquals("conf-3", confirmationCenter.pending.value!!.eventId)
 
-        val result = center.dismissIfCorrelated("corr-x")
+        val result = center.dismissIfCorrelated("src-1", "corr-x")
 
         assertTrue(result)
         assertNull("cancel must also clear the pending confirmation sharing this correlation", confirmationCenter.pending.value)
+    }
+
+    // FRI-555 B3: an OpenClaw cancel must never resolve a Hermes confirmation sharing the same
+    // correlationId (or vice versa).
+    @Test
+    fun dismissIfCorrelated_differentSourceId_sameCorrelation_doesNotClearPendingConfirmation() {
+        val confirmationCenter = InboundConfirmationCenter()
+        val center = InboundEventCenter(FakeForeground(true), RecordingNotifier(), confirmationCenter)
+        center.publish(
+            event(kind = InboundEventKind.CONFIRMATION, source = InboundSource.VERIFIED)
+                .copy(eventId = "conf-4", correlationId = "corr-y", sourceId = "hermes-1")
+        )
+        assertEquals("conf-4", confirmationCenter.pending.value!!.eventId)
+
+        val result = center.dismissIfCorrelated("openclaw-1", "corr-y")
+
+        assertFalse(result)
+        assertEquals(
+            "pending confirmation from a different source sharing the correlationId must survive",
+            "conf-4",
+            confirmationCenter.pending.value!!.eventId,
+        )
+    }
+
+    private class RecordingBridge : InboundActionBridge {
+        var confirmedCount = 0
+        var cancelledCount = 0
+        var cancelled: PendingInboundConfirmation? = null
+
+        override fun onConfirmed(confirmation: PendingInboundConfirmation) {
+            confirmedCount++
+        }
+
+        override fun onCancelled(confirmation: PendingInboundConfirmation) {
+            cancelled = confirmation
+            cancelledCount++
+        }
+    }
+
+    // FRI-555 B1: a verified CANCEL reaching InboundEventCenter.dismissIfCorrelated must resolve the
+    // real pending confirmation through the bridge as CANCELLED (never CONFIRMED) -- proves the actual
+    // production wiring (dismissIfCorrelated -> confirmationCenter.cancelByCorrelation -> bridge),
+    // not just InboundConfirmationCenter in isolation.
+    @Test
+    fun dismissIfCorrelated_verifiedCancel_resolvesPendingConfirmationAsBridgeCancelled() {
+        val bridge = RecordingBridge()
+        val confirmationCenter = InboundConfirmationCenter(FakeEventStateStore(), bridge) { 1_000L }
+        val center = InboundEventCenter(FakeForeground(true), RecordingNotifier(), confirmationCenter)
+        center.publish(
+            event(kind = InboundEventKind.CONFIRMATION, source = InboundSource.VERIFIED)
+                .copy(eventId = "conf-5", correlationId = "corr-z", sourceId = "src-9")
+        )
+
+        val result = center.dismissIfCorrelated("src-9", "corr-z")
+
+        assertTrue(result)
+        assertEquals(1, bridge.cancelledCount)
+        assertEquals(0, bridge.confirmedCount)
+        assertEquals("conf-5", bridge.cancelled!!.eventId)
+        assertNull("resolved confirmation must clear the pending slot", confirmationCenter.pending.value)
+    }
+
+    // FRI-555 B1: a cold start (fresh InboundEventCenter/InboundConfirmationCenter over the SAME
+    // durable EventStateStore, `recent` cache empty) tapping the notification for a durably-armed
+    // verified confirmation must restore and surface a CONFIRMATION (requiresConfirmation == true),
+    // never the coerced STATUS fallback a forged/unknown tap would get.
+    @Test
+    fun surfaceFromNotification_coldStart_matchingDurablePending_surfacesVerifiedConfirmation() {
+        val store = FakeEventStateStore()
+        val firstConfirmationCenter = InboundConfirmationCenter(store, RecordingBridge()) { 1_000L }
+        val firstCenter = InboundEventCenter(FakeForeground(true), RecordingNotifier(), firstConfirmationCenter)
+        firstCenter.publish(
+            event(kind = InboundEventKind.CONFIRMATION, source = InboundSource.VERIFIED)
+                .copy(eventId = "conf-6", correlationId = "corr-cold", sourceId = "src-cold", title = "Approve deploy", body = "Ship v2")
+        )
+
+        // Simulate process death: brand-new center/confirmationCenter instances, `recent` cache empty,
+        // restored only from the shared durable store.
+        val recreatedConfirmationCenter = InboundConfirmationCenter(store, RecordingBridge()) { 2_000L }
+        val recreatedCenter = InboundEventCenter(FakeForeground(true), RecordingNotifier(), recreatedConfirmationCenter)
+        val tapped = InboundEventCenter.reconstruct(
+            eventId = "conf-6", correlationId = "corr-cold", kind = "confirmation",
+            title = "ignored", body = "ignored", urgency = "normal", receivedAt = 0L,
+        )!!
+
+        recreatedCenter.surfaceFromNotification(tapped)
+
+        val surfaced = recreatedCenter.activeEvent.value!!
+        assertEquals("conf-6", surfaced.eventId)
+        assertEquals(InboundEventKind.CONFIRMATION, surfaced.kind)
+        assertTrue("cold-started tap of a durable verified confirmation must surface a confirmation, not STATUS", surfaced.requiresConfirmation)
+        assertEquals(InboundSource.VERIFIED, surfaced.sourceType)
+        assertEquals("Approve deploy", surfaced.title)
+        assertEquals("Ship v2", surfaced.body)
     }
 }

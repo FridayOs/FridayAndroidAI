@@ -107,4 +107,39 @@ class InboundEventEnvelopeTest {
         val b = InboundEventEnvelope.parse(fullPayload(mapOf("title" to "a", "body" to "bc")))!!
         assertNotEquals(a.canonicalBytes().toList(), b.canonicalBytes().toList())
     }
+
+    // FRI-555 (B4): identity fields (eventId/nonce/sourceId/correlationId) are persisted downstream
+    // as delimiter-joined records ("atMs\tvalue", "sourceId|correlationId"). A value containing the
+    // record separator, the composite-key separator, a control char, or exceeding the length cap
+    // must be rejected at parse (fail-closed) so a corrupted persisted record can never yield a
+    // false "unseen" on read-back.
+    @Test
+    fun parse_identityFieldWithControlOrDelimiterChar_returnsNull() {
+        val dirtyValues = listOf("has\nnewline", "has\rcr", "has\ttab", "has|pipe", "has\u0000nul")
+        val identityFields = listOf("eventId", "nonce", "sourceId", "correlationId")
+        for (field in identityFields) {
+            for (dirty in dirtyValues) {
+                assertNull(
+                    "field=$field value=${dirty.hashCode()} must be rejected",
+                    InboundEventEnvelope.parse(fullPayload(mapOf(field to dirty))),
+                )
+            }
+        }
+    }
+
+    @Test
+    fun parse_identityFieldOverLengthCap_returnsNull() {
+        val tooLong = "a".repeat(InboundEventEnvelope.ID_MAX + 1)
+        val identityFields = listOf("eventId", "nonce", "sourceId", "correlationId")
+        for (field in identityFields) {
+            assertNull("field=$field over ID_MAX must be rejected", InboundEventEnvelope.parse(fullPayload(mapOf(field to tooLong))))
+        }
+    }
+
+    @Test
+    fun parse_identityFieldAtLengthCap_isAccepted() {
+        val atCap = "a".repeat(InboundEventEnvelope.ID_MAX)
+        val env = InboundEventEnvelope.parse(fullPayload(mapOf("eventId" to atCap)))
+        assertEquals(atCap, env?.eventId)
+    }
 }

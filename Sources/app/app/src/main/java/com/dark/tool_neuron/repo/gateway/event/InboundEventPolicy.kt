@@ -33,6 +33,7 @@ class InboundEventPolicy @Inject constructor(
             urgency = effectiveUrgency(env),
             receivedAt = nowMs,
             actionIntent = if (env.type == InboundEventType.CONFIRMATION_REQUESTED) env.actionIntent else null,
+            sourceId = env.sourceId,
         )
         return PolicyDecision.Deliver(event)
     }

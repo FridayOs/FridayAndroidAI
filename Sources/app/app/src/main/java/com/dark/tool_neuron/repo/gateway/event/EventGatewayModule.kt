@@ -30,4 +30,10 @@ abstract class EventGatewayModule {
     @Binds
     @Singleton
     abstract fun bindEventStateStore(impl: PrefsEventStateStore): EventStateStore
+
+    // FRI-555 B1: the approval seam a future brain/outbound integration binds to. Default records
+    // the decision durably; it never executes the action (see InboundActionBridge doc).
+    @Binds
+    @Singleton
+    abstract fun bindInboundActionBridge(impl: RecordingInboundActionBridge): InboundActionBridge
 }

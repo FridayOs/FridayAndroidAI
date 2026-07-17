@@ -64,4 +64,17 @@ class DedupeStoreTest {
         // Every seed line is unparseable, so the store behaves as if empty.
         assertTrue(store.firstSeen("ev-1", 2_000L))
     }
+
+    // FRI-555 (B4): adversarial defense-in-depth -- even if a raw persisted value somehow spanned
+    // multiple physical lines (e.g. a legacy record written before InboundEventEnvelope.isCleanId
+    // rejected embedded newlines at parse time), the genuine "atMs\teventId" prefix line must still
+    // be read back and honored as seen. A corrupted trailing fragment must never cause an
+    // already-seen eventId to be reported as a false "unseen" (which would let a duplicate through).
+    @Test
+    fun firstSeen_rawMultiLineValueWritten_neverFalseUnseenForRecordedPrefix() {
+        val backing = FakeEventStateStore()
+        backing.write("fri555.dedupe", "1000\tev-1\ninjected-garbage-line-not-a-valid-record")
+        val store = DedupeStore(backing)
+        assertFalse("prefix line 'ev-1' was genuinely recorded; read-back must still reject it as a duplicate", store.firstSeen("ev-1", 1_500L))
+    }
 }
