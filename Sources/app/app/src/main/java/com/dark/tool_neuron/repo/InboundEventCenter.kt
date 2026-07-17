@@ -14,6 +14,7 @@ import com.dark.tool_neuron.model.friday.InboundEvent
 import com.dark.tool_neuron.model.friday.InboundEventKind
 import com.dark.tool_neuron.model.friday.InboundSource
 import com.dark.tool_neuron.model.friday.InboundUrgency
+import com.dark.tool_neuron.repo.gateway.event.EventDeliverySink
 import com.friday.ai.R
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -40,7 +41,7 @@ internal interface EventNotifier {
 class InboundEventCenter internal constructor(
     private val foreground: ForegroundSignal,
     private val notifier: EventNotifier,
-) : InboundEventPort {
+) : InboundEventPort, EventDeliverySink {
 
     @Inject constructor(@ApplicationContext context: Context) : this(
         ProcessForegroundSignal(),
@@ -58,8 +59,19 @@ class InboundEventCenter internal constructor(
     }
 
     override fun publish(event: InboundEvent) {
-        val safe = if (event.sourceType == InboundSource.PUSH) coercePush(event) else event
-        synchronized(recent) { recent[safe.eventId] = safe }
+        val safe = when (event.sourceType) {
+            InboundSource.PUSH -> coercePush(event)
+            InboundSource.VERIFIED -> event.copy(title = event.title.take(TITLE_CAP), body = event.body.take(BODY_CAP))
+            InboundSource.LOCAL -> event
+        }
+        // A retained VERIFIED entry must never be clobbered by a lower-trust (PUSH) publish sharing
+        // the same eventId — otherwise a later notification tap would resolve the downgraded copy
+        // and hide the legitimate verified card.
+        synchronized(recent) {
+            val existing = recent[safe.eventId]
+            val protectVerified = existing?.sourceType == InboundSource.VERIFIED && safe.sourceType != InboundSource.VERIFIED
+            if (!protectVerified) recent[safe.eventId] = safe
+        }
         if (foreground.isForeground()) {
             _activeEvent.value = safe
         } else {
@@ -87,6 +99,15 @@ class InboundEventCenter internal constructor(
     }
 
     fun dismiss() { _activeEvent.value = null }
+
+    // FRI-555: verified CANCEL support. Only clears the active card when it is the one being
+    // cancelled (correlationId match) — an unrelated or already-dismissed event is left alone.
+    override fun dismissIfCorrelated(correlationId: String): Boolean {
+        val current = _activeEvent.value ?: return false
+        if (current.correlationId != correlationId) return false
+        _activeEvent.value = null
+        return true
+    }
 
     companion object {
         const val CHANNEL_NORMAL = "friday_events_normal"

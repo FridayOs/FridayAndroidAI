@@ -171,6 +171,29 @@ class InboundEventCenterTest {
     }
 
     @Test
+    fun publish_verifiedTitleAndBody_areLengthCapped() {
+        val center = InboundEventCenter(FakeForeground(false), RecordingNotifier())
+        center.publish(
+            event(source = InboundSource.VERIFIED, title = "x".repeat(500), body = "y".repeat(2000))
+                .copy(eventId = "v-1")
+        )
+        val surfaced = center.resolve("v-1", null)!!
+        assertEquals(InboundEventCenter.TITLE_CAP, surfaced.title.length)
+        assertEquals(InboundEventCenter.BODY_CAP, surfaced.body.length)
+    }
+
+    @Test
+    fun publish_pushSameEventIdAsRetainedVerified_doesNotOverwriteCache() {
+        val center = InboundEventCenter(FakeForeground(false), RecordingNotifier())
+        val verified = event(source = InboundSource.VERIFIED, title = "verified title").copy(eventId = "dup-1")
+        center.publish(verified)
+        center.publish(event(source = InboundSource.PUSH, title = "spoofed title").copy(eventId = "dup-1"))
+        val resolved = center.resolve("dup-1", null)!!
+        assertEquals(InboundSource.VERIFIED, resolved.sourceType)
+        assertEquals("verified title", resolved.title)
+    }
+
+    @Test
     fun reconstruct_mapsFullPayload_pushSourced() {
         val e = InboundEventCenter.reconstruct(
             eventId = "ev-1", correlationId = "c-1", kind = "task",

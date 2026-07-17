@@ -17,7 +17,10 @@ data class InboundEvent(
     val requiresConfirmation: Boolean get() = kind == InboundEventKind.CONFIRMATION
 }
 
-enum class InboundSource { PUSH, LOCAL }
+// FRI-555: VERIFIED is a signed OpenClaw/Hermes envelope that passed EventGateway verification
+// (HMAC + timestamp + nonce). Only VERIFIED bypasses InboundEventCenter's unverified-push
+// coercion, so only a verified CONFIRMATION renders the actionable confirm/cancel card.
+enum class InboundSource { PUSH, LOCAL, VERIFIED }
 
 enum class InboundEventKind { TASK, STATUS, CONFIRMATION }
 
