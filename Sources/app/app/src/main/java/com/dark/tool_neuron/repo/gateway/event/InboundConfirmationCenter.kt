@@ -116,6 +116,15 @@ class InboundConfirmationCenter internal constructor(
         return true
     }
 
+    // FRI-555 R6-1: a new delivered state for this identity (any publish() carrying both keys)
+    // supersedes a prior resolution's teardown-suppression -- otherwise a stale ALREADY_RESOLVED from
+    // an earlier confirm/cancel would swallow a later, valid CANCEL for the NEW state (e.g. a PROGRESS
+    // published after the original confirmation resolved). No-op if the identity was never resolved.
+    @Synchronized
+    fun clearResolved(sourceId: String, correlationId: String) {
+        recentlyResolved.remove(identityKey(sourceId, correlationId))
+    }
+
     // FRI-555 R5-1: remembers every identity resolved by ANY path (confirm/cancel/cancelByCorrelation
     // win, or a claimCancel WON) so a later racing claimCancel for the same identity returns
     // ALREADY_RESOLVED instead of NONE -- only called under the monitor. Bounded LRU: unresolved

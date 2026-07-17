@@ -747,4 +747,55 @@ class InboundEventCenterTest {
             assertNull("retained recent entry must be purged", center.resolve("race-2", null))
         }
     }
+
+    // FRI-555 R6-1: the reviewer's missing deterministic sequence -- a prior confirm() resolving t1
+    // must NOT permanently suppress a later, valid CANCEL for the SAME identity once new state (t2)
+    // has been published. Without clearResolved() this hits the stale ALREADY_RESOLVED skip and t2's
+    // surfaces are never torn down.
+    @Test
+    fun dismissIfCorrelated_afterPriorConfirmation_tearsDownLaterPublishedStateForSameIdentity() {
+        val notifier = RecordingNotifier()
+        val bridge = RecordingBridge()
+        val confirmationCenter = InboundConfirmationCenter(FakeEventStateStore(), bridge) { 1_000L }
+        val center = InboundEventCenter(FakeForeground(true), notifier, confirmationCenter)
+
+        // t1: verified CONFIRMATION armed then resolved by the user.
+        center.publish(
+            event(kind = InboundEventKind.CONFIRMATION, source = InboundSource.VERIFIED)
+                .copy(eventId = "t1", correlationId = "corr-r6", sourceId = "src-r6")
+        )
+        assertTrue(center.confirmActiveConfirmation())
+        assertEquals(1, bridge.confirmedCount)
+
+        // t2: a later STATUS/PROGRESS publish for the SAME sourceId+correlationId, a new eventId --
+        // a fresh live surface (card + recent), independent of t1's already-resolved confirmation.
+        center.publish(
+            event(kind = InboundEventKind.STATUS, source = InboundSource.VERIFIED)
+                .copy(eventId = "t2", correlationId = "corr-r6", sourceId = "src-r6")
+        )
+        assertEquals("t2 becomes the active card", "t2", center.activeEvent.value!!.eventId)
+
+        // t3: a valid later CANCEL for the same identity must tear down t2's surfaces via the NONE
+        // path (nothing pending, and the prior resolution no longer suppresses this identity) --
+        // never the stale ALREADY_RESOLVED early-return from t1's resolution.
+        val result = center.dismissIfCorrelated("src-r6", "corr-r6")
+
+        assertTrue("must tear down and return true via the NONE path, not an ALREADY_RESOLVED skip", result)
+        assertNull("t2's active card must be torn down", center.activeEvent.value)
+        assertNull("t2's retained recent entry must be purged", center.resolve("t2", null))
+        // Both t1's confirmActiveConfirmation() and this dismissIfCorrelated() cancel the OS
+        // notification under the SAME composite key (source+correlation, not per-eventId) -- t1's
+        // resolution fires once, then this CANCEL fires again for t2's live state under that identity.
+        assertEquals(
+            "t2's OS notification must be cancelled (in addition to t1's earlier cancel under the same key)",
+            listOf(
+                InboundEventCenter.compositeKey("src-r6", "corr-r6"),
+                InboundEventCenter.compositeKey("src-r6", "corr-r6"),
+            ),
+            notifier.cancelled,
+        )
+        // t1's earlier resolution is untouched by this CANCEL -- no second bridge call.
+        assertEquals(1, bridge.confirmedCount)
+        assertEquals(0, bridge.cancelledCount)
+    }
 }

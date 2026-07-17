@@ -343,6 +343,32 @@ class InboundConfirmationCenterTest {
         assertEquals(0, bridge.confirmedCount)
     }
 
+    // FRI-555 R6-1: clearResolved invalidates a prior ALREADY_RESOLVED suppression -- a new delivered
+    // state for the identity means a subsequent claimCancel must fall through to NONE (plain-task
+    // teardown path), not the stale ALREADY_RESOLVED skip from the earlier confirm().
+    @Test
+    fun clearResolved_afterPriorConfirm_makesClaimCancelReturnNone_notAlreadyResolved() {
+        val bridge = RecordingBridge()
+        val c = center(bridge = bridge)
+        c.arm(confirmationEvent(id = "e1", correlationId = "c-1", sourceId = "src-1"))
+        assertTrue(c.confirm("e1"))
+        assertEquals(1, bridge.confirmedCount)
+
+        c.clearResolved("src-1", "c-1")
+
+        assertEquals(CancelClaim.NONE, c.claimCancel("src-1", "c-1"))
+        assertEquals(1, bridge.confirmedCount)
+        assertEquals(0, bridge.cancelledCount)
+    }
+
+    // FRI-555 R6-1: clearResolved for an identity that was never resolved is a safe no-op.
+    @Test
+    fun clearResolved_neverResolvedIdentity_isSafeNoOp() {
+        val c = center()
+        c.clearResolved("src-1", "c-1")
+        assertEquals(CancelClaim.NONE, c.claimCancel("src-1", "c-1"))
+    }
+
     // FRI-555 R5-1: an identity that was never armed and never resolved -- a plain task's CANCEL --
     // must return NONE (not ALREADY_RESOLVED) so the caller still unconditionally cancels the OS
     // notification, and the bridge must never be touched.

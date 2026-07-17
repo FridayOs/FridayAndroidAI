@@ -98,6 +98,12 @@ class InboundEventCenter internal constructor(
         if (safe.sourceType == InboundSource.VERIFIED && safe.kind == InboundEventKind.CONFIRMATION) {
             confirmationCenter.arm(safe)
         }
+        // FRI-555 R6-1: any new delivered state for this identity is a new generation, so it
+        // supersedes a prior resolution's ALREADY_RESOLVED suppression -- otherwise a later valid
+        // CANCEL for THIS state would be swallowed as already-handled by a stale earlier resolution.
+        if (safe.sourceId != null && safe.correlationId != null) {
+            confirmationCenter.clearResolved(safe.sourceId, safe.correlationId)
+        }
         if (foreground.isForeground()) {
             _activeEvent.value = safe
         } else {
