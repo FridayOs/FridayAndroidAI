@@ -35,12 +35,15 @@ class InboundConfirmationCenter internal constructor(
     // @Inject constructor above with the real Hilt-provided EventStateStore/InboundActionBridge.
     constructor() : this(InMemoryEventStateStore(), NoOpInboundActionBridge(), System::currentTimeMillis)
 
-    // FRI-555 R8-1: per-identity generation state held in ONE bounded access-order LRU entry, so an
+    // FRI-555 R8-1/R9-1: per-identity generation state held in ONE bounded access-order LRU entry, so an
     // identity's current counter and its resolved stamp evict TOGETHER -- they can never desync (the
     // round-7 bug: two independent LRUs evicted apart, reusing a generation token while a stale resolved
-    // stamp survived, reviving a spurious ALREADY_RESOLVED). `current` is the monotonic per-identity
-    // counter bumped by every NEW delivered state for a sourceId|correlationId (an arm() of a fresh
-    // confirmation, or a superseding noteState() publish). `resolved` (recordResolved is its ONLY writer)
+    // stamp survived, reviving a spurious ALREADY_RESOLVED). `current` holds a GLOBALLY monotonic token
+    // (allocated from generationCounter, never reset per identity -- R9-1) bumped by every NEW delivered
+    // state for a sourceId|correlationId (an arm() of a fresh confirmation, or a superseding noteState()
+    // publish). Because tokens are never re-minted, an entry recreated after eviction gets current >> any
+    // old pendingGeneration, so a stale resolution can never collide with the new current (round-8 gap
+    // where a per-identity counter RESET to 1 after eviction). `resolved` (recordResolved is its ONLY writer)
     // is the generation a resolution was stamped AT (pendingGeneration). A later CANCEL is suppressed
     // (ALREADY_RESOLVED) ONLY while resolved != null && resolved == current -- any intervening state bump
     // makes current > resolved, so the CANCEL tears down the new state instead of being swallowed.
@@ -54,7 +57,16 @@ class InboundConfirmationCenter internal constructor(
             size > RECENTLY_RESOLVED_CAP
     }
 
-    // FRI-555 R7-1/R8-1: generation of the currently-armed pending confirmation (single-slot, monitor-
+    // FRI-555 R9-1: single GLOBAL monotonic generation counter (monitor-guarded, NOT persisted). Every
+    // bumpGeneration allocates the NEXT value from here and NEVER resets per identity. Because tokens are
+    // globally unique and strictly increasing, a token EVER assigned (a live pendingGeneration) can never
+    // be re-minted -- so an identity entry recreated after LRU eviction gets a fresh token >> any old
+    // pending token, and a stale resolution can never collide with (== ) the new current. This closes the
+    // round-8 gap where a per-identity counter RESET to 1 after eviction and collided with the surviving
+    // pendingGeneration=1, reviving a spurious ALREADY_RESOLVED and swallowing a valid CANCEL.
+    private var generationCounter: Long = 0L
+
+    // FRI-555 R7-1/R8-1/R9-1: generation of the currently-armed pending confirmation (single-slot, monitor-
     // guarded, NOT persisted -- the transient identityState map is rebuilt on restart via loadPending).
     // resolve()/claimCancel WON stamp the identity's `resolved` at THIS value, not the current live
     // generation, so a confirmation resolved AFTER a superseding publish still records at its own (older)
@@ -158,14 +170,18 @@ class InboundConfirmationCenter internal constructor(
         bumpGeneration(sourceId, correlationId)
     }
 
-    // FRI-555 R7-1/R8-1: monotonic per-identity `current` bump within the single entry. PRESERVES the
-    // existing `resolved` stamp (recordResolved is the sole writer of `resolved`) so a superseding
-    // noteState/arm advances current past resolved without erasing it. Only called under the monitor
-    // (from arm, noteState, loadPending). Returns the new current generation.
+    // FRI-555 R9-1: allocate the identity's new `current` from the GLOBAL monotonic counter (never resets
+    // per identity), so a token is globally unique and strictly increasing. PRESERVES the existing
+    // `resolved` stamp (recordResolved is the sole writer of `resolved`) so a superseding noteState/arm
+    // advances current past resolved without erasing it. Only called under the monitor (from arm,
+    // noteState, loadPending). Returns the new current generation. Because the counter never re-mints a
+    // token, an entry recreated after eviction gets current >> any old pendingGeneration, so a stale
+    // resolution can never == the new current (no false ALREADY_RESOLVED after eviction).
     private fun bumpGeneration(sourceId: String, correlationId: String): Long {
         val id = identityKey(sourceId, correlationId)
+        generationCounter += 1
+        val next = generationCounter
         val prev = identityState[id]
-        val next = (prev?.current ?: 0L) + 1
         identityState[id] = IdentityGeneration(current = next, resolved = prev?.resolved)
         return next
     }

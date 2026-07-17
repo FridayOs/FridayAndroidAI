@@ -901,4 +901,64 @@ class InboundEventCenterTest {
             assertEquals(0, bridge.cancelledCount.get())
         }
     }
+
+    // FRI-555 R9-1: end-to-end proof of the PENDING-evicted collision. E1 (verified CONFIRMATION for
+    // identity X) is armed and stays pending while 40 DISTINCT other identities churn the confirmation
+    // center's identityState LRU (cap 32), evicting X's entry. A superseding STATUS E2 for X then
+    // recreates X's entry. Under the round-8 per-identity RESET counter the recreated entry's current=1
+    // collided with the surviving pendingGeneration=1, so confirming the old pending stamped resolved=1
+    // onto current=1 and the later CANCEL was swallowed as ALREADY_RESOLVED -- leaving E2's card, recent
+    // entry, and OS notification alive. With the R9 GLOBAL monotonic counter X's recreated current is a
+    // fresh token >> the old pending token, so resolved(old) != current(new) -> NONE -> the CANCEL tears
+    // E2 down.
+    @Test
+    fun pendingEvictedThenSupersedingPublish_cancelTearsDownNewState() {
+        val notifier = RecordingNotifier()
+        val bridge = RecordingBridge()
+        val confirmationCenter = InboundConfirmationCenter(FakeEventStateStore(), bridge) { 1_000L }
+        val center = InboundEventCenter(FakeForeground(true), notifier, confirmationCenter)
+
+        // E1: verified CONFIRMATION armed for identity X; it stays pending throughout the churn below.
+        center.publish(
+            event(kind = InboundEventKind.CONFIRMATION, source = InboundSource.VERIFIED)
+                .copy(eventId = "E1", correlationId = "corr-x", sourceId = "src-x")
+        )
+
+        // Churn 40 DISTINCT other identities via STATUS publishes (each carries both keys -> noteState)
+        // -> exceeds the confirmation center's identityState cap (32) -> evicts X's entry while E1 is
+        // still the armed pending confirmation.
+        repeat(40) { i ->
+            center.publish(
+                event(kind = InboundEventKind.STATUS, source = InboundSource.VERIFIED)
+                    .copy(eventId = "other-$i", correlationId = "corr-$i", sourceId = "src-$i")
+            )
+        }
+
+        // E2: superseding STATUS for identity X (new eventId) -> recreates X's entry (fresh global token)
+        // and becomes the live active card + recent entry.
+        center.publish(
+            event(kind = InboundEventKind.STATUS, source = InboundSource.VERIFIED)
+                .copy(eventId = "E2", correlationId = "corr-x", sourceId = "src-x")
+        )
+        assertEquals("E2 is the live active card", "E2", center.activeEvent.value!!.eventId)
+
+        // User resolves the still-pending E1 confirmation. Its suppression is stamped at E1's old
+        // (evicted) token, which can never equal X's recreated current -> no false ALREADY_RESOLVED.
+        assertTrue(center.confirmActiveConfirmation())
+        assertEquals(1, bridge.confirmedCount)
+
+        // CANCEL for identity X must tear down E2 via the NONE path, not the stale ALREADY_RESOLVED skip.
+        val result = center.dismissIfCorrelated("src-x", "corr-x")
+
+        assertTrue("CANCEL must tear down E2 via the NONE path after pending-eviction", result)
+        assertNull("E2's active card must be torn down", center.activeEvent.value)
+        assertNull("E2's retained recent entry must be purged", center.resolve("E2", null))
+        assertTrue(
+            "E2's OS notification must be cancelled under the composite key",
+            notifier.cancelled.contains(InboundEventCenter.compositeKey("src-x", "corr-x")),
+        )
+        // E1's resolution fired once; the CANCEL never double-resolved the bridge.
+        assertEquals(1, bridge.confirmedCount)
+        assertEquals(0, bridge.cancelledCount)
+    }
 }

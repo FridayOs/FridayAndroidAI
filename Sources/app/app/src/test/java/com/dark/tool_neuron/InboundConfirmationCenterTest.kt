@@ -407,6 +407,42 @@ class InboundConfirmationCenterTest {
         assertEquals(CancelClaim.ALREADY_RESOLVED, c.claimCancel("srcY", "cY"))
     }
 
+    // FRI-555 R9-1: the PENDING-evicted collision the round-8 per-identity reset counter missed. Arm X
+    // (pendingGeneration captures its token) WHILE it stays armed, churn >32 other identities to evict X's
+    // entry, then a superseding noteState(X) recreates the entry. Under the OLD per-identity counter that
+    // recreated entry reset to current=1 and collided with the surviving pendingGeneration=1, so confirming
+    // the old pending stamped resolved=1 onto current=1 and claimCancel wrongly returned ALREADY_RESOLVED,
+    // swallowing the new state's teardown. With the GLOBAL monotonic counter the recreated entry's current
+    // is a fresh token >> the old pendingGeneration, so resolved(old) != current(new) -> NONE -> teardown.
+    @Test
+    fun pendingEvictedThenSupersedingPublish_cancelMustTearDownNewState() {
+        val bridge = RecordingBridge()
+        val c = center(bridge = bridge)
+
+        // Arm identity X; it stays armed (pending) throughout the churn below.
+        c.arm(confirmationEvent(id = "eX", correlationId = "cX", sourceId = "srcX"))
+
+        // Churn 40 distinct OTHER identities via noteState -> exceeds cap 32 -> evicts X's entry
+        // while X is STILL the armed pending confirmation.
+        repeat(40) { i ->
+            c.noteState("src-$i", "corr-$i")
+        }
+
+        // A superseding delivery for X recreates a fresh entry (global counter -> current >> pending token).
+        c.noteState("srcX", "cX")
+
+        // User confirms the OLD pending -> stamps resolved = pendingGeneration (old token) onto current.
+        assertTrue(c.confirm("eX"))
+
+        // The stale resolution token can never equal the recreated entry's fresh current -> NONE, so the
+        // caller tears down the new state instead of skipping via ALREADY_RESOLVED.
+        assertEquals(
+            "a pending-evicted-then-recreated identity must not swallow the new state's CANCEL",
+            CancelClaim.NONE,
+            c.claimCancel("srcX", "cX"),
+        )
+    }
+
     // FRI-555 R5-1: an identity that was never armed and never resolved -- a plain task's CANCEL --
     // must return NONE (not ALREADY_RESOLVED) so the caller still unconditionally cancels the OS
     // notification, and the bridge must never be touched.
