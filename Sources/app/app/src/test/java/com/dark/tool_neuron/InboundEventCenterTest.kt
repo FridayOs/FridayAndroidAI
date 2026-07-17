@@ -507,4 +507,140 @@ class InboundEventCenterTest {
         assertEquals("Approve deploy", surfaced.title)
         assertEquals("Ship v2", surfaced.body)
     }
+
+    // FRI-555 R3-1: user confirm must tear down the active card, the retained `recent` entry, and
+    // the OS notification -- not just resolve the pending confirmation slot.
+    @Test
+    fun confirmActiveConfirmation_tearsDownCardRecentAndNotification() {
+        val notifier = RecordingNotifier()
+        val bridge = RecordingBridge()
+        val confirmationCenter = InboundConfirmationCenter(FakeEventStateStore(), bridge) { 1_000L }
+        val center = InboundEventCenter(FakeForeground(true), notifier, confirmationCenter)
+        center.publish(
+            event(kind = InboundEventKind.CONFIRMATION, source = InboundSource.VERIFIED)
+                .copy(eventId = "conf-r3-1", correlationId = "corr-r3", sourceId = "src-r3")
+        )
+        assertEquals("conf-r3-1", center.activeEvent.value!!.eventId)
+
+        val result = center.confirmActiveConfirmation()
+
+        assertTrue(result)
+        assertNull("active card must be torn down", center.activeEvent.value)
+        assertNull("retained recent entry must be purged", center.resolve("conf-r3-1", null))
+        assertEquals(listOf(InboundEventCenter.compositeKey("src-r3", "corr-r3")), notifier.cancelled)
+        assertEquals(1, bridge.confirmedCount)
+        assertEquals(0, bridge.cancelledCount)
+        assertNull("pending slot resolved", confirmationCenter.pending.value)
+    }
+
+    @Test
+    fun cancelActiveConfirmation_tearsDownCardRecentAndNotification_bridgeOnCancelled() {
+        val notifier = RecordingNotifier()
+        val bridge = RecordingBridge()
+        val confirmationCenter = InboundConfirmationCenter(FakeEventStateStore(), bridge) { 1_000L }
+        val center = InboundEventCenter(FakeForeground(true), notifier, confirmationCenter)
+        center.publish(
+            event(kind = InboundEventKind.CONFIRMATION, source = InboundSource.VERIFIED)
+                .copy(eventId = "conf-r3-2", correlationId = "corr-r3b", sourceId = "src-r3b")
+        )
+
+        val result = center.cancelActiveConfirmation()
+
+        assertTrue(result)
+        assertNull("active card must be torn down", center.activeEvent.value)
+        assertNull("retained recent entry must be purged", center.resolve("conf-r3-2", null))
+        assertEquals(listOf(InboundEventCenter.compositeKey("src-r3b", "corr-r3b")), notifier.cancelled)
+        assertEquals(0, bridge.confirmedCount)
+        assertEquals(1, bridge.cancelledCount)
+    }
+
+    @Test
+    fun confirmActiveConfirmation_nullCorrelationId_teardownKeyedByEventId() {
+        val notifier = RecordingNotifier()
+        val bridge = RecordingBridge()
+        val confirmationCenter = InboundConfirmationCenter(FakeEventStateStore(), bridge) { 1_000L }
+        val center = InboundEventCenter(FakeForeground(true), notifier, confirmationCenter)
+        center.publish(
+            event(kind = InboundEventKind.CONFIRMATION, source = InboundSource.VERIFIED)
+                .copy(eventId = "conf-r3-3", correlationId = null, sourceId = null)
+        )
+
+        val result = center.confirmActiveConfirmation()
+
+        assertTrue(result)
+        assertEquals(
+            "no source+correlation pair -- teardown must cancel the OS notification keyed by eventId",
+            listOf("conf-r3-3"),
+            notifier.cancelled,
+        )
+    }
+
+    @Test
+    fun activeConfirmation_reTapAfterResolve_isSafeNoOp_noSecondBridgeCall() {
+        val notifier = RecordingNotifier()
+        val bridge = RecordingBridge()
+        val confirmationCenter = InboundConfirmationCenter(FakeEventStateStore(), bridge) { 1_000L }
+        val center = InboundEventCenter(FakeForeground(true), notifier, confirmationCenter)
+        center.publish(
+            event(kind = InboundEventKind.CONFIRMATION, source = InboundSource.VERIFIED)
+                .copy(eventId = "conf-r3-4", correlationId = "corr-r3d", sourceId = "src-r3d")
+        )
+        assertTrue(center.confirmActiveConfirmation())
+
+        val secondTap = center.confirmActiveConfirmation()
+        val staleCancel = center.cancelActiveConfirmation()
+
+        assertFalse("re-tap after resolve must be a safe no-op", secondTap)
+        assertFalse("stale cancel after resolve must be a safe no-op", staleCancel)
+        assertEquals("no second bridge call from either re-tap", 1, bridge.confirmedCount)
+        assertEquals(0, bridge.cancelledCount)
+    }
+
+    // FRI-555 R3-2: actionIntent must be length-capped alongside title/body in the VERIFIED publish
+    // branch, so the capped value flows into confirmationCenter.arm (persistence) and _activeEvent.
+    @Test
+    fun publish_verifiedActionIntent_isLengthCapped() {
+        val center = InboundEventCenter(FakeForeground(false), RecordingNotifier())
+        center.publish(
+            event(source = InboundSource.VERIFIED)
+                .copy(eventId = "action-r3-1", actionIntent = "z".repeat(500))
+        )
+        val surfaced = center.resolve("action-r3-1", null)!!
+        assertEquals(InboundEventCenter.ACTION_CAP, surfaced.actionIntent!!.length)
+    }
+
+    @Test
+    fun publish_verifiedActionIntent_boundaryLengthUnchanged() {
+        val center = InboundEventCenter(FakeForeground(false), RecordingNotifier())
+        val boundary = "a".repeat(InboundEventCenter.ACTION_CAP)
+        center.publish(
+            event(source = InboundSource.VERIFIED)
+                .copy(eventId = "action-r3-2", actionIntent = boundary)
+        )
+        assertEquals(boundary, center.resolve("action-r3-2", null)!!.actionIntent)
+    }
+
+    @Test
+    fun publish_verifiedActionIntent_nullStaysNull() {
+        val center = InboundEventCenter(FakeForeground(false), RecordingNotifier())
+        center.publish(
+            event(source = InboundSource.VERIFIED).copy(eventId = "action-r3-3", actionIntent = null)
+        )
+        assertNull(center.resolve("action-r3-3", null)!!.actionIntent)
+    }
+
+    @Test
+    fun publish_verifiedConfirmation_cappedActionIntentReachesConfirmationCenterArm() {
+        val confirmationCenter = InboundConfirmationCenter()
+        val center = InboundEventCenter(FakeForeground(true), RecordingNotifier(), confirmationCenter)
+        center.publish(
+            event(kind = InboundEventKind.CONFIRMATION, source = InboundSource.VERIFIED)
+                .copy(eventId = "action-r3-4", actionIntent = "b".repeat(500))
+        )
+        assertEquals(
+            "capped actionIntent must reach the persisted pending confirmation",
+            InboundEventCenter.ACTION_CAP,
+            confirmationCenter.pending.value!!.actionIntent!!.length,
+        )
+    }
 }

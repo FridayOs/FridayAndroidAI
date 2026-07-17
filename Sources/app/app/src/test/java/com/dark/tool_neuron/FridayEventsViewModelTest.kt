@@ -6,7 +6,9 @@ import com.dark.tool_neuron.model.friday.InboundEventKind
 import com.dark.tool_neuron.model.friday.InboundSource
 import com.dark.tool_neuron.model.friday.InboundUrgency
 import com.dark.tool_neuron.repo.InboundEventCenter
+import com.dark.tool_neuron.repo.gateway.event.InboundActionBridge
 import com.dark.tool_neuron.repo.gateway.event.InboundConfirmationCenter
+import com.dark.tool_neuron.repo.gateway.event.PendingInboundConfirmation
 import com.dark.tool_neuron.viewmodel.FridayEventsViewModel
 import kotlinx.coroutines.ExperimentalCoroutinesApi
 import kotlinx.coroutines.test.advanceUntilIdle
@@ -56,6 +58,21 @@ class FridayEventsViewModelTest {
         override fun cancel(notificationKey: String) {}
     }
 
+    private class RecordingNotifier : com.dark.tool_neuron.repo.EventNotifier {
+        val cancelled = mutableListOf<String>()
+        override fun notify(event: InboundEvent, channelId: String) {}
+        override fun cancel(notificationKey: String) { cancelled += notificationKey }
+    }
+
+    // FRI-555 R3-1: records confirm/cancel outcomes without hitting the durable
+    // RecordingInboundActionBridge, mirroring InboundEventCenterTest's fake.
+    private class RecordingBridge : InboundActionBridge {
+        var confirmedCount = 0
+        var cancelledCount = 0
+        override fun onConfirmed(confirmation: PendingInboundConfirmation) { confirmedCount++ }
+        override fun onCancelled(confirmation: PendingInboundConfirmation) { cancelledCount++ }
+    }
+
     private fun center() = InboundEventCenter(FakeForeground(false), NoopNotifier())
 
     @Test
@@ -101,45 +118,62 @@ class FridayEventsViewModelTest {
         assertNull("one-shot consume must not re-fire the same intent", vm.activeEvent.value)
     }
 
+    // FRI-555 R3-1: confirmInbound/cancelInbound must delegate to the center's teardown path, which
+    // clears the pending slot AND the active card, the retained recent entry, and the OS
+    // notification — not just resolve the pending confirmation record. The VM's `center` and
+    // `confirmationCenter` constructor args must be the SAME wired instance for this to hold, since
+    // confirmInbound() now calls through center.confirmActiveConfirmation() rather than the
+    // confirmationCenter field directly.
+    private fun confirmationEvent(id: String, correlationId: String?, sourceId: String?) = InboundEvent(
+        eventId = id,
+        sourceType = InboundSource.VERIFIED,
+        correlationId = correlationId,
+        kind = InboundEventKind.CONFIRMATION,
+        title = "t",
+        body = "b",
+        urgency = InboundUrgency.NORMAL,
+        receivedAt = 0L,
+        sourceId = sourceId,
+    )
+
     @Test
-    fun confirmInbound_delegatesToConfirmationCenter_clearsPending() {
-        val confirmationCenter = InboundConfirmationCenter()
-        confirmationCenter.arm(
-            InboundEvent(
-                eventId = "conf-vm-1",
-                sourceType = InboundSource.VERIFIED,
-                correlationId = null,
-                kind = InboundEventKind.CONFIRMATION,
-                title = "t",
-                body = "b",
-                urgency = InboundUrgency.NORMAL,
-                receivedAt = 0L,
-            )
-        )
-        val vm = FridayEventsViewModel(center(), PendingInboundEvent(), confirmationCenter)
+    fun confirmInbound_delegatesToCenter_tearsDownCardRecentAndNotification() {
+        val notifier = RecordingNotifier()
+        val bridge = RecordingBridge()
+        val confirmationCenter = InboundConfirmationCenter(FakeEventStateStore(), bridge) { 1_000L }
+        val center = InboundEventCenter(FakeForeground(true), notifier, confirmationCenter)
+        center.publish(confirmationEvent("conf-vm-1", "corr-vm-1", "src-vm-1"))
+        val vm = FridayEventsViewModel(center, PendingInboundEvent(), confirmationCenter)
         assertEquals("conf-vm-1", vm.pendingInboundConfirmation.value!!.eventId)
+        assertEquals("conf-vm-1", vm.activeEvent.value!!.eventId)
+
         vm.confirmInbound()
-        assertNull("confirmInbound must delegate to the center and clear the pending record", confirmationCenter.pending.value)
+
+        assertNull("confirmInbound must delegate to the center and clear the pending record", vm.pendingInboundConfirmation.value)
+        assertNull("active card must be torn down", vm.activeEvent.value)
+        assertNull("retained recent entry must be purged", center.resolve("conf-vm-1", null))
+        assertEquals(listOf(InboundEventCenter.compositeKey("src-vm-1", "corr-vm-1")), notifier.cancelled)
+        assertEquals(1, bridge.confirmedCount)
+        assertEquals(0, bridge.cancelledCount)
     }
 
     @Test
-    fun cancelInbound_delegatesToConfirmationCenter_clearsPending() {
-        val confirmationCenter = InboundConfirmationCenter()
-        confirmationCenter.arm(
-            InboundEvent(
-                eventId = "conf-vm-2",
-                sourceType = InboundSource.VERIFIED,
-                correlationId = null,
-                kind = InboundEventKind.CONFIRMATION,
-                title = "t",
-                body = "b",
-                urgency = InboundUrgency.NORMAL,
-                receivedAt = 0L,
-            )
-        )
-        val vm = FridayEventsViewModel(center(), PendingInboundEvent(), confirmationCenter)
+    fun cancelInbound_delegatesToCenter_tearsDownCardRecentAndNotification() {
+        val notifier = RecordingNotifier()
+        val bridge = RecordingBridge()
+        val confirmationCenter = InboundConfirmationCenter(FakeEventStateStore(), bridge) { 1_000L }
+        val center = InboundEventCenter(FakeForeground(true), notifier, confirmationCenter)
+        center.publish(confirmationEvent("conf-vm-2", "corr-vm-2", "src-vm-2"))
+        val vm = FridayEventsViewModel(center, PendingInboundEvent(), confirmationCenter)
         assertEquals("conf-vm-2", vm.pendingInboundConfirmation.value!!.eventId)
+
         vm.cancelInbound()
-        assertNull("cancelInbound must delegate to the center and clear the pending record", confirmationCenter.pending.value)
+
+        assertNull("cancelInbound must delegate to the center and clear the pending record", vm.pendingInboundConfirmation.value)
+        assertNull("active card must be torn down", vm.activeEvent.value)
+        assertNull("retained recent entry must be purged", center.resolve("conf-vm-2", null))
+        assertEquals(listOf(InboundEventCenter.compositeKey("src-vm-2", "corr-vm-2")), notifier.cancelled)
+        assertEquals(0, bridge.confirmedCount)
+        assertEquals(1, bridge.cancelledCount)
     }
 }

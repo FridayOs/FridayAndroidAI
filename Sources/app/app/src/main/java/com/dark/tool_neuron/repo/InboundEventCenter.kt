@@ -70,7 +70,14 @@ class InboundEventCenter internal constructor(
     override fun publish(event: InboundEvent) {
         val safe = when (event.sourceType) {
             InboundSource.PUSH -> coercePush(event)
-            InboundSource.VERIFIED -> event.copy(title = event.title.take(TITLE_CAP), body = event.body.take(BODY_CAP))
+            InboundSource.VERIFIED -> event.copy(
+                title = event.title.take(TITLE_CAP),
+                body = event.body.take(BODY_CAP),
+                // FRI-555 R3-2: cap actionIntent alongside title/body so the capped value flows into
+                // both confirmationCenter.arm (persistence) and _activeEvent (UI) -- ConfirmationCard's
+                // "already length-capped upstream" comment is enforced here.
+                actionIntent = event.actionIntent?.take(ACTION_CAP),
+            )
             InboundSource.LOCAL -> event
         }
         // A retained VERIFIED entry must never be clobbered by a lower-trust (PUSH) publish sharing
@@ -175,12 +182,40 @@ class InboundEventCenter internal constructor(
         return cardCleared || purged || confirmationCleared
     }
 
+    // FRI-555 R3-1: the user-tap confirm/cancel path. dismissIfCorrelated (above) already tears down
+    // every surface for a verified CANCEL event; this mirrors that teardown for the OTHER resolution
+    // path -- an explicit user confirm/cancel tap on the in-app card -- which previously only
+    // resolved the pending slot via InboundConfirmationCenter and left the foreground card, the
+    // retained `recent` entry, and the OS notification alive. Both delegate to confirmationCenter's
+    // single-shot resolve, so a stale re-tap after the pending slot is already resolved is a safe
+    // no-op (returns false, no second bridge call, nothing torn down twice).
+    fun confirmActiveConfirmation(): Boolean = resolveActiveConfirmation(confirmationCenter::confirm)
+
+    fun cancelActiveConfirmation(): Boolean = resolveActiveConfirmation(confirmationCenter::cancel)
+
+    private fun resolveActiveConfirmation(resolve: (String) -> Boolean): Boolean {
+        val pending = confirmationCenter.pending.value ?: return false
+        if (!resolve(pending.eventId)) return false
+
+        if (_activeEvent.value?.eventId == pending.eventId) _activeEvent.value = null
+        synchronized(recent) { recent.remove(pending.eventId) }
+
+        val sourceId = pending.sourceId
+        val correlationId = pending.correlationId
+        val key = if (sourceId != null && correlationId != null) compositeKey(sourceId, correlationId) else pending.eventId
+        notifier.cancel(key)
+        return true
+    }
+
     companion object {
         const val CHANNEL_NORMAL = "friday_events_normal"
         const val CHANNEL_HIGH = "friday_events_high"
         const val CHANNEL_URGENT = "friday_events_urgent"
         const val TITLE_CAP = 120
         const val BODY_CAP = 400
+        // FRI-555 R3-2: actionIntent is data-only display (never executed), but still length-capped
+        // like title/body so an oversized signed envelope can't blow up the ConfirmationCard.
+        const val ACTION_CAP = 200
         const val RECENT_CAP = 32
 
         // FRI-555 B3: notification identity. Same-source-same-correlation events (e.g. PROGRESS ->

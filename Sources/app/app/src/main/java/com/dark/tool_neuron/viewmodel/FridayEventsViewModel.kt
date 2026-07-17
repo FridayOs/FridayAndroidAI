@@ -44,11 +44,14 @@ class FridayEventsViewModel @Inject constructor(
 
     fun dismiss() = center.dismiss()
 
+    // FRI-555 R3-1: delegates to the center, which tears down the pending slot, the foreground
+    // card, the retained `recent` entry, and the OS notification as a single unit -- not just the
+    // pending confirmation slot.
     fun confirmInbound() {
-        pendingInboundConfirmation.value?.let { confirmationCenter.confirm(it.eventId) }
+        center.confirmActiveConfirmation()
     }
 
     fun cancelInbound() {
-        pendingInboundConfirmation.value?.let { confirmationCenter.cancel(it.eventId) }
+        center.cancelActiveConfirmation()
     }
 }
