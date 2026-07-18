@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.sp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.dark.tool_neuron.data.ThemeController
+import com.dark.tool_neuron.ui.components.ActionButton
 import com.dark.tool_neuron.ui.icons.TnIcons
 import com.dark.tool_neuron.ui.screens.onboarding.components.OnboardingStepIndicator
 import com.dark.tool_neuron.ui.theme.LocalDimens
@@ -49,10 +50,16 @@ import com.dark.tool_neuron.viewmodel.SetupThemeViewModel
  * step dots -> title/sub -> 3 mode cards (icon + label only) -> accent
  * row (ThemeAccentRow.kt) -> live preview (ThemePreviewCard.kt). Onboarding
  * always runs on the FRIDAY base palette; accent is the only variable here.
+ *
+ * Back nav (FRI-582 QA blocker fixes, design `goBack` HTML:1499-1501): explicit
+ * chevron tap navigates back to Protect Friday (SetupScreen) via onBack, wired
+ * in TNavigation.kt through OnboardingBackNav. No continue CTA lives on this
+ * screen (accent/theme picks apply live); forward nav stays elsewhere.
  */
 @Composable
 fun SetupThemeScreen(
     innerPadding: PaddingValues,
+    onBack: () -> Unit,
     viewModel: SetupThemeViewModel = hiltViewModel(),
 ) {
     val dimens = LocalDimens.current
@@ -67,11 +74,17 @@ fun SetupThemeScreen(
             .padding(innerPadding)
             .verticalScroll(rememberScrollState()),
     ) {
+        ActionButton(
+            onClickListener = onBack,
+            icon = TnIcons.ArrowLeft,
+            contentDescription = stringResource(R.string.friday_onboarding_back_content_description),
+            modifier = Modifier.padding(start = dimens.screenPadding, top = 10.dp),
+        )
         OnboardingStepIndicator(
             current = 4,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 10.dp),
+                .padding(top = 6.dp),
         )
 
         Column(

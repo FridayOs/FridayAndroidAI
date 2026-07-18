@@ -28,6 +28,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.dark.tool_neuron.ui.components.ActionButton
 import com.dark.tool_neuron.ui.icons.TnIcons
 import com.dark.tool_neuron.ui.screens.onboarding.components.OnboardingStepIndicator
 import com.dark.tool_neuron.ui.theme.LocalDimens
@@ -51,6 +52,10 @@ import com.friday.ai.R
  * AppScaffold.kt's onTermsAccepted callback via TermsConditionsBottomBar /
  * AppBottomBar dispatch — onAccept here stays a pass-through per existing
  * architecture (mirrors TNavigation.kt's composable registration).
+ *
+ * Non-skippable forward path only: BackHandler still consumes the system
+ * back gesture (no accidental pop), but the design's `goBack` (HTML:1499-1501)
+ * still allows an explicit chevron tap back to Language selection.
  */
 private data class TermsItem(val icon: ImageVector, val titleRes: Int, val bodyRes: Int)
 
@@ -67,12 +72,14 @@ private val TERMS_ITEMS = listOf(
 fun TermsConditionsScreen(
     innerPadding: PaddingValues,
     onAccept: () -> Unit,
+    onBack: () -> Unit,
 ) {
     val dimens = LocalDimens.current
     var showPrivacyDialog by remember { mutableStateOf(false) }
 
-    // Non-skippable: consume back-press instead of allowing pop.
-    BackHandler(enabled = true) { }
+    // Non-skippable: consume system back-press instead of allowing pop.
+    // Explicit chevron tap (below) still navigates back per design `goBack`.
+    BackHandler(enabled = true) { onBack() }
 
     Column(
         modifier = Modifier
@@ -80,11 +87,17 @@ fun TermsConditionsScreen(
             .background(MaterialTheme.colorScheme.background)
             .padding(innerPadding),
     ) {
+        ActionButton(
+            onClickListener = onBack,
+            icon = TnIcons.ArrowLeft,
+            contentDescription = stringResource(R.string.friday_onboarding_back_content_description),
+            modifier = Modifier.padding(start = dimens.screenPadding, top = 10.dp),
+        )
         OnboardingStepIndicator(
             current = 1,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 10.dp),
+                .padding(top = 6.dp),
         )
 
         Column(

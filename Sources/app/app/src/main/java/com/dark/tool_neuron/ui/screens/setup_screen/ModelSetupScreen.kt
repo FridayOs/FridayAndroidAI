@@ -24,12 +24,18 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.dark.tool_neuron.model.enums.ProviderType
+import com.dark.tool_neuron.ui.components.ActionButton
 import com.dark.tool_neuron.ui.icons.TnIcons
 import com.dark.tool_neuron.ui.screens.onboarding.components.OnboardingStepIndicator
 import com.dark.tool_neuron.ui.theme.LocalDimens
@@ -42,10 +48,10 @@ import com.dark.tool_neuron.ui.theme.jakartaFamily
  * `pathDefs`/`PACKS` arrays lines 1206-1210/1495-1536): step dots -> title/sub
  * -> 3 path cards (gateway/local/skip) -> conditional 3 pack cards (local path
  * only) -> primary CTA (label depends on path) + secondary "skip for now"
- * text CTA. Design pack ids map to real ModelStoreViewModel pack constants;
- * selecting a pack triggers the real download pipeline directly (see
- * onPackSelected wiring in TNavigation.kt — it already downloads + completes
- * setup in one call), matching the phase file's simpler one-step flow.
+ * text CTA. Design pack ids map to real PackCatalog pack constants. Card tap
+ * selects a pack only (design `pickPack`); the primary CTA (design
+ * `modelContinue`) confirms the selection and enqueues the real download
+ * pipeline via onLocalPackConfirmed — see wiring in TNavigation.kt.
  *
  * onOpenStore/onLocalImport are kept in the signature for call-site
  * compatibility (TNavigation.kt) but unused here: this screen's design has no
@@ -57,15 +63,17 @@ private enum class ModelSetupPath { GATEWAY, LOCAL, SKIP }
 @Composable
 fun ModelSetupScreen(
     innerPadding: PaddingValues,
-    onPackSelected: (packId: String) -> Unit,
+    onLocalPackConfirmed: (packId: String) -> Unit,
     onOpenStore: () -> Unit,
     onLocalImport: (uri: Uri, name: String, size: Long, type: ProviderType) -> Unit,
     onSkip: () -> Unit,
+    onBack: () -> Unit,
     onChooseGateway: () -> Unit = {},
 ) {
     val dimens = LocalDimens.current
     val accent = LocalFridayAccent.current
     var selectedPath by remember { mutableStateOf<ModelSetupPath?>(null) }
+    var selectedPackId by remember { mutableStateOf<String?>(null) }
 
     Column(
         modifier = Modifier
@@ -73,11 +81,17 @@ fun ModelSetupScreen(
             .padding(innerPadding)
             .verticalScroll(rememberScrollState()),
     ) {
+        ActionButton(
+            onClickListener = onBack,
+            icon = TnIcons.ArrowLeft,
+            contentDescription = stringResource(R.string.friday_onboarding_back_content_description),
+            modifier = Modifier.padding(start = dimens.screenPadding, top = 10.dp),
+        )
         OnboardingStepIndicator(
             current = 5,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 10.dp),
+                .padding(top = 6.dp),
         )
 
         Column(
@@ -121,6 +135,7 @@ fun ModelSetupScreen(
                 recommendedLabel = "",
                 selected = selectedPath == ModelSetupPath.LOCAL,
                 onClick = { selectedPath = ModelSetupPath.LOCAL },
+                modifier = Modifier.testTag("model_path_local"),
             )
             Spacer(dimens.spacingSm)
             ModelPathCard(
@@ -135,7 +150,11 @@ fun ModelSetupScreen(
 
             if (selectedPath == ModelSetupPath.LOCAL) {
                 Spacer(dimens.spacingLg)
-                ModelSetupPackList(spacingSm = dimens.spacingSm, onPackSelected = onPackSelected)
+                ModelSetupPackList(
+                    spacingSm = dimens.spacingSm,
+                    selectedPackId = selectedPackId,
+                    onSelect = { selectedPackId = it },
+                )
             }
 
             Spacer(dimens.spacingXl)
@@ -145,7 +164,9 @@ fun ModelSetupScreen(
                 ModelSetupPath.LOCAL -> stringResource(R.string.friday_model_setup_cta_local)
                 else -> stringResource(R.string.friday_model_setup_continue)
             }
-            val ctaEnabled = selectedPath == ModelSetupPath.GATEWAY || selectedPath == ModelSetupPath.SKIP
+            val ctaEnabled = selectedPath == ModelSetupPath.GATEWAY ||
+                selectedPath == ModelSetupPath.SKIP ||
+                (selectedPath == ModelSetupPath.LOCAL && selectedPackId != null)
 
             Text(
                 text = ctaLabel,
@@ -159,10 +180,16 @@ fun ModelSetupScreen(
                     .height(56.dp)
                     .clip(RoundedCornerShape(16.dp))
                     .background(if (ctaEnabled) accent.color else accent.color.copy(alpha = 0.5f))
+                    .testTag("model_setup_cta")
+                    .semantics {
+                        role = Role.Button
+                        if (!ctaEnabled) disabled()
+                    }
                     .clickable(enabled = ctaEnabled) {
                         when (selectedPath) {
                             ModelSetupPath.GATEWAY -> onChooseGateway()
                             ModelSetupPath.SKIP -> onSkip()
+                            ModelSetupPath.LOCAL -> selectedPackId?.let(onLocalPackConfirmed)
                             else -> Unit
                         }
                     }

@@ -84,6 +84,7 @@ import com.dark.tool_neuron.viewmodel.SettingsViewModel
 import com.dark.tool_neuron.viewmodel.ThemingViewModel
 import com.dark.tool_neuron.viewmodel.SetupViewModel
 import com.dark.tool_neuron.viewmodel.StorageViewModel
+import com.dark.tool_neuron.viewmodel.OnboardingBackNav
 
 @Composable
 fun TNavigation(
@@ -105,6 +106,17 @@ fun TNavigation(
     resolveNext: () -> String = { nextDestination },
 ) {
     val transitions = rememberNavTransitions()
+
+    // Onboarding back-chevron nav (FRI-582 QA blocker fix): screen-swap only,
+    // never unsets HXS done-flags. See OnboardingBackNav for the step order.
+    fun onboardingBack(currentRoute: String): () -> Unit = {
+        OnboardingBackNav.previousRoute(currentRoute)?.let { prev ->
+            navController.navigate(prev) {
+                popUpTo(currentRoute) { inclusive = true }
+                launchSingleTop = true
+            }
+        }
+    }
 
     NavHost(
         navController = navController,
@@ -142,6 +154,7 @@ fun TNavigation(
             TermsConditionsScreen(
                 innerPadding = innerPadding,
                 onAccept = {},
+                onBack = onboardingBack(NavScreens.TermsConditions.route),
             )
         }
         composable(NavScreens.DevNotes.route) {
@@ -160,8 +173,9 @@ fun TNavigation(
             val confirmPassword by viewModel.confirmPassword.collectAsStateWithLifecycle()
             val isConfirmStep by viewModel.isConfirmStep.collectAsStateWithLifecycle()
             val error by viewModel.error.collectAsStateWithLifecycle()
+            var committed by remember { mutableStateOf(false) }
 
-            if (selectedMode == "app_password") {
+            if (committed && selectedMode == "app_password") {
                 SetupPasswordScreen(
                     innerPadding = innerPadding,
                     password = if (isConfirmStep) confirmPassword else password,
@@ -173,24 +187,37 @@ fun TNavigation(
                     onSubmit = {
                         viewModel.submitPassword(onSuccess = onSetupComplete)
                     },
-                    onBack = viewModel::goBack
+                    onBack = {
+                        if (isConfirmStep) {
+                            viewModel.goBack()
+                        } else {
+                            committed = false
+                        }
+                    },
                 )
             } else {
                 SetupScreen(
                     innerPadding = innerPadding,
                     selectedMode = selectedMode,
-                    onModeSelected = { mode ->
-                        viewModel.selectMode(mode)
-                        if (mode == "none") {
-                            viewModel.completeWithNoLock()
-                            onSetupComplete()
+                    onModeSelected = viewModel::selectMode,
+                    onContinue = {
+                        when (selectedMode) {
+                            "none" -> {
+                                viewModel.completeWithNoLock()
+                                onSetupComplete()
+                            }
+                            "app_password" -> committed = true
                         }
-                    }
+                    },
+                    onBack = onboardingBack(NavScreens.SetupScreen.route),
                 )
             }
         }
         composable(NavScreens.SetupTheme.route) {
-            SetupThemeScreen(innerPadding = innerPadding)
+            SetupThemeScreen(
+                innerPadding = innerPadding,
+                onBack = onboardingBack(NavScreens.SetupTheme.route),
+            )
         }
         composable(NavScreens.SetupRag.route) {
             SetupRagScreen(innerPadding = innerPadding)
@@ -215,9 +242,10 @@ fun TNavigation(
 
             ModelSetupScreen(
                 innerPadding = innerPadding,
-                onPackSelected = { packId ->
-                    storeVm.downloadPack(packId)
-                    onModelSetupComplete()
+                onLocalPackConfirmed = { packId ->
+                    if (storeVm.downloadPack(packId)) {
+                        onModelSetupComplete()
+                    }
                 },
                 onOpenStore = { navController.navigate(NavScreens.ModelStore.route) },
                 onLocalImport = { uri, name, size, type ->
@@ -225,6 +253,7 @@ fun TNavigation(
                     onModelSetupComplete()
                 },
                 onSkip = { onModelSetupComplete() },
+                onBack = onboardingBack(NavScreens.ModelSetup.route),
                 onChooseGateway = onChooseGateway,
             )
         }
@@ -555,6 +584,7 @@ fun TNavigation(
             FeatureTourScreen(
                 innerPadding = innerPadding,
                 onContinue = onFeatureTourComplete,
+                onBack = onboardingBack(NavScreens.FeatureTour.route),
             )
         }
         composable(NavScreens.OnboardingProviders.route) {

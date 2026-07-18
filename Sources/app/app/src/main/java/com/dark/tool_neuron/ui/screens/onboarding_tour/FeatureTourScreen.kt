@@ -27,6 +27,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.dark.tool_neuron.ui.components.ActionButton
 import com.dark.tool_neuron.ui.icons.TnIcons
 import com.dark.tool_neuron.ui.screens.onboarding.components.OnboardingStepIndicator
 import com.dark.tool_neuron.ui.theme.LocalDimens
@@ -48,11 +49,17 @@ import com.friday.ai.R
  *   equivalent), shield -> TnIcons.ShieldCheck (encrypted-history theme,
  *   differentiated from Terms' TnIcons.Shield), sprout -> TnIcons.Leaf (closest
  *   available growth/plant icon).
+ *
+ * Back nav (FRI-582 QA blocker fixes, design `goBack` HTML:1499-1501): explicit
+ * chevron tap navigates back to Terms & Conditions via onBack (wired in
+ * TNavigation.kt through OnboardingBackNav) — no BackHandler override needed
+ * here since this screen is skippable-forward-only, not non-skippable.
  */
 @Composable
 fun FeatureTourScreen(
     innerPadding: PaddingValues,
     onContinue: () -> Unit,
+    onBack: () -> Unit,
 ) {
     val dimens = LocalDimens.current
 
@@ -62,11 +69,17 @@ fun FeatureTourScreen(
             .background(MaterialTheme.colorScheme.background)
             .padding(innerPadding),
     ) {
+        ActionButton(
+            onClickListener = onBack,
+            icon = TnIcons.ArrowLeft,
+            contentDescription = stringResource(R.string.friday_onboarding_back_content_description),
+            modifier = Modifier.padding(start = dimens.screenPadding, top = 10.dp),
+        )
         OnboardingStepIndicator(
             current = 2,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 10.dp),
+                .padding(top = 6.dp),
         )
 
         Column(

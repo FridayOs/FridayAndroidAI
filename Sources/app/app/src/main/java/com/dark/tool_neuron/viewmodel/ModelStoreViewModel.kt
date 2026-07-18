@@ -349,18 +349,25 @@ class ModelStoreViewModel @Inject constructor(
         }
     }
 
-    fun downloadPack(packId: String) {
-        val ids = PACK_CONTENTS[packId] ?: return
+    /**
+     * Enqueues downloads for every model in [packId] (design `modelContinue`
+     * local-path branch, FRI-582 §7). Returns false without side effects when
+     * [packId] is not a known [PackCatalog] pack, true once the enqueue
+     * coroutine is launched.
+     */
+    fun downloadPack(packId: String): Boolean {
+        val ids = PackCatalog.entriesFor(packId) ?: return false
         viewModelScope.launch {
             val pool = _models.value.takeIf { it.isNotEmpty() }
                 ?: _models.first { it.isNotEmpty() }
             ids.forEach { entry ->
                 when (entry.kind) {
-                    PackEntryKind.Chat -> enqueueChatModel(pool, entry.id)
-                    PackEntryKind.Voice -> enqueueVoiceModel(pool, entry.id)
+                    PackCatalog.PackEntryKind.Chat -> enqueueChatModel(pool, entry.id)
+                    PackCatalog.PackEntryKind.Voice -> enqueueVoiceModel(pool, entry.id)
                 }
             }
         }
+        return true
     }
 
     private fun enqueueChatModel(pool: List<HuggingFaceModel>, modelId: String) {
@@ -379,30 +386,7 @@ class ModelStoreViewModel @Inject constructor(
 
     companion object {
         val QUICK_START_QUANT_PRIORITY = listOf("Q4_K_M", "Q4_K_S", "Q4_0", "Q5_K_M", "Q5_K_S", "Q8_0")
-
-        const val PACK_CHAT_ONLY = "pack_chat_only"
-        const val PACK_CHAT_VOICE = "pack_chat_voice"
-        const val PACK_LARGE_CHAT_VOICE = "pack_large_chat_voice"
-
-        private val PACK_CONTENTS: Map<String, List<PackEntry>> = mapOf(
-            PACK_CHAT_ONLY to listOf(
-                PackEntry("lfm25-350m", PackEntryKind.Chat),
-            ),
-            PACK_CHAT_VOICE to listOf(
-                PackEntry("lfm25-350m", PackEntryKind.Chat),
-                PackEntry("sherpa-onnx-whisper-tiny-en", PackEntryKind.Voice),
-                PackEntry("vits-piper-en_US-amy-low", PackEntryKind.Voice),
-            ),
-            PACK_LARGE_CHAT_VOICE to listOf(
-                PackEntry("qwen3-0.6b", PackEntryKind.Chat),
-                PackEntry("sherpa-onnx-whisper-tiny-en", PackEntryKind.Voice),
-                PackEntry("vits-piper-en_US-amy-low", PackEntryKind.Voice),
-            ),
-        )
     }
-
-    private enum class PackEntryKind { Chat, Voice }
-    private data class PackEntry(val id: String, val kind: PackEntryKind)
 
     fun downloadModel(model: HuggingFaceModel) {
         if (_downloadIds.value.containsKey(model.id)) return

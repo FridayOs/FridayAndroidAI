@@ -221,6 +221,9 @@
     <!-- only in values/strings.xml. Only cta_prompt is a real VI translation. -->
     <string name="onboarding_lang_cta_prompt">Chọn ngôn ngữ để tiếp tục</string>
 
+    <!-- Onboarding shared back navigation (FRI-582 QA blocker fixes, design `goBack` HTML:1499-1501) -->
+    <string name="friday_onboarding_back_content_description">Quay lại</string>
+
     <!-- Onboarding Terms & Conditions (FRI-582 P4, design-spec §3, HTML TERMS array lines 1417-1430) -->
     <string name="onboarding_terms_topbar_title">Điều khoản sử dụng</string>
     <string name="onboarding_terms_title">Trước khi bắt đầu</string>

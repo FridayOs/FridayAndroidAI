@@ -12,6 +12,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.slideInVertically
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -41,10 +42,17 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.disabled
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.dark.tool_neuron.ui.components.ActionButton
 import com.dark.tool_neuron.ui.icons.TnIcons
 import com.dark.tool_neuron.ui.screens.onboarding.components.OnboardingStepIndicator
 import com.dark.tool_neuron.ui.theme.LocalDimens
@@ -58,16 +66,22 @@ import kotlinx.coroutines.delay
 /*
  * Protect Friday re-skin (FRI-582 P5, design-spec §5, HTML lines 187-234):
  * step dots -> title/sub -> lock cards (icon + title + sub + detail +
- * checkmark selection). Tapping a card selects it AND advances (existing
- * SetupViewModel/SecurityManager contract, unchanged) — layout/tokens only.
+ * checkmark selection) -> sticky Continue CTA (design `lockContinue`/
+ * `lockCtaOpacity`). Tapping a card only selects it (design `pickLock`); the
+ * CTA (disabled + 0.5 opacity until a mode is picked) confirms the selection
+ * via onContinue — the caller (TNavigation.kt) decides the no-lock vs
+ * app-password branch and whether to show the password confirm screen.
  */
 @Composable
 fun SetupScreen(
     innerPadding: PaddingValues,
     selectedMode: String?,
-    onModeSelected: (String) -> Unit
+    onModeSelected: (String) -> Unit,
+    onContinue: () -> Unit,
+    onBack: () -> Unit,
 ) {
     val dimens = LocalDimens.current
+    val accent = LocalFridayAccent.current
     var visible by remember { mutableStateOf(false) }
     LaunchedEffect(Unit) { delay(80); visible = true }
 
@@ -86,11 +100,17 @@ fun SetupScreen(
             .padding(innerPadding)
             .verticalScroll(rememberScrollState()),
     ) {
+        ActionButton(
+            onClickListener = onBack,
+            icon = TnIcons.ArrowLeft,
+            contentDescription = stringResource(R.string.friday_onboarding_back_content_description),
+            modifier = Modifier.padding(start = dimens.screenPadding, top = 10.dp),
+        )
         OnboardingStepIndicator(
             current = 3,
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(top = 10.dp),
+                .padding(top = 6.dp),
         )
 
         Column(
@@ -146,7 +166,8 @@ fun SetupScreen(
                         subtitle = stringResource(R.string.friday_setup_app_password_subtitle),
                         detail = stringResource(R.string.friday_setup_app_password_detail),
                         selected = selectedMode == "app_password",
-                        onClick = { onModeSelected("app_password") }
+                        onClick = { onModeSelected("app_password") },
+                        modifier = Modifier.testTag("setup_option_app_password"),
                     )
 
                     Spacer(Modifier.height(dimens.spacingSm))
@@ -157,7 +178,8 @@ fun SetupScreen(
                         subtitle = stringResource(R.string.friday_setup_no_lock_subtitle),
                         detail = stringResource(R.string.friday_setup_no_lock_detail),
                         selected = selectedMode == "none",
-                        onClick = { onModeSelected("none") }
+                        onClick = { onModeSelected("none") },
+                        modifier = Modifier.testTag("setup_option_no_lock"),
                     )
 
                     Spacer(Modifier.height(dimens.spacingMd))
@@ -167,6 +189,30 @@ fun SetupScreen(
                         fontFamily = jakartaFamily,
                         fontSize = 11.5.sp,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+
+                    Spacer(Modifier.height(dimens.spacingXl))
+
+                    val ctaEnabled = selectedMode != null
+                    Text(
+                        text = stringResource(R.string.friday_model_setup_continue),
+                        fontFamily = jakartaFamily,
+                        fontWeight = FontWeight.SemiBold,
+                        fontSize = 15.5.sp,
+                        color = if (ctaEnabled) accent.onColor else accent.onColor.copy(alpha = 0.5f),
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(56.dp)
+                            .clip(RoundedCornerShape(16.dp))
+                            .background(if (ctaEnabled) accent.color else accent.color.copy(alpha = 0.5f))
+                            .testTag("protect_friday_cta")
+                            .semantics {
+                                role = Role.Button
+                                if (!ctaEnabled) disabled()
+                            }
+                            .clickable(enabled = ctaEnabled, onClick = onContinue)
+                            .padding(vertical = 17.dp),
                     )
                 }
             }
@@ -181,7 +227,8 @@ private fun SecurityOption(
     subtitle: String,
     detail: String,
     selected: Boolean,
-    onClick: () -> Unit
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
 ) {
     val tnShapes = LocalTnShapes.current
     val dimens = LocalDimens.current
@@ -201,7 +248,7 @@ private fun SecurityOption(
 
     Surface(
         onClick = onClick,
-        modifier = Modifier.fillMaxWidth(),
+        modifier = modifier.fillMaxWidth(),
         shape = tnShapes.card,
         color = containerColor,
         border = BorderStroke(if (selected) 1.5.dp else 1.dp, borderColor)
