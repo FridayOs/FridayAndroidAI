@@ -64,4 +64,49 @@ class OnboardingRoutingTest {
     fun onboardingLocaleTransition_identical_tags_do_not_change_locale() {
         assertFalse(OnboardingLocaleTransition.localeChanged("vi", "vi"))
     }
+
+    // FRI-582 QA round-4 B1: lock the confirm→advance→recreate ORDER (the round-2
+    // regression) at the production seam LanguageSelectionScreen calls. Reordering,
+    // dropping advance(), or recreating before advancing breaks these.
+    @Test
+    fun localeTransition_apply_on_change_runs_confirm_then_advance_then_recreate_in_order() {
+        val calls = mutableListOf<String>()
+        val requested = OnboardingLocaleTransition.apply(
+            selectedTag = "vi",
+            activityTag = "en",
+            confirm = { calls += "confirm" },
+            advance = { calls += "advance" },
+            recreate = { calls += "recreate" },
+        )
+        assertEquals(listOf("confirm", "advance", "recreate"), calls)
+        assertTrue("locale change with an Activity requests a recreate", requested)
+    }
+
+    @Test
+    fun localeTransition_apply_without_change_runs_confirm_then_advance_no_recreate() {
+        val calls = mutableListOf<String>()
+        val requested = OnboardingLocaleTransition.apply(
+            selectedTag = "en",
+            activityTag = "en",
+            confirm = { calls += "confirm" },
+            advance = { calls += "advance" },
+            recreate = { calls += "recreate" },
+        )
+        assertEquals(listOf("confirm", "advance"), calls)
+        assertFalse("unchanged locale never recreates", requested)
+    }
+
+    @Test
+    fun localeTransition_apply_with_null_recreate_still_advances_no_recreate() {
+        val calls = mutableListOf<String>()
+        val requested = OnboardingLocaleTransition.apply(
+            selectedTag = "vi",
+            activityTag = "en",
+            confirm = { calls += "confirm" },
+            advance = { calls += "advance" },
+            recreate = null,
+        )
+        assertEquals(listOf("confirm", "advance"), calls)
+        assertFalse("no Activity → advance only, CTA never dead", requested)
+    }
 }

@@ -151,28 +151,19 @@ fun LanguageSelectionScreen(
             LanguageCta(
                 selected = selected,
                 onClick = {
-                    // Activity's config locale (applied at attachBaseContext) is stale until a
-                    // recreate re-wraps the base context with the newly-persisted tag. Comparing
-                    // against the LIVE Activity Configuration (not the already-updated selected
-                    // StateFlow) is what detects the mismatch that needs a recreate.
+                    // The confirm→advance→recreate ORDER that makes locale change one-tap is the
+                    // production contract, owned + regression-locked by OnboardingLocaleTransition.apply
+                    // (see OnboardingRoutingTest). activityTag is the LIVE Activity config locale
+                    // (stale until recreate re-wraps attachBaseContext), compared against the picked tag.
                     val activityTag = context.resources.configuration.locales[0].language
-                    // confirm() MUST persist synchronously (LanguageController.markFirstSelectionDone
-                    // → AppPreferences flushAll) so resolveNext() below already reads
-                    // languageSelected=true and routes to Terms — and so the post-recreate restore
-                    // lands on Terms, not Language. A future async-prefs refactor would break one-tap.
-                    viewModel.confirm()
                     val activity = context as? Activity
-                    if (OnboardingLocaleTransition.localeChanged(selected.uiTag, activityTag) && activity != null) {
-                        // Navigate FIRST so the saved NavController back stack captures the next
-                        // route (Terms). recreate() re-runs attachBaseContext → re-wraps with the
-                        // new persisted locale; restoreState() then shows THAT destination (Terms)
-                        // in the new locale — one tap, no double-Continue.
-                        onContinue()
-                        activity.recreate()
-                    } else {
-                        // No locale change, or no Activity to recreate — never leave the CTA dead.
-                        onContinue()
-                    }
+                    OnboardingLocaleTransition.apply(
+                        selectedTag = selected.uiTag,
+                        activityTag = activityTag,
+                        confirm = viewModel::confirm,
+                        advance = onContinue,
+                        recreate = activity?.let { act -> { act.recreate() } },
+                    )
                 },
             )
         }
