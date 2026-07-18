@@ -1,5 +1,6 @@
 package com.dark.tool_neuron.ui.screens.system_ui
 
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.width
 import androidx.compose.material3.DrawerValue
@@ -8,6 +9,8 @@ import androidx.compose.material3.ModalNavigationDrawer
 import androidx.compose.material3.PermanentDrawerSheet
 import androidx.compose.material3.PermanentNavigationDrawer
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.rememberDrawerState
 import androidx.compose.ui.unit.dp
 import com.dark.tool_neuron.ui.util.LocalIsExpandedLayout
@@ -15,9 +18,13 @@ import com.dark.tool_neuron.ui.util.ProvideWindowMetrics
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.setValue
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.currentBackStackEntryAsState
@@ -27,10 +34,13 @@ import com.dark.tool_neuron.ui.components.RootWarningDialog
 import com.dark.tool_neuron.ui.navigation.TNavigation
 import com.dark.tool_neuron.data.AccountState
 import com.dark.tool_neuron.ui.screens.friday.FridayDrawerContent
+import com.dark.tool_neuron.ui.screens.friday.FridayProviderSelectorSheet
 import com.dark.tool_neuron.ui.screens.home_screen.ChatDrawerContent
 import com.dark.tool_neuron.viewmodel.AccountViewModel
+import com.dark.tool_neuron.viewmodel.FridayProviderSelectorViewModel
 import com.dark.tool_neuron.viewmodel.HomeViewModel
 import com.dark.tool_neuron.viewmodel.ScaffoldViewModel
+import com.friday.ai.R
 import kotlinx.coroutines.launch
 
 @Composable
@@ -126,6 +136,21 @@ private fun AppScaffoldInner() {
     val scope = rememberCoroutineScope()
     val isExpanded = LocalIsExpandedLayout.current
 
+    // FRI-574 Phase 4: provider/model selector overlay, hosted at shell level so
+    // both Voice and Chat can request it via the same TNavigation `openSelector`
+    // callback without duplicating the sheet per-screen.
+    val context = LocalContext.current
+    val selectorViewModel: FridayProviderSelectorViewModel = hiltViewModel()
+    var selectorOpen by remember { mutableStateOf(false) }
+    val selectorGateways by selectorViewModel.gateways.collectAsStateWithLifecycle()
+    val selectorBrainId by selectorViewModel.brainId.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
+    LaunchedEffect(selectorViewModel) {
+        selectorViewModel.providerSwitched.collect { name ->
+            snackbarHostState.showSnackbar(context.getString(R.string.friday_provider_switched_toast, name))
+        }
+    }
+
     val fridayDrawerBody: @Composable () -> Unit = {
         FridayDrawerContent(
             currentRoute = currentRoute,
@@ -146,6 +171,14 @@ private fun AppScaffoldInner() {
                 navController.navigate(NavScreens.FridayLogin.route) {
                     popUpTo(0) { inclusive = true }
                 }
+            },
+            onOpenConversation = { id ->
+                scope.launch { drawerState.close() }
+                navController.navigate(NavScreens.FridayChat.routeFor(id))
+            },
+            onOpenSettings = {
+                scope.launch { drawerState.close() }
+                navController.navigate(NavScreens.FridaySettings.route)
             },
         )
     }
@@ -290,22 +323,58 @@ private fun AppScaffoldInner() {
                     navController.navigate(NavScreens.OnboardingAddProvider.routeFor(catalogId))
                 },
                 resolveNext = resolveNext,
+                // FRI-574 Phase 4: Friday screens no longer navigate to History for
+                // the hamburger/pill — they request the real sidebar drawer and the
+                // provider selector overlay hosted here at the shell level.
+                openDrawer = { scope.launch { drawerState.open() } },
+                openSelector = { selectorOpen = true },
             )
         }
     }
 
-    if (isExpanded && showDrawer && !isFullscreen) {
-        PermanentNavigationDrawer(
-            drawerContent = {
-                PermanentDrawerSheet(modifier = Modifier.width(320.dp)) { drawerBody() }
-            },
-            modifier = Modifier.fillMaxSize(),
-        ) { mainScaffold() }
-    } else {
-        ModalNavigationDrawer(
-            drawerState = drawerState,
-            gesturesEnabled = showDrawer,
-            drawerContent = { ModalDrawerSheet { drawerBody() } },
-        ) { mainScaffold() }
+    Box(modifier = Modifier.fillMaxSize()) {
+        if (isExpanded && showDrawer && !isFullscreen) {
+            PermanentNavigationDrawer(
+                drawerContent = {
+                    PermanentDrawerSheet(modifier = Modifier.width(320.dp)) { drawerBody() }
+                },
+                modifier = Modifier.fillMaxSize(),
+            ) { mainScaffold() }
+        } else {
+            ModalNavigationDrawer(
+                drawerState = drawerState,
+                gesturesEnabled = showDrawer,
+                drawerContent = { ModalDrawerSheet { drawerBody() } },
+            ) { mainScaffold() }
+        }
+
+        // FRI-574 Phase 4: Friday routes only — sheet is always mounted while on a
+        // Friday screen so AnimatedVisibility can play its enter/exit transitions;
+        // it renders nothing when selectorOpen is false.
+        if (isFridayRoute) {
+            FridayProviderSelectorSheet(
+                visible = selectorOpen,
+                providers = selectorGateways,
+                activeId = selectorBrainId,
+                onSelect = { id -> selectorViewModel.select(id); selectorOpen = false },
+                // No distinct "manage existing" screen exists in this codebase;
+                // OnboardingProviders is the one catalog/configured-provider list
+                // screen and already exposes its own onAddProvider(catalogId) to
+                // OnboardingAddProvider — both quick actions land there.
+                onAddProvider = {
+                    selectorOpen = false
+                    navController.navigate(NavScreens.OnboardingProviders.route)
+                },
+                onManageProviders = {
+                    selectorOpen = false
+                    navController.navigate(NavScreens.OnboardingProviders.route)
+                },
+                onDismiss = { selectorOpen = false },
+            )
+            SnackbarHost(
+                hostState = snackbarHostState,
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
+        }
     }
 }

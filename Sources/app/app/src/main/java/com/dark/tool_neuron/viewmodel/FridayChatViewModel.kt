@@ -3,6 +3,9 @@ package com.dark.tool_neuron.viewmodel
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.dark.tool_neuron.model.friday.FridayTurn
+import com.dark.tool_neuron.model.gateway.GatewayStatus
+import com.dark.tool_neuron.repo.ActiveConversationStore
+import com.dark.tool_neuron.repo.DefaultActiveConversationStore
 import com.dark.tool_neuron.repo.FridayConvoStore
 import com.dark.tool_neuron.repo.context.ContextHistorySource
 import com.dark.tool_neuron.repo.gateway.ChatBrain
@@ -14,6 +17,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -33,6 +37,9 @@ class FridayChatViewModel @Inject constructor(
     private val convoRepo: FridayConvoStore,
     private val router: ChatBrain,
     private val contextEngine: ContextHistorySource,
+    // Trailing default keeps pre-existing 4-arg test call sites compiling unmodified;
+    // Hilt's generated factory still supplies the real bound singleton explicitly.
+    private val activeConversationStore: ActiveConversationStore = DefaultActiveConversationStore(),
 ) : ViewModel() {
 
     private val _messages = MutableStateFlow<List<FridayChatMessage>>(emptyList())
@@ -48,6 +55,28 @@ class FridayChatViewModel @Inject constructor(
         .map { it.isNotEmpty() }
         .stateIn(viewModelScope, SharingStarted.Eagerly, gatewayRepo.gateways.value.isNotEmpty())
 
+    // Distinct from hasGateway ("any configured"): true only when the active brain gateway is
+    // READY. Recomputes whenever the gateway list OR the brain selection changes (selectBrain()
+    // mutates brainSelection, not the gateways list, so both flows must be observed).
+    val hasReadyGateway: StateFlow<Boolean> = combine(gatewayRepo.gateways, gatewayRepo.brainSelection) { _, _ ->
+        gatewayRepo.brainGateway()?.status == GatewayStatus.READY
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, gatewayRepo.brainGateway()?.status == GatewayStatus.READY)
+
+    // True once a brain gateway is selected, regardless of its READY/FAILED/NOT_TESTED status.
+    // Drives the "open provider selector" gate: only the absence of a selection should redirect.
+    val hasBrainSelected: StateFlow<Boolean> = combine(gatewayRepo.gateways, gatewayRepo.brainSelection) { _, _ ->
+        gatewayRepo.brainGateway() != null
+    }.stateIn(viewModelScope, SharingStarted.Eagerly, gatewayRepo.brainGateway() != null)
+
+    // "<label> · <model>" for the selected brain gateway, or null when none is selected.
+    val brainLabel: StateFlow<String?> = combine(gatewayRepo.gateways, gatewayRepo.brainSelection) { _, _ ->
+        gatewayRepo.brainGateway()?.let { "${it.label} · ${it.displayModel}" }
+    }.stateIn(
+        viewModelScope,
+        SharingStarted.Eagerly,
+        gatewayRepo.brainGateway()?.let { "${it.label} · ${it.displayModel}" },
+    )
+
     private var conversationId: String? = null
     private var replyJob: Job? = null
 
@@ -60,6 +89,7 @@ class FridayChatViewModel @Inject constructor(
         _thinking.value = false
         _error.value = null
         conversationId = id
+        activeConversationStore.set(id)
         _messages.value = convoRepo.getTurns(id).map {
             FridayChatMessage(id = it.id, isUser = it.role == "user", text = it.content)
         }
@@ -70,7 +100,16 @@ class FridayChatViewModel @Inject constructor(
         _thinking.value = false
         _error.value = null
         conversationId = null
+        activeConversationStore.set(null)
         _messages.value = emptyList()
+    }
+
+    // Explicit stop-generating hook (chat had none before; Voice already wires an equivalent
+    // cancel). Keeps the partial assistant bubble as-is — only Delta/Done/Error handlers mutate it.
+    fun cancel() {
+        replyJob?.cancel()
+        router.brainCancel()
+        _thinking.value = false
     }
 
     fun clearError() { _error.value = null }
@@ -171,7 +210,10 @@ class FridayChatViewModel @Inject constructor(
             return
         }
 
-        val convoId = conversationId ?: convoRepo.createConversation(brain.id).id.also { conversationId = it }
+        val convoId = conversationId ?: convoRepo.createConversation(brain.id).id.also {
+            conversationId = it
+            activeConversationStore.set(it)
+        }
         val now = System.currentTimeMillis()
         val userTurn = FridayTurn(
             id = UUID.randomUUID().toString(),

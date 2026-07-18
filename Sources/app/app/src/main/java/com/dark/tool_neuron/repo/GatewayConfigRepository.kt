@@ -34,6 +34,7 @@ class GatewayConfigRepository @Inject constructor(
 
     private val _brainId = MutableStateFlow("")
     val brainId: StateFlow<String> = _brainId.asStateFlow()
+    override val brainSelection: StateFlow<String> get() = brainId
 
     private val _voiceId = MutableStateFlow("")
     val voiceId: StateFlow<String> = _voiceId.asStateFlow()

@@ -75,7 +75,6 @@ import com.dark.tool_neuron.viewmodel.AccountViewModel
 import com.dark.tool_neuron.ui.screens.terms_conditions.TermsConditionsScreen
 import com.dark.tool_neuron.ui.theme.rememberNavTransitions
 import com.dark.tool_neuron.viewmodel.HomeViewModel
-import com.dark.tool_neuron.viewmodel.FridayEntryRouting
 import com.dark.tool_neuron.viewmodel.ImageTaskViewModel
 import com.dark.tool_neuron.viewmodel.LanguageViewModel
 import com.dark.tool_neuron.viewmodel.ModelSetupCompletion
@@ -87,6 +86,22 @@ import com.dark.tool_neuron.viewmodel.ThemingViewModel
 import com.dark.tool_neuron.viewmodel.SetupViewModel
 import com.dark.tool_neuron.viewmodel.StorageViewModel
 import com.dark.tool_neuron.viewmodel.OnboardingBackNav
+import com.dark.tool_neuron.repo.ActiveConversationStore
+import dagger.hilt.EntryPoint
+import dagger.hilt.InstallIn
+import dagger.hilt.android.EntryPointAccessors
+import dagger.hilt.components.SingletonComponent
+
+// FRI-574 Phase 4: read the @Singleton ActiveConversationStore (bound in
+// GatewayModule) from inside this @Composable without a ViewModel, so
+// Voice -> Chat navigation can carry the active conversation id. No edit to
+// GatewayModule.kt/ActiveConversationStore.kt needed — both already live in
+// SingletonComponent.
+@EntryPoint
+@InstallIn(SingletonComponent::class)
+interface ActiveConversationStoreEntryPoint {
+    fun activeConversationStore(): ActiveConversationStore
+}
 
 @Composable
 fun TNavigation(
@@ -106,8 +121,21 @@ fun TNavigation(
         navController.navigate(NavScreens.OnboardingAddProvider.routeFor(catalogId))
     },
     resolveNext: () -> String = { nextDestination },
+    // FRI-574 Phase 4: Friday sidebar + provider selector are hosted by the
+    // shell (AppScaffold), not by this NavHost — Friday screens call these to
+    // request them opened. Defaulted so non-Friday callers are unaffected.
+    openDrawer: () -> Unit = {},
+    openSelector: () -> Unit = {},
 ) {
     val transitions = rememberNavTransitions()
+    val appContext = LocalContext.current.applicationContext
+    val activeConversationStore = remember(appContext) {
+        EntryPointAccessors.fromApplication(
+            appContext,
+            ActiveConversationStoreEntryPoint::class.java,
+        ).activeConversationStore()
+    }
+    val activeConversationId by activeConversationStore.activeConversationId.collectAsStateWithLifecycle()
 
     // Onboarding back-chevron nav (FRI-582 QA blocker fix): screen-swap only,
     // never unsets HXS done-flags. See OnboardingBackNav for the step order.
@@ -552,11 +580,21 @@ fun TNavigation(
         composable(NavScreens.FridayVoice.route) {
             FridayVoiceScreen(
                 innerPadding = innerPadding,
-                onOpenMenu = { navController.navigate(FridayEntryRouting.menuRoute) },
-                onToChat = { navController.navigate(NavScreens.FridayChat.BASE) },
+                // FRI-574 Phase 4: hamburger opens the real sidebar drawer
+                // (was mis-wired to History via FridayEntryRouting.menuRoute).
+                onOpenMenu = openDrawer,
+                // Voice -> Chat: carry the active conversation id (Phase 1's
+                // ActiveConversationStore) so switching surfaces keeps the
+                // same conversation instead of always landing on the newest one.
+                onToChat = {
+                    val cid = activeConversationId
+                    navController.navigate(
+                        if (cid != null) NavScreens.FridayChat.routeFor(cid) else NavScreens.FridayChat.BASE
+                    )
+                },
                 // FRI-582 QA round-2 B3: "set up later" CTA opens the real
-                // provider selector, not History.
-                onOpenProviderSelector = { navController.navigate(FridayEntryRouting.providerSelectorRoute) },
+                // provider selector overlay (was History via providerSelectorRoute).
+                onOpenProviderSelector = openSelector,
             )
         }
         composable(
@@ -571,11 +609,16 @@ fun TNavigation(
             FridayChatScreen(
                 innerPadding = innerPadding,
                 conversationId = cid,
-                onOpenMenu = { navController.navigate(FridayEntryRouting.menuRoute) },
+                // FRI-574 Phase 4: hamburger opens the real sidebar drawer
+                // (was mis-wired to History via FridayEntryRouting.menuRoute).
+                onOpenMenu = openDrawer,
+                // Chat -> Voice: FridayVoiceViewModel has no open(id)/newChat()
+                // entry point to resume a specific conversation (Phase 1,
+                // documented limitation) — plain navigate, unchanged behavior.
                 onToVoice = { navController.navigate(NavScreens.FridayVoice.route) },
                 // FRI-582 QA round-2 B3: no-provider CTA opens the real
-                // provider selector, not History.
-                onOpenProviderSelector = { navController.navigate(FridayEntryRouting.providerSelectorRoute) },
+                // provider selector overlay (was History via providerSelectorRoute).
+                onOpenProviderSelector = openSelector,
             )
         }
         composable(NavScreens.FridayHistory.route) {

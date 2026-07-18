@@ -5,6 +5,8 @@ import com.dark.tool_neuron.model.friday.FridayTurn
 import com.dark.tool_neuron.model.gateway.GatewayConfig
 import com.dark.tool_neuron.model.gateway.GatewayProvider
 import com.dark.tool_neuron.data.PendingAssistInvocation
+import com.dark.tool_neuron.repo.ActiveConversationStore
+import com.dark.tool_neuron.repo.DefaultActiveConversationStore
 import com.dark.tool_neuron.repo.FridayConvoStore
 import com.dark.tool_neuron.repo.context.ContextHistorySource
 import com.dark.tool_neuron.repo.gateway.BrainBridge
@@ -210,11 +212,12 @@ class FridayVoiceViewModelTest {
         foregroundService: FakeForegroundServicePort = FakeForegroundServicePort(),
         pendingAssist: PendingAssistInvocation = PendingAssistInvocation(),
         lifecycleHost: VoiceSessionLifecycleHost = VoiceSessionLifecycleHost(FakeSystemHooks()),
+        activeConversationStore: ActiveConversationStore = DefaultActiveConversationStore(),
     ): FridayVoiceViewModel =
         FridayVoiceViewModel(
             route, VoiceBridge(brain), convoStore, voiceIo, contextEngine, adapter, prefs, gatewayState,
             lifecycleHost, VoiceSessionServiceGate(), foregroundService,
-            pendingAssist,
+            pendingAssist, activeConversationStore,
         )
 
     @Test
@@ -613,5 +616,41 @@ class FridayVoiceViewModelTest {
         advanceUntilIdle()
         assertEquals("failed resume falls back to a fresh open", 2, adapter.openCalls)
         assertEquals(1, adapter.handle.resumeUserTurnCalls)
+    }
+
+    // Voice<->Chat continuity seam: runBrainTurn's create-on-first-turn path is the ONLY site in this
+    // VM that writes ActiveConversationStore (VM has no open(id) entry point to resume an existing
+    // conversation — a documented, carried-forward gap, not covered here since no such code path exists).
+    @Test
+    fun activeConversationStore_writesOnConversationCreate_forBothLocalAndCloudRoutes() = runTest {
+        val localStore = DefaultActiveConversationStore()
+        val brain = FakeBrain().apply { turnFactory = { flow { emit(GatewayEvent.Done("Hello there")) } } }
+        val voiceIo = FakeVoiceIo().apply { recognizedTranscript = "hello" }
+        val convoStore = FakeConvoStore()
+        val route = FakeRoute(VoiceRouter.Route.LocalBridge(localGateway(), localGateway()))
+        val model = vm(brain = brain, route = route, convoStore = convoStore, voiceIo = voiceIo, activeConversationStore = localStore)
+
+        assertEquals("no turn yet -> nothing recorded", null, localStore.activeConversationId.value)
+
+        model.onMicTap()
+        model.onMicTap()
+        advanceUntilIdle()
+
+        assertEquals("local route records the created conversation id", "c1", localStore.activeConversationId.value)
+
+        val cloudStore = DefaultActiveConversationStore()
+        val adapter = FakeLiveVoiceAdapter(supportsResult = true)
+        val cloudRoute = FakeRoute(VoiceRouter.Route.CloudBridge(cloudGateway(), cloudGateway()))
+        val cloudModel = vm(route = cloudRoute, adapter = adapter, activeConversationStore = cloudStore)
+
+        cloudModel.onMicTap()
+        adapter.handle.events.tryEmit(LiveEvent.State(LiveSessionState.CONFIGURED))
+        adapter.handle.events.tryEmit(LiveEvent.InputTranscript("hi"))
+        advanceUntilIdle()
+        adapter.handle.brainTurnFactory = { _, _ -> flow { emit(GatewayEvent.Done("hi back")) } }
+        cloudModel.onMicTap()
+        advanceUntilIdle()
+
+        assertEquals("cloud route (same runBrainTurn call site) also records the created conversation id", "c1", cloudStore.activeConversationId.value)
     }
 }

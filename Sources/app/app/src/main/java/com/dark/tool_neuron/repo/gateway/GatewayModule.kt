@@ -1,5 +1,7 @@
 package com.dark.tool_neuron.repo.gateway
 
+import com.dark.tool_neuron.repo.ActiveConversationStore
+import com.dark.tool_neuron.repo.DefaultActiveConversationStore
 import com.dark.tool_neuron.repo.FridayConversationRepository
 import com.dark.tool_neuron.repo.FridayConvoStore
 import com.dark.tool_neuron.repo.GatewayConfigRepository
@@ -74,4 +76,8 @@ abstract class GatewayModule {
     @Binds
     @Singleton
     abstract fun bindVoiceGatewayStatePort(impl: GatewayConfigVoiceGatewayStatePort): VoiceGatewayStatePort
+
+    @Binds
+    @Singleton
+    abstract fun bindActiveConversationStore(impl: DefaultActiveConversationStore): ActiveConversationStore
 }

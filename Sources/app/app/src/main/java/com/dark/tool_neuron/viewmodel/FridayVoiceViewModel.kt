@@ -8,6 +8,8 @@ import com.dark.tool_neuron.data.AppPreferences
 import com.dark.tool_neuron.data.PendingAssistInvocation
 import com.dark.tool_neuron.model.friday.FridayTurn
 import com.dark.tool_neuron.model.gateway.GatewayConfig
+import com.dark.tool_neuron.repo.ActiveConversationStore
+import com.dark.tool_neuron.repo.DefaultActiveConversationStore
 import com.dark.tool_neuron.repo.FridayConvoStore
 import com.dark.tool_neuron.repo.context.ContextHistorySource
 import com.dark.tool_neuron.repo.gateway.GatewayEvent
@@ -96,6 +98,9 @@ class FridayVoiceViewModel internal constructor(
     private val serviceGate: VoiceSessionServiceGate,
     private val foregroundService: VoiceForegroundServicePort,
     private val pendingAssist: PendingAssistInvocation = PendingAssistInvocation(),
+    // Trailing default keeps pre-existing positional test call sites compiling unmodified;
+    // Hilt's generated factory still supplies the real bound singleton explicitly.
+    private val activeConversationStore: ActiveConversationStore = DefaultActiveConversationStore(),
 ) : ViewModel() {
 
     @Inject constructor(
@@ -349,7 +354,10 @@ class FridayVoiceViewModel internal constructor(
         }
         brainTurnJob = viewModelScope.launch {
             val convoId = conversationId
-                ?: convoRepo.createConversation(brain.id).id.also { conversationId = it }
+                ?: convoRepo.createConversation(brain.id).id.also {
+                    conversationId = it
+                    activeConversationStore.set(it)
+                }
             val userTurn = FridayTurn(
                 id = UUID.randomUUID().toString(),
                 conversationId = convoId,

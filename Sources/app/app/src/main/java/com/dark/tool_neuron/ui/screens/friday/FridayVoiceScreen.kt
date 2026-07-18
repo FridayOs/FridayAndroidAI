@@ -133,7 +133,7 @@ fun FridayVoiceScreen(
             brainConfigured = brainConfigured,
             gatewayLabel = voiceGateway?.label,
             ready = voiceGateway?.status == GatewayStatus.READY,
-            onProviderClick = onOpenMenu,
+            onProviderClick = onOpenProviderSelector,
         )
 
         Spacer(Modifier.height(18.dp))

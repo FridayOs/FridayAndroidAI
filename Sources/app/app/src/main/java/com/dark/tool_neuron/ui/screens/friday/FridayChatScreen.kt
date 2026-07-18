@@ -9,20 +9,14 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -32,20 +26,14 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.SolidColor
-import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.hilt.lifecycle.viewmodel.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.dark.tool_neuron.ui.icons.TnIcons
-import com.dark.tool_neuron.ui.screens.friday.components.FridayAiBubble
-import com.dark.tool_neuron.ui.screens.friday.components.FridayThinkingDots
-import com.dark.tool_neuron.ui.screens.friday.components.FridayUserBubble
-import com.dark.tool_neuron.ui.screens.friday.components.FridayVoiceSelectorPrompt
-import com.dark.tool_neuron.ui.util.FridayPalette
+import com.dark.tool_neuron.ui.screens.friday.components.FridayChatComposer
+import com.dark.tool_neuron.ui.screens.friday.components.FridayChatEmptyState
+import com.dark.tool_neuron.ui.screens.friday.components.FridayChatHeader
+import com.dark.tool_neuron.ui.screens.friday.components.FridayChatMessageList
 import com.dark.tool_neuron.viewmodel.FridayChatViewModel
 
 @Composable
@@ -55,7 +43,8 @@ fun FridayChatScreen(
     onToVoice: () -> Unit,
     // Dedicated provider-selector callback (FRI-582 QA round-2 B3), distinct
     // from the hamburger onOpenMenu (-> History). Drives the no-provider CTA
-    // below; defaults to onOpenMenu only to avoid breaking older call sites.
+    // and the no-ready-provider send interception below; defaults to
+    // onOpenMenu only to avoid breaking older call sites.
     onOpenProviderSelector: () -> Unit = onOpenMenu,
     conversationId: String? = null,
     viewModel: FridayChatViewModel = hiltViewModel(),
@@ -64,6 +53,9 @@ fun FridayChatScreen(
     val thinking by viewModel.thinking.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
     val hasGateway by viewModel.hasGateway.collectAsStateWithLifecycle()
+    val hasReadyGateway by viewModel.hasReadyGateway.collectAsStateWithLifecycle()
+    val hasBrainSelected by viewModel.hasBrainSelected.collectAsStateWithLifecycle()
+    val brainLabel by viewModel.brainLabel.collectAsStateWithLifecycle()
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
 
@@ -71,9 +63,18 @@ fun FridayChatScreen(
         if (conversationId != null) viewModel.open(conversationId)
     }
 
-    LaunchedEffect(messages.size, thinking) {
-        val count = messages.size + if (thinking) 1 else 0
-        if (count > 0) listState.animateScrollToItem(count - 1)
+    // No brain selected: intercept before the VM ever sees the send call and route to the
+    // provider selector instead. A selected-but-FAILED/NOT_TESTED brain is allowed to send —
+    // it surfaces the real error banner + retry, never a fake reply.
+    fun handleSend() {
+        val text = input
+        if (text.isBlank() || thinking) return
+        if (!hasBrainSelected) {
+            onOpenProviderSelector()
+            return
+        }
+        input = ""
+        viewModel.send(text)
     }
 
     Column(
@@ -81,33 +82,42 @@ fun FridayChatScreen(
             .fillMaxSize()
             .padding(innerPadding),
     ) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 18.dp, vertical = 4.dp),
-            horizontalArrangement = Arrangement.SpaceBetween,
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            IconTap(TnIcons.Menu) { onOpenMenu() }
-            Row {
-                IconTap(TnIcons.Edit) { viewModel.newChat() }
-                IconTap(TnIcons.Mic) { onToVoice() }
-            }
+        FridayChatHeader(
+            onOpenMenu = onOpenMenu,
+            onProviderClick = onOpenProviderSelector,
+            onNewChat = viewModel::newChat,
+            hasGateway = hasGateway,
+            hasReadyGateway = hasReadyGateway,
+            label = brainLabel,
+            hasBrainSelected = hasBrainSelected,
+        )
+
+        if (messages.isEmpty() && !thinking) {
+            FridayChatEmptyState(
+                hasProvider = hasBrainSelected,
+                onAddProvider = onOpenProviderSelector,
+                onSelectProvider = onOpenProviderSelector,
+                modifier = Modifier.weight(1f),
+            )
+        } else {
+            FridayChatMessageList(
+                messages = messages,
+                thinking = thinking,
+                listState = listState,
+                modifier = Modifier.weight(1f),
+            )
         }
 
-        LazyColumn(
-            state = listState,
-            modifier = Modifier
-                .weight(1f)
-                .fillMaxWidth()
-                .padding(horizontal = 18.dp),
-            verticalArrangement = Arrangement.spacedBy(18.dp),
-        ) {
-            items(messages, key = { it.id }) { m ->
-                if (m.isUser) FridayUserBubble(m.text) else FridayAiBubble(m.text)
-            }
-            if (thinking) {
-                item { FridayThinkingDots() }
+        if (thinking) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 18.dp, vertical = 4.dp),
+                horizontalArrangement = Arrangement.End,
+            ) {
+                TextButton(onClick = viewModel::cancel) {
+                    Text(stringResource(R.string.friday_voice_notif_stop))
+                }
             }
         }
 
@@ -118,7 +128,6 @@ fun FridayChatScreen(
                     .padding(horizontal = 18.dp, vertical = 6.dp)
                     .clip(RoundedCornerShape(12.dp))
                     .background(MaterialTheme.colorScheme.errorContainer)
-                    .clickable { viewModel.clearError() }
                     .padding(horizontal = 14.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
@@ -126,84 +135,23 @@ fun FridayChatScreen(
                     text = message,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onErrorContainer,
+                    modifier = Modifier.weight(1f),
                 )
-            }
-        }
-
-        // No configured provider (FRI-582 QA round-2 B3): CTA opens the real
-        // provider selector instead of leaving the user with only a dismiss.
-        if (!hasGateway) {
-            Box(modifier = Modifier.padding(horizontal = 18.dp)) {
-                FridayVoiceSelectorPrompt(
-                    onAddProvider = onOpenProviderSelector,
-                    onSelectProvider = onOpenProviderSelector,
-                )
-            }
-        }
-
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(horizontal = 16.dp, vertical = 12.dp)
-                .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(22.dp))
-                .padding(start = 16.dp, end = 8.dp, top = 6.dp, bottom = 6.dp),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Box(modifier = Modifier.weight(1f)) {
-                if (input.isEmpty()) {
-                    Text(
-                        text = stringResource(R.string.friday_chat_input_hint),
-                        style = MaterialTheme.typography.bodyLarge,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                TextButton(onClick = viewModel::regenerate) {
+                    Text(stringResource(R.string.friday_retry))
                 }
-                BasicTextField(
-                    value = input,
-                    onValueChange = { input = it },
-                    textStyle = TextStyle(color = MaterialTheme.colorScheme.onSurface),
-                    cursorBrush = SolidColor(FridayPalette.Primary),
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
-            IconTap(
-                icon = TnIcons.Mic,
-                onClick = { onToVoice() },
-                tint = MaterialTheme.colorScheme.onSurfaceVariant,
-            )
-            Box(
-                modifier = Modifier
-                    .size(42.dp)
-                    .background(FridayPalette.Primary, CircleShape)
-                    .clickable {
-                        val text = input
-                        input = ""
-                        viewModel.send(text)
-                    },
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = TnIcons.Send,
-                    contentDescription = null,
-                    modifier = Modifier.size(19.dp),
-                    tint = FridayPalette.OnPrimary,
-                )
+                TextButton(onClick = viewModel::clearError) {
+                    Text(stringResource(R.string.friday_event_dismiss))
+                }
             }
         }
-    }
-}
 
-@Composable
-private fun IconTap(
-    icon: ImageVector,
-    tint: Color = MaterialTheme.colorScheme.onSurface,
-    onClick: () -> Unit,
-) {
-    Box(
-        modifier = Modifier
-            .size(42.dp)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center,
-    ) {
-        Icon(imageVector = icon, contentDescription = null, modifier = Modifier.size(22.dp), tint = tint)
+        FridayChatComposer(
+            value = input,
+            onValueChange = { input = it },
+            onSend = ::handleSend,
+            onMicClick = onToVoice,
+            thinking = thinking,
+        )
     }
 }

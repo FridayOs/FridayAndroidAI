@@ -219,6 +219,42 @@
     <string name="friday_add_provider_saved_toast">Saved</string>
     <string name="friday_add_provider_saved_use_toast">Friday now uses %1$s · %2$s</string>
 
+    <!-- App Shell — Chat/Sidebar/Selector (FRI-574, design-spec §1-3) -->
+    <string name="friday_pill_set_provider">Set provider</string>
+    <string name="friday_chat_hello_title">Hi, I\'m Friday.</string>
+    <string name="friday_chat_hello_body">Everything we talk about stays on this phone. Ask me anything.</string>
+    <string name="friday_chat_placeholder">Message Friday</string>
+    <string name="friday_thinking">Thinking…</string>
+    <string name="friday_retry">Retry</string>
+    <string name="friday_feature_section">Feature</string>
+    <string name="friday_live_voice">Live voice</string>
+    <string name="friday_new_conversation">New conversation</string>
+    <string name="friday_skills">Skills</string>
+    <string name="friday_mcp">MCP</string>
+    <string name="friday_coming_soon">Coming soon</string>
+    <string name="friday_coming_milestone">Coming in a later milestone</string>
+    <string name="friday_recent_convos">Recent conversations</string>
+    <string name="friday_no_convos">No conversations yet</string>
+    <string name="friday_start_new_chat">Start a new chat with Friday.</string>
+    <string name="friday_loading_more">Loading more…</string>
+    <string name="friday_all_loaded">All conversations loaded</string>
+    <string name="friday_selector_title" translatable="false">Provider &amp; model</string>
+    <string name="friday_selector_privacy">Requests go directly from this phone. FRIDAY does not proxy prompts.</string>
+    <string name="friday_current">Current</string>
+    <string name="friday_direct_from_android">Direct from Android</string>
+    <string name="friday_no_provider_title">No AI provider yet</string>
+    <string name="friday_no_provider_body">Add a user-owned provider so Friday can answer. Keys stay local and calls go directly from this phone.</string>
+    <string name="friday_status_failed">Connection failed</string>
+    <string name="friday_status_ready">Ready</string>
+    <string name="friday_status_not_tested">Not tested</string>
+    <string name="friday_status_selected">Selected</string>
+    <string name="friday_add_provider">Add provider</string>
+    <string name="friday_manage_providers">Manage providers</string>
+    <string name="friday_provider_switched_toast">Friday now uses %1$s.</string>
+    <string name="friday_unknown_provider">Unknown provider</string>
+    <string name="friday_version" translatable="false">FRIDAY AI · v1.0.0</string>
+    <string name="friday_settings">Settings</string>
+
     <!-- Onboarding intro (FRI-582 M2-00 re-skin) -->
     <string name="onboarding_intro_title">FRIDAY AI</string>
     <string name="onboarding_intro_tagline">Your private AI familiar, running from your phone.</string>
