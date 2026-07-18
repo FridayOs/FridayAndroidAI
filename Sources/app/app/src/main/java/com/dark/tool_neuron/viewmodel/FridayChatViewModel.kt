@@ -18,6 +18,7 @@ import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
+import kotlinx.coroutines.flow.drop
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
@@ -47,6 +48,13 @@ class FridayChatViewModel @Inject constructor(
 
     private val _thinking = MutableStateFlow(false)
     val thinking: StateFlow<Boolean> = _thinking.asStateFlow()
+
+    // FRI-574 phase 7 (B1): "waiting for first token" is what `thinking` means; `inFlight`
+    // is the broader send-gate that stays true from turn start until Done/Error/cancel so
+    // a second concurrent send cannot fire while the previous assistant answer is still
+    // streaming, and the Stop row stays visible the entire time.
+    private val _inFlight = MutableStateFlow(false)
+    val inFlight: StateFlow<Boolean> = _inFlight.asStateFlow()
 
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
@@ -81,12 +89,20 @@ class FridayChatViewModel @Inject constructor(
     private var replyJob: Job? = null
 
     init {
-        convoRepo.conversations.value.firstOrNull()?.let { open(it.id) }
+        // FRI-574 phase 7 (B2): the sidebar's "New conversation" requests drive reset now;
+        // explicit open() from the screen still hydrates the same active id on demand. We
+        // skip the old "auto-open first conversation on construction" path because it
+        // clobbered an in-progress Voice conversation and made the sidebar's New button a
+        // navigation side-effect instead of a real reset command.
+        viewModelScope.launch {
+            activeConversationStore.newChatRequests.drop(1).collect { newChat() }
+        }
     }
 
     fun open(id: String) {
         replyJob?.cancel()
         _thinking.value = false
+        _inFlight.value = false
         _error.value = null
         conversationId = id
         activeConversationStore.set(id)
@@ -98,6 +114,7 @@ class FridayChatViewModel @Inject constructor(
     fun newChat() {
         replyJob?.cancel()
         _thinking.value = false
+        _inFlight.value = false
         _error.value = null
         conversationId = null
         activeConversationStore.set(null)
@@ -110,6 +127,7 @@ class FridayChatViewModel @Inject constructor(
         replyJob?.cancel()
         router.brainCancel()
         _thinking.value = false
+        _inFlight.value = false
     }
 
     fun clearError() { _error.value = null }
@@ -117,7 +135,7 @@ class FridayChatViewModel @Inject constructor(
     // brain_continue: re-run from the turn before the last assistant answer without a new user message.
     fun regenerate() {
         val convoId = conversationId ?: return
-        if (_thinking.value) return
+        if (_thinking.value || _inFlight.value) return
         val turns = convoRepo.getTurns(convoId)
         val (pending, existing) = planRegeneration(turns)
         if (pending.isEmpty()) return
@@ -127,6 +145,7 @@ class FridayChatViewModel @Inject constructor(
             _messages.value = _messages.value.map { if (it.id == aiId) it.copy(text = "", done = false) else it }
         }
         _thinking.value = true
+        _inFlight.value = true
         replyJob = viewModelScope.launch {
             var settled = false
             try {
@@ -147,6 +166,7 @@ class FridayChatViewModel @Inject constructor(
                         is GatewayEvent.Done -> {
                             settled = true
                             _thinking.value = false
+                            _inFlight.value = false
                             val finalText = event.fullText
                             _messages.value = _messages.value.map {
                                 if (it.id == aiId) it.copy(text = finalText, done = true) else it
@@ -159,6 +179,7 @@ class FridayChatViewModel @Inject constructor(
                         is GatewayEvent.Error -> {
                             settled = true
                             _thinking.value = false
+                            _inFlight.value = false
                             restoreRegenerated(aiId, existing)
                             _error.value = event.message
                         }
@@ -168,6 +189,7 @@ class FridayChatViewModel @Inject constructor(
                 // Cancellation (open()/newChat()) rethrows with no terminal event: restore UI, never persist a partial. Guard convo so a switch doesn't clobber the new view.
                 if (!settled && conversationId == convoId) {
                     _thinking.value = false
+                    _inFlight.value = false
                     restoreRegenerated(aiId, existing)
                 }
             }
@@ -202,7 +224,7 @@ class FridayChatViewModel @Inject constructor(
 
     fun send(text: String, viaVoice: Boolean = false) {
         val trimmed = text.trim()
-        if (trimmed.isEmpty() || _thinking.value) return
+        if (trimmed.isEmpty() || _thinking.value || _inFlight.value) return
         // No brain surfaces an error the screen turns into the provider/model selector.
         val brain = router.brainGateway()
         if (brain == null) {
@@ -227,47 +249,65 @@ class FridayChatViewModel @Inject constructor(
         contextEngine.onUserTurnPersisted(userTurn)
         _messages.value = _messages.value + FridayChatMessage(userTurn.id, isUser = true, text = trimmed)
         _thinking.value = true
+        _inFlight.value = true
 
         val aiId = UUID.randomUUID().toString()
 
         // brain_turn: chat always routes through the active Brain Gateway.
         replyJob = viewModelScope.launch {
-            val history = contextEngine.buildHistory(convoId)
-            router.brainTurn(history).collect { event ->
-                when (event) {
-                    is GatewayEvent.Delta -> {
-                        if (_thinking.value) {
+            var settled = false
+            try {
+                val history = contextEngine.buildHistory(convoId)
+                router.brainTurn(history).collect { event ->
+                    when (event) {
+                        is GatewayEvent.Delta -> {
+                            if (_thinking.value) {
+                                _thinking.value = false
+                                if (_messages.value.none { it.id == aiId }) {
+                                    _messages.value = _messages.value + FridayChatMessage(aiId, isUser = false, text = "", done = false)
+                                }
+                            }
+                            _messages.value = _messages.value.map {
+                                if (it.id == aiId) it.copy(text = it.text + event.text) else it
+                            }
+                        }
+                        is GatewayEvent.Done -> {
+                            settled = true
                             _thinking.value = false
-                            _messages.value = _messages.value + FridayChatMessage(aiId, isUser = false, text = "", done = false)
-                        }
-                        _messages.value = _messages.value.map {
-                            if (it.id == aiId) it.copy(text = it.text + event.text) else it
-                        }
-                    }
-                    is GatewayEvent.Done -> {
-                        _thinking.value = false
-                        val finalText = event.fullText
-                        _messages.value = _messages.value.map {
-                            if (it.id == aiId) it.copy(text = finalText, done = true) else it
-                        }
-                        if (finalText.isNotBlank()) {
-                            convoRepo.addTurn(
-                                FridayTurn(
-                                    id = aiId,
-                                    conversationId = convoId,
-                                    role = "assistant",
-                                    content = finalText,
-                                    timestamp = System.currentTimeMillis(),
+                            _inFlight.value = false
+                            val finalText = event.fullText
+                            _messages.value = _messages.value.map {
+                                if (it.id == aiId) it.copy(text = finalText, done = true) else it
+                            }
+                            if (finalText.isNotBlank()) {
+                                convoRepo.addTurn(
+                                    FridayTurn(
+                                        id = aiId,
+                                        conversationId = convoId,
+                                        role = "assistant",
+                                        content = finalText,
+                                        timestamp = System.currentTimeMillis(),
+                                    )
                                 )
-                            )
-                            contextEngine.onTurnCompleted(convoId)
+                                contextEngine.onTurnCompleted(convoId)
+                            }
+                        }
+                        is GatewayEvent.Error -> {
+                            settled = true
+                            _thinking.value = false
+                            _inFlight.value = false
+                            _messages.value = _messages.value.filterNot { it.id == aiId }
+                            _error.value = event.message
                         }
                     }
-                    is GatewayEvent.Error -> {
-                        _thinking.value = false
-                        _messages.value = _messages.value.filterNot { it.id == aiId }
-                        _error.value = event.message
-                    }
+                }
+            } finally {
+                // Cancellation (open()/newChat()/cancel()) rethrows with no terminal event: leave
+                // the partial assistant bubble as-is, but clear both flags so the user can send
+                // again. Guard convo so an open()/newChat()'d new view isn't clobbered mid-reset.
+                if (!settled && conversationId == convoId) {
+                    _thinking.value = false
+                    _inFlight.value = false
                 }
             }
         }

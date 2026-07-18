@@ -41,7 +41,7 @@ fun FridayChatHeader(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        FridayHeaderIconButton(TnIcons.Menu, onOpenMenu)
+        FridayHeaderIconButton(TnIcons.Menu, stringResource(R.string.friday_cd_menu), onOpenMenu)
         FridayProviderPill(
             label = label ?: stringResource(R.string.friday_pill_set_provider),
             dotColor = if (hasReadyGateway) ReadyGreen else MaterialTheme.colorScheme.onSurfaceVariant,
@@ -49,7 +49,8 @@ fun FridayChatHeader(
             modifier = Modifier
                 .weight(1f)
                 .padding(horizontal = 8.dp),
+            contentDescription = stringResource(R.string.friday_cd_provider),
         )
-        FridayHeaderIconButton(TnIcons.Edit, onNewChat)
+        FridayHeaderIconButton(TnIcons.Edit, stringResource(R.string.friday_cd_new_chat), onNewChat)
     }
 }

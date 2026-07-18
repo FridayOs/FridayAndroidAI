@@ -30,7 +30,9 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.dark.tool_neuron.model.NavScreens
+import com.dark.tool_neuron.repo.ActiveConversationStore
 import com.dark.tool_neuron.ui.components.RootWarningDialog
+import com.dark.tool_neuron.ui.navigation.ActiveConversationStoreEntryPoint
 import com.dark.tool_neuron.ui.navigation.TNavigation
 import com.dark.tool_neuron.data.AccountState
 import com.dark.tool_neuron.ui.screens.friday.FridayDrawerContent
@@ -41,6 +43,7 @@ import com.dark.tool_neuron.viewmodel.FridayProviderSelectorViewModel
 import com.dark.tool_neuron.viewmodel.HomeViewModel
 import com.dark.tool_neuron.viewmodel.ScaffoldViewModel
 import com.friday.ai.R
+import dagger.hilt.android.EntryPointAccessors
 import kotlinx.coroutines.launch
 
 @Composable
@@ -65,6 +68,18 @@ private fun AppScaffoldInner() {
 
     val accountViewModel: AccountViewModel = hiltViewModel()
     val accountState by accountViewModel.state.collectAsStateWithLifecycle()
+
+    // FRI-574 phase 7 (B2): the sidebar's "New conversation" action needs to issue a real
+    // reset (clears the active id + bumps the newChatRequests counter). Reuse the same
+    // Hilt EntryPoint that TNavigation already exposes for the same singleton, so we stay
+    // outside ViewModel construction while still accessing SingletonComponent bindings.
+    val appContext = LocalContext.current.applicationContext
+    val activeConversationStore = remember(appContext) {
+        EntryPointAccessors.fromApplication(
+            appContext,
+            ActiveConversationStoreEntryPoint::class.java,
+        ).activeConversationStore()
+    }
 
     val initialDestination = remember { scaffoldViewModel.resolveStartDestination() }
     // Resolve fresh at each gate so mid-session state changes route correctly.
@@ -179,6 +194,18 @@ private fun AppScaffoldInner() {
             onOpenSettings = {
                 scope.launch { drawerState.close() }
                 navController.navigate(NavScreens.FridaySettings.route)
+            },
+            // FRI-574 phase 7 (B2): sidebar's "New conversation" CTA runs the real reset
+            // command (clears active id + bumps newChatRequests so FridayChatVM.newChat
+            // runs) before navigating to the base Chat route with launchSingleTop. Without
+            // this it was a navigation side-effect that only worked when the VM happened to
+            // observe a fresh conversation list.
+            onNewConversation = {
+                scope.launch { drawerState.close() }
+                activeConversationStore.requestNewChat()
+                navController.navigate(NavScreens.FridayChat.BASE) {
+                    launchSingleTop = true
+                }
             },
         )
     }

@@ -220,6 +220,14 @@
     <string name="friday_add_provider_saved_use_toast">Friday now uses %1$s · %2$s</string>
 
     <!-- App Shell — Chat/Sidebar/Selector (FRI-574, design-spec §1-3) -->
+    <!-- FRI-574 B4: localized accessibility labels for app-shell interactive icons -->
+    <string name="friday_cd_menu">Open menu</string>
+    <string name="friday_cd_provider">Change provider and model</string>
+    <string name="friday_cd_new_chat">New conversation</string>
+    <string name="friday_cd_to_chat">Switch to chat</string>
+    <string name="friday_cd_mic">Voice input</string>
+    <string name="friday_cd_send">Send message</string>
+    <string name="friday_cd_stop">Stop generating</string>
     <string name="friday_pill_set_provider">Set provider</string>
     <string name="friday_chat_hello_title">Hi, I\'m Friday.</string>
     <string name="friday_chat_hello_body">Everything we talk about stays on this phone. Ask me anything.</string>

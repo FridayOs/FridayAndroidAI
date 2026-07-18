@@ -19,6 +19,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.role
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -36,6 +40,7 @@ fun FridayProviderPill(
     dotColor: Color,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    contentDescription: String? = null,
 ) {
     Row(
         modifier = modifier
@@ -43,6 +48,16 @@ fun FridayProviderPill(
             .clip(RoundedCornerShape(20.dp))
             .background(MaterialTheme.colorScheme.surfaceVariant)
             .clickable(onClick = onClick)
+            .then(
+                if (contentDescription != null) {
+                    Modifier.semantics {
+                        this.contentDescription = contentDescription
+                        role = Role.Button
+                    }
+                } else {
+                    Modifier
+                },
+            )
             .padding(horizontal = 14.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
@@ -68,12 +83,18 @@ fun FridayProviderPill(
 }
 
 // Shared 42dp icon-button used by both Voice and Chat headers (menu/edit/mic slots).
+// contentDescription is required for accessibility (FRI-574 B4): callers pass a localized
+// label so TalkBack announces the action; the icon itself stays decorative.
 @Composable
-fun FridayHeaderIconButton(icon: ImageVector, onClick: () -> Unit) {
+fun FridayHeaderIconButton(icon: ImageVector, contentDescription: String, onClick: () -> Unit) {
     Box(
         modifier = Modifier
             .size(42.dp)
-            .clickable(onClick = onClick),
+            .clickable(onClick = onClick)
+            .semantics {
+                this.contentDescription = contentDescription
+                role = Role.Button
+            },
         contentAlignment = Alignment.Center,
     ) {
         Icon(

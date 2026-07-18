@@ -51,6 +51,10 @@ fun FridayChatScreen(
 ) {
     val messages by viewModel.messages.collectAsStateWithLifecycle()
     val thinking by viewModel.thinking.collectAsStateWithLifecycle()
+    // FRI-574 phase 7 (B1): inFlight stays true the entire send→Done/Error window, so the
+    // Stop row + composer gate can't be released by the first Delta and a second concurrent
+    // send can't slip through mid-stream.
+    val inFlight by viewModel.inFlight.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
     val hasGateway by viewModel.hasGateway.collectAsStateWithLifecycle()
     val hasReadyGateway by viewModel.hasReadyGateway.collectAsStateWithLifecycle()
@@ -68,7 +72,7 @@ fun FridayChatScreen(
     // it surfaces the real error banner + retry, never a fake reply.
     fun handleSend() {
         val text = input
-        if (text.isBlank() || thinking) return
+        if (text.isBlank() || inFlight) return
         if (!hasBrainSelected) {
             onOpenProviderSelector()
             return
@@ -108,7 +112,7 @@ fun FridayChatScreen(
             )
         }
 
-        if (thinking) {
+        if (inFlight) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -151,7 +155,7 @@ fun FridayChatScreen(
             onValueChange = { input = it },
             onSend = ::handleSend,
             onMicClick = onToVoice,
-            thinking = thinking,
+            thinking = inFlight,
         )
     }
 }

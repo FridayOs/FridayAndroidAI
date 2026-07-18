@@ -33,10 +33,13 @@ import kotlinx.coroutines.launch
  * named args below — kept unchanged, including names, so that call site keeps
  * compiling untouched by this phase. The two new spec callbacks
  * (onOpenConversation/onOpenSettings) are added as trailing DEFAULTED params so the
- * legacy 5-arg call still resolves; Phase 4 should pass real implementations for both,
- * and may rename onNavigateVoice/onNavigateChat -> onOpenVoice/onNewConversation at
- * the call site if it wants literal spec naming (semantics are unchanged: onNavigateChat
- * already means "go to the base/new chat route").
+ * legacy 5-arg call still resolves; Phase 4 should pass real implementations for both.
+ *
+ * FRI-574 phase 7 (B2): added trailing defaulted `onNewConversation` distinct from
+ * `onNavigateChat` so the sidebar's "New conversation" CTA can run a real reset command
+ * (ActiveConversationStore.requestNewChat → ChatVM.newChat) without bypassing the
+ * existing legacy 5-arg call site. Defaults to the legacy behavior so pre-phase-7
+ * callers stay compatible.
  */
 @Composable
 fun FridayDrawerContent(
@@ -47,6 +50,7 @@ fun FridayDrawerContent(
     onSignedOut: () -> Unit,
     onOpenConversation: (String) -> Unit = { onNavigateHistory() },
     onOpenSettings: () -> Unit = {},
+    onNewConversation: () -> Unit = onNavigateChat,
     accountViewModel: AccountViewModel = hiltViewModel(),
     recentViewModel: FridayRecentConversationsViewModel = hiltViewModel(),
 ) {
@@ -72,7 +76,7 @@ fun FridayDrawerContent(
             Spacer(Modifier.height(26.dp))
             FridaySidebarFeatureSection(
                 onOpenVoice = onNavigateVoice,
-                onNewConversation = onNavigateChat,
+                onNewConversation = onNewConversation,
                 onComingSoon = {
                     scope.launch { snackbarHostState.showSnackbar(comingSoonMessage) }
                 },

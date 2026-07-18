@@ -93,14 +93,20 @@ fun FridayChatComposer(
                 )
             }
             IconButton(onClick = onMicClick) {
-                Icon(imageVector = TnIcons.Mic, contentDescription = null)
+                Icon(
+                    imageVector = TnIcons.Mic,
+                    contentDescription = stringResource(R.string.friday_cd_mic),
+                )
             }
             IconButton(
                 onClick = onSend,
                 enabled = canSend,
                 modifier = Modifier.alpha(if (canSend) 1f else 0.5f),
             ) {
-                Icon(imageVector = TnIcons.Send, contentDescription = null)
+                Icon(
+                    imageVector = TnIcons.Send,
+                    contentDescription = stringResource(R.string.friday_cd_send),
+                )
             }
         }
     }

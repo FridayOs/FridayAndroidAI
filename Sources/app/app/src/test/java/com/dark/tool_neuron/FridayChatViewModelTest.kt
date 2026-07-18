@@ -131,6 +131,7 @@ class FridayChatViewModelTest {
             listOf(user("u1", "hi"), assistant("a1", "old")),
         ) { flow { emit(GatewayEvent.Delta("new")); emit(GatewayEvent.Done("new answer")) } }
 
+        vm.open("c1")
         vm.regenerate()
 
         assertEquals(listOf(GatewayTurn("user", "hi")), brain.continueHistories.single())
@@ -147,6 +148,7 @@ class FridayChatViewModelTest {
             listOf(user("u1", "hi")),
         ) { flow { emit(GatewayEvent.Done("fresh")) } }
 
+        vm.open("c1")
         vm.regenerate()
 
         assertEquals("create path persists a new assistant turn", "fresh", store.added.single().content)
@@ -160,6 +162,7 @@ class FridayChatViewModelTest {
             listOf(assistant("a1", "lonely")),
         ) { flow { emit(GatewayEvent.Done("should not happen")) } }
 
+        vm.open("c1")
         vm.regenerate()
 
         assertTrue("only-assistant regenerate must not reach the brain", brain.continueHistories.isEmpty())
@@ -174,6 +177,7 @@ class FridayChatViewModelTest {
             listOf(user("u1", "hi"), assistant("a1", "old")),
         ) { flow { emit(GatewayEvent.Delta("partial")); emit(GatewayEvent.Error("boom")) } }
 
+        vm.open("c1")
         vm.regenerate()
 
         assertEquals("bubble restored to the stored answer on error", "old", vm.messages.value.first { it.id == "a1" }.text)
@@ -188,6 +192,7 @@ class FridayChatViewModelTest {
             listOf(user("u1", "hi")),
         ) { flow { emit(GatewayEvent.Delta("partial")); awaitCancellation() } }
 
+        vm.open("c1")
         vm.regenerate()
         assertEquals("partial", vm.messages.value.first { !it.isUser }.text)
 
@@ -204,6 +209,7 @@ class FridayChatViewModelTest {
             listOf(user("u1", "hi"), assistant("a1", "old")),
         ) { flow { emit(GatewayEvent.Delta("partial")); awaitCancellation() } }
 
+        vm.open("c1")
         vm.regenerate()
         assertEquals("partial", vm.messages.value.first { it.id == "a1" }.text)
 
@@ -309,22 +315,95 @@ class FridayChatViewModelTest {
     @Test
     fun activeConversationStore_writesOnInitOpen_newChat_andSendCreatedConversation() = runTest {
         val activeStore = DefaultActiveConversationStore()
-        val (vm, _, _, _) = vmWith(emptyList(), activeConversationStore = activeStore) {
+        // FRI-574 phase 7 (B2): init no longer auto-opens the first conversation — that path
+        // clobbered an in-progress Voice session. Seed the open state explicitly so the rest of
+        // the cross-screen continuity story (open / newChat / send-created convo) can still be
+        // exercised here.
+        activeStore.set("c1")
+        val (vm, _, _, _) = vmWith(
+            listOf(user("u1", "hi"), assistant("a1", "old")),
+            activeConversationStore = activeStore,
+        ) {
             flow { emit(GatewayEvent.Done("ok")) }
         }
 
-        assertEquals("init auto-opens the first conversation and records it", "c1", activeStore.activeConversationId.value)
+        assertEquals("init preserves the seeded active id", "c1", activeStore.activeConversationId.value)
 
         vm.newChat()
         assertNull("newChat clears the active id", activeStore.activeConversationId.value)
 
-        vm.send("hi")
-        assertEquals("send() creating a new conversation records its id", "c1", activeStore.activeConversationId.value)
+        vm.open("c1")
+        assertEquals("explicit open() records the id", "c1", activeStore.activeConversationId.value)
 
         vm.newChat()
         assertNull(activeStore.activeConversationId.value)
 
+        vm.send("hi")
+        assertEquals("send() creating a new conversation records its id", "c1", activeStore.activeConversationId.value)
+    }
+
+    // FRI-574 phase 7 (B2): the sidebar's "New conversation" request is just an event on the
+    // shared store. Ticking the counter must drive the VM's newChat() (clear messages, clear
+    // active id, clear inFlight) without the screen having to know about it.
+    @Test
+    fun newChatRequest_resetsVmAndClearsActive() = runTest {
+        val activeStore = DefaultActiveConversationStore()
+        val (vm, _, _, _) = vmWith(
+            listOf(user("u1", "hi"), assistant("a1", "old")),
+            activeConversationStore = activeStore,
+        ) { flow { emit(GatewayEvent.Done("ok")) } }
+
+        // B2 removed the init-time auto-open, so the VM starts empty even though the
+        // FakeConvoStore has history; that's the point — opening is now explicit, which
+        // matches the real "user navigated here" intent.
+        assertNull("init does not auto-open the first conversation", activeStore.activeConversationId.value)
+        assertTrue(vm.messages.value.isEmpty())
+
         vm.open("c1")
-        assertEquals("explicit open() records the id", "c1", activeStore.activeConversationId.value)
+        assertEquals("c1", activeStore.activeConversationId.value)
+        assertEquals(2, vm.messages.value.size)
+
+        activeStore.requestNewChat()
+
+        assertNull("store request clears the active id", activeStore.activeConversationId.value)
+        assertTrue("VM messages reset by the newChatRequest collector", vm.messages.value.isEmpty())
+        assertFalse(vm.inFlight.value)
+        assertNull(vm.error.value)
+    }
+
+    // FRI-574 phase 7 (B1): inFlight stays true the entire send→Done/Error window so a second
+    // concurrent send cannot fire while the previous assistant answer is still streaming, the
+    // Stop row stays visible the entire time, and cancel() flips both flags and routes through
+    // brainCancel() without leaving the partial bubble behind.
+    @Test
+    fun inFlight_blocksSecondSendUntilCancel() = runTest {
+        val (vm, store, brain, _) = vmWith(emptyList()) {
+            flow { emit(GatewayEvent.Delta("partial")); awaitCancellation() }
+        }
+
+        vm.send("first")
+
+        // First Delta clears `thinking` (typing-bubble done) but `inFlight` stays true so
+        // the composer cannot fire a second message and Stop stays visible.
+        assertFalse("thinking clears on first Delta", vm.thinking.value)
+        assertTrue("inFlight still true mid-stream", vm.inFlight.value)
+        assertEquals(1, store.added.count { it.role == "user" })
+        assertEquals("partial", vm.messages.value.last { !it.isUser }.text)
+
+        vm.send("second")
+        assertEquals(
+            "second concurrent send is suppressed while inFlight is true",
+            1,
+            store.added.count { it.role == "user" },
+        )
+
+        vm.cancel()
+        assertFalse(vm.inFlight.value)
+        assertTrue("cancel() must call router.brainCancel()", brain.cancelCalled)
+        assertEquals(
+            "partial bubble preserved on cancel — no restore in send()",
+            "partial",
+            vm.messages.value.last { !it.isUser }.text,
+        )
     }
 }

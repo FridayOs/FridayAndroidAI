@@ -32,7 +32,7 @@ fun FridayVoiceHeader(
         horizontalArrangement = Arrangement.SpaceBetween,
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        FridayHeaderIconButton(TnIcons.Menu, onOpenMenu)
+        FridayHeaderIconButton(TnIcons.Menu, stringResource(R.string.friday_cd_menu), onOpenMenu)
         val label = if (brainConfigured) {
             gatewayLabel.orEmpty().ifBlank { stringResource(R.string.friday_voice_select_provider) }
         } else {
@@ -46,7 +46,8 @@ fun FridayVoiceHeader(
             modifier = Modifier
                 .weight(1f)
                 .padding(horizontal = 8.dp),
+            contentDescription = stringResource(R.string.friday_cd_provider),
         )
-        FridayHeaderIconButton(TnIcons.MessageCircle, onToChat)
+        FridayHeaderIconButton(TnIcons.MessageCircle, stringResource(R.string.friday_cd_to_chat), onToChat)
     }
 }

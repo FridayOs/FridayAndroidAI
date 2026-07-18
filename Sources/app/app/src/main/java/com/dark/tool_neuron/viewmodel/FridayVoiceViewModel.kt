@@ -122,9 +122,38 @@ class FridayVoiceViewModel internal constructor(
         lifecycleHost, serviceGate, AndroidVoiceForegroundServicePort(context), pendingAssist,
     )
 
+    // Confirm/cancel card renders while the brain has a gate armed; user tap is the ONLY resolver.
+    val awaitingConfirmationState: StateFlow<Boolean> = bridge.awaitingConfirmationState
+
+    private var conversationId: String? = null
+    private var brainForTurn: GatewayConfig? = null
+    private var cloudVoiceConfig: GatewayConfig? = null
+    private var handle: LiveVoiceHandle? = null
+    private var sessionJob: Job? = null
+    private var brainTurnJob: Job? = null
+    private var speakJob: Job? = null
+    // The socket collector outlives a single turn (one live session spans barge-ins), so it tags events
+    // with the CURRENT turn epoch read here — not a per-open captured value that would go stale after a
+    // barge-in bumped the epoch and cause the resumed mic's transcript to be dropped by the epoch guard.
+    @Volatile private var sessionEpoch = 0
+
     init {
+        // FRI-574 phase 7 (B3): seed the active conversation id (if any) so Voice resumes
+        // the conversation Chat just opened. The store is in-process and synchronous, so a
+        // direct read here is safe and avoids an idle flash of an empty conversation.
+        conversationId = activeConversationStore.activeConversationId.value
         viewModelScope.launch {
             serviceGate.stopRequests.collect { reset() }
+        }
+        // Idle-adopt: while no session/turn is in flight, follow any new active id so
+        // switching back to a Chat-originated conversation (or the sidebar's history list)
+        // re-hydrates the same context without clobbering a live brain turn.
+        viewModelScope.launch {
+            activeConversationStore.activeConversationId.collect { id ->
+                if (id != null && sessionJob == null && brainTurnJob == null && conversationId != id) {
+                    conversationId = id
+                }
+            }
         }
     }
 
@@ -151,21 +180,6 @@ class FridayVoiceViewModel internal constructor(
         MutableStateFlow(VoiceAnimation.fromKey(prefs.voiceAnim())).asStateFlow()
     val voiceGateway: StateFlow<GatewayConfig?> = gatewayState.voiceGateway
     val brainConfigured: StateFlow<Boolean> = gatewayState.brainConfigured
-
-    // Confirm/cancel card renders while the brain has a gate armed; user tap is the ONLY resolver.
-    val awaitingConfirmationState: StateFlow<Boolean> = bridge.awaitingConfirmationState
-
-    private var conversationId: String? = null
-    private var brainForTurn: GatewayConfig? = null
-    private var cloudVoiceConfig: GatewayConfig? = null
-    private var handle: LiveVoiceHandle? = null
-    private var sessionJob: Job? = null
-    private var brainTurnJob: Job? = null
-    private var speakJob: Job? = null
-    // The socket collector outlives a single turn (one live session spans barge-ins), so it tags events
-    // with the CURRENT turn epoch read here — not a per-open captured value that would go stale after a
-    // barge-in bumped the epoch and cause the resumed mic's transcript to be dropped by the epoch guard.
-    @Volatile private var sessionEpoch = 0
 
     fun clearSelectorRequest() { _selectorRequest.value = null }
 

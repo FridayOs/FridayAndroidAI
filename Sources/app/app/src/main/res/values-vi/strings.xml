@@ -217,6 +217,14 @@
     <string name="friday_add_provider_saved_use_toast">Friday sẽ dùng %1$s · %2$s</string>
 
     <!-- App Shell — Chat/Sidebar/Selector (FRI-574, design-spec §1-3) -->
+    <!-- FRI-574 B4: localized accessibility labels for app-shell interactive icons -->
+    <string name="friday_cd_menu">Mở menu</string>
+    <string name="friday_cd_provider">Đổi nhà cung cấp và mô hình</string>
+    <string name="friday_cd_new_chat">Cuộc trò chuyện mới</string>
+    <string name="friday_cd_to_chat">Chuyển sang trò chuyện</string>
+    <string name="friday_cd_mic">Nhập bằng giọng nói</string>
+    <string name="friday_cd_send">Gửi tin nhắn</string>
+    <string name="friday_cd_stop">Dừng tạo</string>
     <string name="friday_pill_set_provider">Chọn provider</string>
     <string name="friday_chat_hello_title">Chào bạn, mình là Friday.</string>
     <string name="friday_chat_hello_body">Mọi thứ mình trò chuyện đều ở lại trên máy này. Cứ hỏi thoải mái.</string>

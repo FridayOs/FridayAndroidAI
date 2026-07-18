@@ -75,9 +75,15 @@ class FridayVoiceViewModelTest {
 
     private class FakeConvoStore : FridayConvoStore {
         val addedTurns = mutableListOf<FridayTurn>()
+        // B3 regression: track createConversation() calls so tests can prove Voice VM
+        // adopted the pre-existing ActiveConversationStore id instead of minting a new one.
+        var createCount: Int = 0
         override val conversations: StateFlow<List<FridayConversation>> = MutableStateFlow(emptyList())
         override fun refresh() {}
-        override fun createConversation(gatewayId: String) = FridayConversation("c1", "t", gatewayId, 0, 0)
+        override fun createConversation(gatewayId: String): FridayConversation {
+            createCount++
+            return FridayConversation("c1", "t", gatewayId, 0, 0)
+        }
         override fun getConversation(id: String): FridayConversation? = null
         override fun getTurns(conversationId: String): List<FridayTurn> = emptyList()
         override fun addTurn(turn: FridayTurn) { addedTurns += turn }
@@ -283,6 +289,54 @@ class FridayVoiceViewModelTest {
         assertEquals(1, contextEngine.persistedUserTurns.size)
         assertEquals(listOf("c1"), contextEngine.completedConversationIds)
         assertEquals(listOf("Hello there"), voiceIo.speakCalls)
+        assertEquals(VoiceUiState.Done, model.uiState.value)
+        assertEquals("Hello there", model.answer.value)
+    }
+
+    // B3 regression: Chat→Voice navigation must preserve the active conversation id so the
+    // voice VM adopts the same conversation instead of minting a new one. Verified by
+    // pre-seeding the seam with "c1" and proving runBrainTurn never creates a conversation.
+    @Test
+    fun init_adoptsActiveConversationId_fromStore() = runTest {
+        val brain = FakeBrain().apply {
+            turnFactory = { flow { emit(GatewayEvent.Delta("Hel")); emit(GatewayEvent.Done("Hello there")) } }
+        }
+        val voiceIo = FakeVoiceIo().apply { recognizedTranscript = "hello" }
+        val convoStore = FakeConvoStore()
+        val contextEngine = FakeContextEngine()
+        val route = FakeRoute(VoiceRouter.Route.LocalBridge(localGateway(), localGateway()))
+        // Pre-seed the same seam Chat writes to — proves Voice VM does NOT reset/overwrite it.
+        val activeStore = DefaultActiveConversationStore().apply { set("c1") }
+        val model = vm(
+            brain = brain,
+            route = route,
+            convoStore = convoStore,
+            voiceIo = voiceIo,
+            contextEngine = contextEngine,
+            activeConversationStore = activeStore,
+        )
+
+        model.onMicTap()
+        assertEquals(1, voiceIo.startRecordingCalls)
+
+        model.onMicTap()
+        advanceUntilIdle()
+
+        // Voice VM adopted the seeded id — never called createConversation.
+        assertEquals(
+            "Voice VM must adopt the active conversation id from the store, not create a new one",
+            0, convoStore.createCount,
+        )
+        // Both turns persisted under the seeded conversation id, not a freshly minted one.
+        assertEquals(2, convoStore.addedTurns.size)
+        convoStore.addedTurns.forEach { turn ->
+            assertEquals(
+                "turn must persist under the adopted conversation id",
+                "c1", turn.conversationId,
+            )
+        }
+        // Active conversation store is preserved end-to-end (Voice VM never overwrites it).
+        assertEquals("c1", activeStore.activeConversationId.value)
         assertEquals(VoiceUiState.Done, model.uiState.value)
         assertEquals("Hello there", model.answer.value)
     }
