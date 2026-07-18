@@ -6,6 +6,16 @@ package com.dark.tool_neuron.viewmodel
  * Extracted out of [ModelStoreViewModel] so pack-id validation is testable
  * without Android instrumentation.
  */
+/**
+ * Maps design (`FRIDAY Onboarding.dc.html` `PACKS`) pack identity to the
+ * real runtime catalog ids downloaded by [ModelStoreViewModel.downloadPack]
+ * (FRI-582 QA round-2 B1):
+ * - [PACK_CHAT_ONLY] = design `small` / label "friday-nano" -> `lfm25-350m`
+ * - [PACK_CHAT_VOICE] = design `voice` / label "friday-voice" -> `lfm25-350m`
+ *   + `sherpa-onnx-whisper-tiny-en` + `vits-piper-en_US-amy-low`
+ * - [PACK_LARGE_CHAT_VOICE] = design `plus` / label "friday-plus" ->
+ *   `qwen3-0.6b` + `sherpa-onnx-whisper-tiny-en` + `vits-piper-en_US-amy-low`
+ */
 object PackCatalog {
     const val PACK_CHAT_ONLY = "pack_chat_only"
     const val PACK_CHAT_VOICE = "pack_chat_voice"

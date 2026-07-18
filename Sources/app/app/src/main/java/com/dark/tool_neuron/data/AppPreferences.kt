@@ -120,6 +120,20 @@ class AppPreferences @Inject constructor(
         get() = getBoolean(KEY_MODEL_SETUP_DONE)
         set(value) = putBoolean(KEY_MODEL_SETUP_DONE, value)
 
+    /** Chosen model-setup path ("gateway"|"local"|"skip"), FRI-582 QA round-2 B1. */
+    var modelPath: String?
+        get() = getString(KEY_MODEL_PATH).ifBlank { null }
+        set(value) {
+            if (value.isNullOrBlank()) deleteKey(KEY_MODEL_PATH) else putString(KEY_MODEL_PATH, value)
+        }
+
+    /** Chosen local model pack id (only set when [modelPath] == "local"), FRI-582 QA round-2 B1. */
+    var modelPack: String?
+        get() = getString(KEY_MODEL_PACK).ifBlank { null }
+        set(value) {
+            if (value.isNullOrBlank()) deleteKey(KEY_MODEL_PACK) else putString(KEY_MODEL_PACK, value)
+        }
+
     var tourDone: Boolean
         get() = getBoolean(KEY_TOUR_DONE)
         set(value) = putBoolean(KEY_TOUR_DONE, value)
@@ -343,6 +357,8 @@ class AppPreferences @Inject constructor(
         const val KEY_SETUP_DONE = "setup_done"
         const val KEY_SECURITY_SETUP_DONE = "security_setup_done"
         const val KEY_MODEL_SETUP_DONE = "model_setup_done"
+        const val KEY_MODEL_PATH = "model_path"
+        const val KEY_MODEL_PACK = "model_pack"
         const val KEY_TOUR_DONE = "tour_done"
         const val KEY_THEME_SETUP_DONE = "theme_setup_done"
         const val KEY_PROVIDER_STEP_DONE = "provider_step_done"

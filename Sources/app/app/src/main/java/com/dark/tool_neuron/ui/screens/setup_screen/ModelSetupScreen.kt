@@ -3,7 +3,6 @@ package com.dark.tool_neuron.ui.screens.setup_screen
 import com.friday.ai.R
 
 import android.net.Uri
-import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -13,7 +12,6 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -23,13 +21,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.semantics.Role
-import androidx.compose.ui.semantics.disabled
-import androidx.compose.ui.semantics.role
-import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
@@ -57,13 +50,21 @@ import com.dark.tool_neuron.ui.theme.jakartaFamily
  * compatibility (TNavigation.kt) but unused here: this screen's design has no
  * browse/import affordance. That functionality remains reachable from the
  * Model Store screen outside onboarding.
+ *
+ * onLocalPackConfirmed is fail-closed (FRI-582 QA round-2 B1): it suspends
+ * while the pack's real catalog entries are resolved/enqueued and returns
+ * false on any failure (unknown pack or unresolved entries) instead of
+ * throwing or silently succeeding. On false this screen shows an inline
+ * error and does NOT advance; the caller (TNavigation.kt) is responsible for
+ * completing onboarding only on true.
  */
-private enum class ModelSetupPath { GATEWAY, LOCAL, SKIP }
+// Non-private: shared with ModelSetupCta.kt (FRI-582 QA round-2 B1 extraction).
+enum class ModelSetupPath { GATEWAY, LOCAL, SKIP }
 
 @Composable
 fun ModelSetupScreen(
     innerPadding: PaddingValues,
-    onLocalPackConfirmed: (packId: String) -> Unit,
+    onLocalPackConfirmed: suspend (packId: String) -> Boolean,
     onOpenStore: () -> Unit,
     onLocalImport: (uri: Uri, name: String, size: Long, type: ProviderType) -> Unit,
     onSkip: () -> Unit,
@@ -159,41 +160,13 @@ fun ModelSetupScreen(
 
             Spacer(dimens.spacingXl)
 
-            val ctaLabel = when (selectedPath) {
-                ModelSetupPath.GATEWAY -> stringResource(R.string.friday_model_setup_cta_gateway)
-                ModelSetupPath.LOCAL -> stringResource(R.string.friday_model_setup_cta_local)
-                else -> stringResource(R.string.friday_model_setup_continue)
-            }
-            val ctaEnabled = selectedPath == ModelSetupPath.GATEWAY ||
-                selectedPath == ModelSetupPath.SKIP ||
-                (selectedPath == ModelSetupPath.LOCAL && selectedPackId != null)
-
-            Text(
-                text = ctaLabel,
-                fontFamily = jakartaFamily,
-                fontWeight = FontWeight.SemiBold,
-                fontSize = 15.5.sp,
-                color = if (ctaEnabled) accent.onColor else accent.onColor.copy(alpha = 0.5f),
-                textAlign = TextAlign.Center,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(56.dp)
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(if (ctaEnabled) accent.color else accent.color.copy(alpha = 0.5f))
-                    .testTag("model_setup_cta")
-                    .semantics {
-                        role = Role.Button
-                        if (!ctaEnabled) disabled()
-                    }
-                    .clickable(enabled = ctaEnabled) {
-                        when (selectedPath) {
-                            ModelSetupPath.GATEWAY -> onChooseGateway()
-                            ModelSetupPath.SKIP -> onSkip()
-                            ModelSetupPath.LOCAL -> selectedPackId?.let(onLocalPackConfirmed)
-                            else -> Unit
-                        }
-                    }
-                    .padding(vertical = 17.dp),
+            ModelSetupCta(
+                selectedPath = selectedPath,
+                selectedPackId = selectedPackId,
+                accent = accent,
+                onChooseGateway = onChooseGateway,
+                onSkip = onSkip,
+                onLocalPackConfirmed = onLocalPackConfirmed,
             )
 
             Spacer(dimens.spacingSm)

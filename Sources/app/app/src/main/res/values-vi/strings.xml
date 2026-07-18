@@ -110,13 +110,18 @@
     <string name="friday_setup_no_lock_detail">Truy cập nhanh hơn. Ai mở được điện thoại đều mở được FRIDAY.</string>
     <string name="friday_setup_change_later">Bạn có thể đổi lại trong Cài đặt.</string>
     <string name="friday_setup_password_create_title">Tạo mật khẩu</string>
-    <string name="friday_setup_password_create_subtitle">Tối thiểu 4 chữ số</string>
+    <string name="friday_setup_password_create_subtitle">Tối thiểu 6 chữ số</string>
     <string name="friday_setup_password_confirm_title">Xác nhận mật khẩu</string>
     <string name="friday_setup_password_confirm_subtitle">Nhập lại mật khẩu vừa tạo</string>
     <string name="friday_setup_password_action_back">Quay lại</string>
     <string name="friday_setup_password_action_clear">Xóa</string>
     <string name="friday_setup_password_action_next">Tiếp</string>
     <string name="friday_setup_password_action_confirm">Xác nhận</string>
+    <string name="friday_setup_pin_error_too_short">Tối thiểu %1$d chữ số</string>
+    <string name="friday_setup_pin_error_all_same">Mã PIN không được dùng một chữ số lặp lại</string>
+    <string name="friday_setup_pin_error_sequential">Mã PIN không được là dãy số liên tiếp</string>
+    <string name="friday_setup_pin_error_common">Mã PIN này quá phổ biến</string>
+    <string name="friday_setup_pin_error_mismatch">Mật khẩu không khớp</string>
 
     <!-- Theme selection (M2-00 first-launch, FRI-582 P5 re-skin) -->
     <string name="friday_setup_theme_title">Cá nhân hóa Friday</string>
@@ -155,6 +160,7 @@
     <string name="friday_model_setup_pack_voice_desc">Model chat kèm model nhận và đọc giọng nói.</string>
     <string name="friday_model_setup_pack_plus_name">Chat + giọng nói nâng cao</string>
     <string name="friday_model_setup_pack_plus_desc">Model lớn hơn, trả lời tốt hơn, tốn bộ nhớ hơn.</string>
+    <string name="friday_model_setup_pack_unavailable">Gói model này hiện chưa dùng được. Hãy thử gói khác hoặc bỏ qua.</string>
 
     <!-- Onboarding Providers (FRI-582 P7, design-spec §8) -->
     <string name="friday_providers_title">Provider</string>

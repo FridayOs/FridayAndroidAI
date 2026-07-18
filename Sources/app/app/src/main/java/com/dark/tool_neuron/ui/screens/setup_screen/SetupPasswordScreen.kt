@@ -41,6 +41,7 @@ import com.dark.tool_neuron.ui.theme.LocalDimens
 import com.dark.tool_neuron.ui.theme.Motion
 import com.dark.tool_neuron.ui.theme.groteskFamily
 import com.dark.tool_neuron.ui.theme.jakartaFamily
+import com.dark.tool_neuron.viewmodel.SetupViewModel
 import com.friday.ai.R
 import kotlinx.coroutines.delay
 
@@ -49,7 +50,8 @@ fun SetupPasswordScreen(
     innerPadding: PaddingValues,
     password: String,
     isConfirmStep: Boolean,
-    error: String?,
+    errorRes: Int?,
+    errorArg: Int?,
     onDigit: (Char) -> Unit,
     onDelete: () -> Unit,
     onClear: () -> Unit,
@@ -57,7 +59,7 @@ fun SetupPasswordScreen(
     onBack: () -> Unit
 ) {
     SecureScreen {
-        SetupPasswordScreenContent(innerPadding, password, isConfirmStep, error, onDigit, onDelete, onClear, onSubmit, onBack)
+        SetupPasswordScreenContent(innerPadding, password, isConfirmStep, errorRes, errorArg, onDigit, onDelete, onClear, onSubmit, onBack)
     }
 }
 
@@ -66,7 +68,8 @@ private fun SetupPasswordScreenContent(
     innerPadding: PaddingValues,
     password: String,
     isConfirmStep: Boolean,
-    error: String?,
+    errorRes: Int?,
+    errorArg: Int?,
     onDigit: (Char) -> Unit,
     onDelete: () -> Unit,
     onClear: () -> Unit,
@@ -140,12 +143,15 @@ private fun SetupPasswordScreenContent(
                 Spacer(Modifier.height(dimens.spacingSm))
 
                 val errorAlpha by animateFloatAsState(
-                    targetValue = if (error != null) 1f else 0f,
+                    targetValue = if (errorRes != null) 1f else 0f,
                     animationSpec = Motion.state(),
                     label = "setupErrorAlpha"
                 )
+                val errorText = errorRes?.let { resId ->
+                    if (errorArg != null) stringResource(resId, errorArg) else stringResource(resId)
+                } ?: ""
                 Text(
-                    text = error ?: "",
+                    text = errorText,
                     fontFamily = jakartaFamily,
                     fontSize = 12.5.sp,
                     color = MaterialTheme.colorScheme.error,
@@ -175,7 +181,7 @@ private fun SetupPasswordScreenContent(
                                 else R.string.friday_setup_password_action_next
                             ),
                             onClick = onSubmit,
-                            enabled = password.length >= 4,
+                            enabled = password.length >= SetupViewModel.MIN_PIN_LENGTH,
                             primary = true
                         )
                     )

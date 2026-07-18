@@ -36,7 +36,7 @@ class ModelSetupPackCtaTest {
         composeTestRule.setContent {
             ModelSetupScreen(
                 innerPadding = PaddingValues(0.dp),
-                onLocalPackConfirmed = { confirmedPackId = it },
+                onLocalPackConfirmed = { confirmedPackId = it; true },
                 onOpenStore = {},
                 onLocalImport = { _, _, _, _ -> },
                 onSkip = {},
@@ -57,6 +57,9 @@ class ModelSetupPackCtaTest {
         composeTestRule.onNodeWithTag("model_setup_cta").assertIsEnabled()
         composeTestRule.onNodeWithTag("model_setup_cta").performScrollTo().performClick()
 
+        // onLocalPackConfirmed is now suspend (launched via rememberCoroutineScope) -
+        // poll for the async callback to land before asserting the confirmed id.
+        composeTestRule.waitUntil(timeoutMillis = 5_000) { confirmedPackId != null }
         assertEquals(PackCatalog.PACK_CHAT_ONLY, confirmedPackId)
     }
 }

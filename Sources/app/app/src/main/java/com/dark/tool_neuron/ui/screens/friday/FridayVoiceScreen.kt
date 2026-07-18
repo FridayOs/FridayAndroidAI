@@ -57,6 +57,10 @@ fun FridayVoiceScreen(
     innerPadding: PaddingValues,
     onOpenMenu: () -> Unit,
     onToChat: () -> Unit,
+    // Dedicated provider-selector callback (FRI-582 QA round-2 B3) — distinct
+    // from the hamburger onOpenMenu (-> History). Defaults to onOpenMenu only
+    // to avoid breaking older call sites; TNavigation.kt wires the real route.
+    onOpenProviderSelector: () -> Unit = onOpenMenu,
     viewModel: FridayVoiceViewModel = hiltViewModel(),
     eventsViewModel: FridayEventsViewModel = hiltViewModel(),
 ) {
@@ -241,8 +245,8 @@ fun FridayVoiceScreen(
 
         selectorRequest?.let {
             FridayVoiceSelectorPrompt(
-                onAddProvider = { viewModel.clearSelectorRequest(); onOpenMenu() },
-                onSelectProvider = { viewModel.clearSelectorRequest(); onOpenMenu() },
+                onAddProvider = { viewModel.clearSelectorRequest(); onOpenProviderSelector() },
+                onSelectProvider = { viewModel.clearSelectorRequest(); onOpenProviderSelector() },
             )
         }
 

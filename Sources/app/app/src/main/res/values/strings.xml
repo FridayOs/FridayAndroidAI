@@ -110,13 +110,18 @@
     <string name="friday_setup_no_lock_detail">Faster access. Anyone who can unlock this phone can open FRIDAY.</string>
     <string name="friday_setup_change_later">You can change this later in Settings.</string>
     <string name="friday_setup_password_create_title">Create a password</string>
-    <string name="friday_setup_password_create_subtitle">At least 4 digits</string>
+    <string name="friday_setup_password_create_subtitle">At least 6 digits</string>
     <string name="friday_setup_password_confirm_title">Confirm your password</string>
     <string name="friday_setup_password_confirm_subtitle">Enter the same password again</string>
     <string name="friday_setup_password_action_back">Back</string>
     <string name="friday_setup_password_action_clear">Clear</string>
     <string name="friday_setup_password_action_next">Next</string>
     <string name="friday_setup_password_action_confirm">Confirm</string>
+    <string name="friday_setup_pin_error_too_short">At least %1$d digits</string>
+    <string name="friday_setup_pin_error_all_same">PIN must use more than one digit</string>
+    <string name="friday_setup_pin_error_sequential">PIN cannot be sequential</string>
+    <string name="friday_setup_pin_error_common">PIN is too common</string>
+    <string name="friday_setup_pin_error_mismatch">Passwords don\'t match</string>
 
     <!-- Theme selection (M2-00 first-launch, FRI-582 P5 re-skin) -->
     <string name="friday_setup_theme_title">Make Friday yours</string>
@@ -158,6 +163,7 @@
     <string name="friday_model_setup_pack_plus_name">Better local chat + voice</string>
     <string name="friday_model_setup_pack_plus_desc">Larger model, better answers, more storage.</string>
     <string name="friday_model_setup_pack_plus_size" translatable="false">5.4 GB</string>
+    <string name="friday_model_setup_pack_unavailable">That model pack isn\'t available right now. Try another pack or skip for now.</string>
 
     <!-- Onboarding Providers (FRI-582 P7, design-spec §8) -->
     <string name="friday_providers_title">Providers</string>

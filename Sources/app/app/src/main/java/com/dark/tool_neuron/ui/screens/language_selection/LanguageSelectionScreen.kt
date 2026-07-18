@@ -1,5 +1,6 @@
 package com.dark.tool_neuron.ui.screens.language_selection
 
+import android.app.Activity
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -16,6 +17,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -46,6 +48,7 @@ fun LanguageSelectionScreen(
     viewModel: LanguageViewModel = hiltViewModel(),
 ) {
     val dimens = LocalDimens.current
+    val context = LocalContext.current
     val selected by viewModel.selected.collectAsStateWithLifecycle()
 
     Column(
@@ -147,8 +150,23 @@ fun LanguageSelectionScreen(
             LanguageCta(
                 selected = selected,
                 onClick = {
+                    // Activity's config locale (applied at attachBaseContext) is stale until a
+                    // recreate re-wraps the base context with the newly-persisted tag. Comparing
+                    // against the LIVE Activity Configuration (not the already-updated selected
+                    // StateFlow) is what detects the mismatch that needs a recreate.
+                    val activityTag = context.resources.configuration.locales[0].language
+                    val localeChanged = selected.uiTag.isNotBlank() &&
+                        !selected.uiTag.equals(activityTag, ignoreCase = true)
                     viewModel.confirm()
-                    onContinue()
+                    val activity = context as? Activity
+                    if (localeChanged && activity != null) {
+                        // recreate() re-runs attachBaseContext → re-wraps with the new persisted
+                        // locale; the gate then resumes forward to Terms in that locale.
+                        activity.recreate()
+                    } else {
+                        // No locale change, or no Activity to recreate — never leave the CTA dead.
+                        onContinue()
+                    }
                 },
             )
         }

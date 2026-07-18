@@ -75,6 +75,7 @@ import com.dark.tool_neuron.viewmodel.AccountViewModel
 import com.dark.tool_neuron.ui.screens.terms_conditions.TermsConditionsScreen
 import com.dark.tool_neuron.ui.theme.rememberNavTransitions
 import com.dark.tool_neuron.viewmodel.HomeViewModel
+import com.dark.tool_neuron.viewmodel.DownloadPackOutcome
 import com.dark.tool_neuron.viewmodel.ImageTaskViewModel
 import com.dark.tool_neuron.viewmodel.LanguageViewModel
 import com.dark.tool_neuron.viewmodel.ModelStoreViewModel
@@ -172,7 +173,8 @@ fun TNavigation(
             val password by viewModel.password.collectAsStateWithLifecycle()
             val confirmPassword by viewModel.confirmPassword.collectAsStateWithLifecycle()
             val isConfirmStep by viewModel.isConfirmStep.collectAsStateWithLifecycle()
-            val error by viewModel.error.collectAsStateWithLifecycle()
+            val errorRes by viewModel.errorRes.collectAsStateWithLifecycle()
+            val errorArg by viewModel.errorArg.collectAsStateWithLifecycle()
             var committed by remember { mutableStateOf(false) }
 
             if (committed && selectedMode == "app_password") {
@@ -180,7 +182,8 @@ fun TNavigation(
                     innerPadding = innerPadding,
                     password = if (isConfirmStep) confirmPassword else password,
                     isConfirmStep = isConfirmStep,
-                    error = error,
+                    errorRes = errorRes,
+                    errorArg = errorArg,
                     onDigit = viewModel::appendDigit,
                     onDelete = viewModel::deleteLast,
                     onClear = viewModel::clearAll,
@@ -242,19 +245,36 @@ fun TNavigation(
 
             ModelSetupScreen(
                 innerPadding = innerPadding,
+                // Fail-closed (FRI-582 QA round-2 B1): only persist the local
+                // path + complete onboarding when EVERY pack entry resolved
+                // and downloads were actually enqueued (Success). Unknown
+                // pack ids or unresolved entries return false and the screen
+                // shows an inline error instead of advancing.
                 onLocalPackConfirmed = { packId ->
-                    if (storeVm.downloadPack(packId)) {
-                        onModelSetupComplete()
+                    when (storeVm.downloadPack(packId)) {
+                        is DownloadPackOutcome.Success -> {
+                            storeVm.recordModelPathChoice(path = "local", packId = packId)
+                            onModelSetupComplete()
+                            true
+                        }
+                        else -> false
                     }
                 },
                 onOpenStore = { navController.navigate(NavScreens.ModelStore.route) },
                 onLocalImport = { uri, name, size, type ->
                     storeVm.importLocalModel(uri, name, size, type)
+                    storeVm.recordModelPathChoice(path = "local")
                     onModelSetupComplete()
                 },
-                onSkip = { onModelSetupComplete() },
+                onSkip = {
+                    storeVm.recordModelPathChoice(path = "skip")
+                    onModelSetupComplete()
+                },
                 onBack = onboardingBack(NavScreens.ModelSetup.route),
-                onChooseGateway = onChooseGateway,
+                onChooseGateway = {
+                    storeVm.recordModelPathChoice(path = "gateway")
+                    onChooseGateway()
+                },
             )
         }
         composable(NavScreens.AppGuide.route) {
@@ -533,6 +553,9 @@ fun TNavigation(
                 innerPadding = innerPadding,
                 onOpenMenu = { navController.navigate(NavScreens.FridayHistory.route) },
                 onToChat = { navController.navigate(NavScreens.FridayChat.BASE) },
+                // FRI-582 QA round-2 B3: "set up later" CTA opens the real
+                // provider selector, not History.
+                onOpenProviderSelector = { navController.navigate(NavScreens.OnboardingProviders.route) },
             )
         }
         composable(
@@ -549,6 +572,9 @@ fun TNavigation(
                 conversationId = cid,
                 onOpenMenu = { navController.navigate(NavScreens.FridayHistory.route) },
                 onToVoice = { navController.navigate(NavScreens.FridayVoice.route) },
+                // FRI-582 QA round-2 B3: no-provider CTA opens the real
+                // provider selector, not History.
+                onOpenProviderSelector = { navController.navigate(NavScreens.OnboardingProviders.route) },
             )
         }
         composable(NavScreens.FridayHistory.route) {

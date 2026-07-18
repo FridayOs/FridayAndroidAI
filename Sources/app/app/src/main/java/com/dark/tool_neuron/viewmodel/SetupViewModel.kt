@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import com.dark.tool_neuron.data.AppPreferences
 import com.dark.tool_neuron.data.PinStrength
 import com.dark.tool_neuron.data.SecurityManager
+import com.friday.ai.R
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -32,8 +33,14 @@ class SetupViewModel @Inject constructor(
     private val _isConfirmStep = MutableStateFlow(false)
     val isConfirmStep = _isConfirmStep.asStateFlow()
 
-    private val _error = MutableStateFlow<String?>(null)
-    val error = _error.asStateFlow()
+    // Localized error surfaced as a string-resource id (mirrors OnboardingAddProviderViewModel's
+    // _errorRes pattern) so SetupPasswordScreen resolves the text via stringResource(). The
+    // too-short case needs a %1$d format arg (the live PinStrength.MIN_LENGTH), carried separately.
+    private val _errorRes = MutableStateFlow<Int?>(null)
+    val errorRes = _errorRes.asStateFlow()
+
+    private val _errorArg = MutableStateFlow<Int?>(null)
+    val errorArg = _errorArg.asStateFlow()
 
     private val _isSubmitting = MutableStateFlow(false)
     val isSubmitting = _isSubmitting.asStateFlow()
@@ -43,19 +50,19 @@ class SetupViewModel @Inject constructor(
         _password.value = ""
         _confirmPassword.value = ""
         _isConfirmStep.value = false
-        _error.value = null
+        clearError()
     }
 
     fun appendDigit(digit: Char) {
         if (_isConfirmStep.value) {
             if (_confirmPassword.value.length < MIN_PIN_LENGTH) {
                 _confirmPassword.value += digit
-                _error.value = null
+                clearError()
             }
         } else {
             if (_password.value.length < MIN_PIN_LENGTH) {
                 _password.value += digit
-                _error.value = null
+                clearError()
             }
         }
     }
@@ -68,7 +75,7 @@ class SetupViewModel @Inject constructor(
             val p = _password.value
             if (p.isNotEmpty()) _password.value = p.dropLast(1)
         }
-        _error.value = null
+        clearError()
     }
 
     fun clearAll() {
@@ -77,26 +84,27 @@ class SetupViewModel @Inject constructor(
         } else {
             _password.value = ""
         }
-        _error.value = null
+        clearError()
     }
 
     fun submitPassword(onSuccess: () -> Unit) {
         val pwd = _password.value
         when (val eval = PinStrength.evaluate(pwd)) {
             is PinStrength.Result.TooShort -> {
-                _error.value = "At least ${eval.min} digits"
+                _errorRes.value = R.string.friday_setup_pin_error_too_short
+                _errorArg.value = eval.min
                 return
             }
             PinStrength.Result.AllSameDigit -> {
-                _error.value = "PIN must use more than one digit"
+                setError(R.string.friday_setup_pin_error_all_same)
                 return
             }
             PinStrength.Result.Sequential -> {
-                _error.value = "PIN cannot be sequential"
+                setError(R.string.friday_setup_pin_error_sequential)
                 return
             }
             PinStrength.Result.CommonlyUsed -> {
-                _error.value = "PIN is too common"
+                setError(R.string.friday_setup_pin_error_common)
                 return
             }
             PinStrength.Result.Ok -> Unit
@@ -109,7 +117,7 @@ class SetupViewModel @Inject constructor(
 
         if (_confirmPassword.value != pwd) {
             _confirmPassword.value = ""
-            _error.value = "Passwords don't match"
+            setError(R.string.friday_setup_pin_error_mismatch)
             return
         }
 
@@ -129,7 +137,7 @@ class SetupViewModel @Inject constructor(
         if (_isConfirmStep.value) {
             _isConfirmStep.value = false
             _confirmPassword.value = ""
-            _error.value = null
+            clearError()
         } else {
             _selectedMode.value = null
             _password.value = ""
@@ -141,6 +149,16 @@ class SetupViewModel @Inject constructor(
         prefs.setupDone = true
         prefs.securitySetupDone = true
         prefs.onboardingComplete = true
+    }
+
+    private fun setError(resId: Int) {
+        _errorRes.value = resId
+        _errorArg.value = null
+    }
+
+    private fun clearError() {
+        _errorRes.value = null
+        _errorArg.value = null
     }
 
     companion object {

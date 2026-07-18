@@ -46,8 +46,22 @@ import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 import java.security.MessageDigest
 import javax.inject.Inject
+
+/**
+ * Fail-closed outcome of [ModelStoreViewModel.downloadPack] (FRI-582 QA
+ * round-2 B1). Setup screens MUST only advance on [Success] — [UnknownPack]
+ * and [Missing] mean no download pipeline was started for at least one
+ * required entry, so completing setup would strand the user with a chosen
+ * path but no model.
+ */
+sealed interface DownloadPackOutcome {
+    data class Success(val enqueued: List<String>) : DownloadPackOutcome
+    data object UnknownPack : DownloadPackOutcome
+    data class Missing(val missingIds: List<String>) : DownloadPackOutcome
+}
 
 enum class StoreTab { MODELS, INSTALLED, SETTINGS }
 
@@ -350,42 +364,56 @@ class ModelStoreViewModel @Inject constructor(
     }
 
     /**
-     * Enqueues downloads for every model in [packId] (design `modelContinue`
-     * local-path branch, FRI-582 §7). Returns false without side effects when
-     * [packId] is not a known [PackCatalog] pack, true once the enqueue
-     * coroutine is launched.
+     * Persists the model-setup path decision (HXS, FRI-582 QA round-2 B1) so
+     * [com.dark.tool_neuron.viewmodel.OnboardingGateLogic]-driven resume can
+     * recover the user's choice after process death. Call only once the path
+     * is actually confirmed (gateway chosen, local pack [DownloadPackOutcome.Success],
+     * or skip) — never speculatively.
      */
-    fun downloadPack(packId: String): Boolean {
-        val ids = PackCatalog.entriesFor(packId) ?: return false
-        viewModelScope.launch {
-            val pool = _models.value.takeIf { it.isNotEmpty() }
-                ?: _models.first { it.isNotEmpty() }
-            ids.forEach { entry ->
-                when (entry.kind) {
-                    PackCatalog.PackEntryKind.Chat -> enqueueChatModel(pool, entry.id)
-                    PackCatalog.PackEntryKind.Voice -> enqueueVoiceModel(pool, entry.id)
-                }
-            }
-        }
-        return true
+    fun recordModelPathChoice(path: String, packId: String? = null) {
+        prefs.modelPath = path
+        prefs.modelPack = packId
     }
+
+    /**
+     * Resolves and enqueues downloads for every model in [packId] (design
+     * `modelContinue` local-path branch, FRI-582 §7). Design pack identity ->
+     * real catalog ids (FRI-582 QA round-2 B1): PACK_CHAT_ONLY (design
+     * `small`/"friday-nano") -> `lfm25-350m`; PACK_CHAT_VOICE (design
+     * `voice`/"friday-voice") -> `lfm25-350m` + `sherpa-onnx-whisper-tiny-en`
+     * + `vits-piper-en_US-amy-low`; PACK_LARGE_CHAT_VOICE (design
+     * `plus`/"friday-plus") -> `qwen3-0.6b` + the same voice pair. See
+     * [PackCatalog] for the authoritative mapping.
+     *
+     * FAIL-CLOSED: awaits the model pool with a bounded timeout (never hangs
+     * forever), then resolves EVERY [PackCatalog.entriesFor] entry against
+     * that pool before enqueuing anything. Returns [DownloadPackOutcome.Missing]
+     * — with no downloads started — when any required entry can't resolve, so
+     * callers must not treat setup as complete unless [DownloadPackOutcome.Success]
+     * is returned.
+     */
+    suspend fun downloadPack(packId: String): DownloadPackOutcome {
+        val pool = awaitModelPool()
+        val resolution = PackResolver.resolve(pool, packId)
+        if (resolution.outcome is DownloadPackOutcome.Success) {
+            resolution.toEnqueue.forEach(::downloadModel)
+        }
+        return resolution.outcome
+    }
+
+    /** Bounded wait for [_models] to populate; never suspends indefinitely. */
+    private suspend fun awaitModelPool(): List<HuggingFaceModel> =
+        _models.value.takeIf { it.isNotEmpty() }
+            ?: withTimeoutOrNull(MODEL_POOL_TIMEOUT_MS) { _models.first { it.isNotEmpty() } }
+            ?: emptyList()
 
     private fun enqueueChatModel(pool: List<HuggingFaceModel>, modelId: String) {
-        val candidates = pool.filter { it.repoId == modelId || it.id.startsWith(modelId) }
-        val preferred = QUICK_START_QUANT_PRIORITY.firstNotNullOfOrNull { q ->
-            candidates.firstOrNull { it.quantization.equals(q, ignoreCase = true) }
-        } ?: candidates.filter { it.sizeBytes > 0 }.minByOrNull { it.sizeBytes }
-            ?: candidates.firstOrNull()
-        if (preferred != null) downloadModel(preferred)
-    }
-
-    private fun enqueueVoiceModel(pool: List<HuggingFaceModel>, modelId: String) {
-        val match = pool.firstOrNull { it.id == modelId } ?: return
-        downloadModel(match)
+        PackResolver.resolveChatCandidate(pool, modelId)?.let(::downloadModel)
     }
 
     companion object {
-        val QUICK_START_QUANT_PRIORITY = listOf("Q4_K_M", "Q4_K_S", "Q4_0", "Q5_K_M", "Q5_K_S", "Q8_0")
+        val QUICK_START_QUANT_PRIORITY = PackResolver.QUICK_START_QUANT_PRIORITY
+        private const val MODEL_POOL_TIMEOUT_MS = 15_000L
     }
 
     fun downloadModel(model: HuggingFaceModel) {

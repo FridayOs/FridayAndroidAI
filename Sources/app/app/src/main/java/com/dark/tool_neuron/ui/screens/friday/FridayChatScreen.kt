@@ -44,6 +44,7 @@ import com.dark.tool_neuron.ui.icons.TnIcons
 import com.dark.tool_neuron.ui.screens.friday.components.FridayAiBubble
 import com.dark.tool_neuron.ui.screens.friday.components.FridayThinkingDots
 import com.dark.tool_neuron.ui.screens.friday.components.FridayUserBubble
+import com.dark.tool_neuron.ui.screens.friday.components.FridayVoiceSelectorPrompt
 import com.dark.tool_neuron.ui.util.FridayPalette
 import com.dark.tool_neuron.viewmodel.FridayChatViewModel
 
@@ -52,12 +53,17 @@ fun FridayChatScreen(
     innerPadding: PaddingValues,
     onOpenMenu: () -> Unit,
     onToVoice: () -> Unit,
+    // Dedicated provider-selector callback (FRI-582 QA round-2 B3), distinct
+    // from the hamburger onOpenMenu (-> History). Drives the no-provider CTA
+    // below; defaults to onOpenMenu only to avoid breaking older call sites.
+    onOpenProviderSelector: () -> Unit = onOpenMenu,
     conversationId: String? = null,
     viewModel: FridayChatViewModel = hiltViewModel(),
 ) {
     val messages by viewModel.messages.collectAsStateWithLifecycle()
     val thinking by viewModel.thinking.collectAsStateWithLifecycle()
     val error by viewModel.error.collectAsStateWithLifecycle()
+    val hasGateway by viewModel.hasGateway.collectAsStateWithLifecycle()
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
 
@@ -120,6 +126,17 @@ fun FridayChatScreen(
                     text = message,
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onErrorContainer,
+                )
+            }
+        }
+
+        // No configured provider (FRI-582 QA round-2 B3): CTA opens the real
+        // provider selector instead of leaving the user with only a dismiss.
+        if (!hasGateway) {
+            Box(modifier = Modifier.padding(horizontal = 18.dp)) {
+                FridayVoiceSelectorPrompt(
+                    onAddProvider = onOpenProviderSelector,
+                    onSelectProvider = onOpenProviderSelector,
                 )
             }
         }
