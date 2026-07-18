@@ -7,6 +7,7 @@ import androidx.test.ext.junit.runners.AndroidJUnit4
 import androidx.test.platform.app.InstrumentationRegistry
 import com.dark.tool_neuron.ui.screens.friday.components.FridayChatComposer
 import com.dark.tool_neuron.ui.screens.friday.components.FridayChatHeader
+import com.dark.tool_neuron.ui.screens.friday.components.FridayChatStopRow
 import com.dark.tool_neuron.ui.screens.friday.components.FridayVoiceHeader
 import com.friday.ai.R
 import org.junit.Rule
@@ -83,5 +84,18 @@ class FridayShellAccessibilityTest {
         composeTestRule.onNodeWithContentDescription(str(R.string.friday_cd_send))
             .assertExists()
             .assertIsEnabled()
+    }
+
+    @Test
+    fun stopRow_exposesLocalizedStopContentDescription() {
+        // The Stop affordance is only rendered by FridayChatScreen while a turn is in-flight
+        // (first Delta → Done/Error/cancel). Its visible label is the short "Stop"; the
+        // accessible name must be the localized "Stop generating" so TalkBack announces the
+        // full action. Baseline B4 required Stop coverage — this locks it.
+        composeTestRule.setContent {
+            FridayChatStopRow(onStop = {})
+        }
+
+        composeTestRule.onNodeWithContentDescription(str(R.string.friday_cd_stop)).assertExists()
     }
 }

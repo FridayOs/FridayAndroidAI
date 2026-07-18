@@ -59,6 +59,15 @@ class FridayChatViewModel @Inject constructor(
     private val _error = MutableStateFlow<String?>(null)
     val error: StateFlow<String?> = _error.asStateFlow()
 
+    // FRI-574 phase 7 (B2 re-review): monotonic reset signal the chat screen observes to clear
+    // the composer's local draft. Both entry points into a fresh conversation — the header's
+    // newChat() and the sidebar's requestNewChat() (which routes through newChat() via the
+    // newChatRequests collector) — bump this, so the composer draft/thinking/error/in-flight all
+    // reset from either surface, not just the header. The draft lives as UI state in the screen,
+    // so a plain VM field reset can't reach it; this signal is the observable seam.
+    private val _composerResetSignal = MutableStateFlow(0)
+    val composerResetSignal: StateFlow<Int> = _composerResetSignal.asStateFlow()
+
     val hasGateway: StateFlow<Boolean> = gatewayRepo.gateways
         .map { it.isNotEmpty() }
         .stateIn(viewModelScope, SharingStarted.Eagerly, gatewayRepo.gateways.value.isNotEmpty())
@@ -119,6 +128,8 @@ class FridayChatViewModel @Inject constructor(
         conversationId = null
         activeConversationStore.set(null)
         _messages.value = emptyList()
+        // Tell the screen to clear its local composer draft (see _composerResetSignal).
+        _composerResetSignal.value = _composerResetSignal.value + 1
     }
 
     // Explicit stop-generating hook (chat had none before; Voice already wires an equivalent

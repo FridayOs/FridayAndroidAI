@@ -4,7 +4,6 @@ import com.friday.ai.R
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
@@ -34,6 +33,7 @@ import com.dark.tool_neuron.ui.screens.friday.components.FridayChatComposer
 import com.dark.tool_neuron.ui.screens.friday.components.FridayChatEmptyState
 import com.dark.tool_neuron.ui.screens.friday.components.FridayChatHeader
 import com.dark.tool_neuron.ui.screens.friday.components.FridayChatMessageList
+import com.dark.tool_neuron.ui.screens.friday.components.FridayChatStopRow
 import com.dark.tool_neuron.viewmodel.FridayChatViewModel
 
 @Composable
@@ -62,6 +62,16 @@ fun FridayChatScreen(
     val brainLabel by viewModel.brainLabel.collectAsStateWithLifecycle()
     var input by remember { mutableStateOf("") }
     val listState = rememberLazyListState()
+
+    // FRI-574 B2 re-review: newChat() (header) and requestNewChat() (sidebar, routed through
+    // newChat()) both bump composerResetSignal. Clear the local draft whenever it changes so a
+    // "New conversation" from EITHER surface empties the composer — the VM can't reach this
+    // screen-local input directly. drop(1) skips the initial emission so a fresh screen keeps
+    // any restored/typed draft.
+    val composerResetSignal by viewModel.composerResetSignal.collectAsStateWithLifecycle()
+    LaunchedEffect(composerResetSignal) {
+        if (composerResetSignal > 0) input = ""
+    }
 
     LaunchedEffect(conversationId) {
         if (conversationId != null) viewModel.open(conversationId)
@@ -113,16 +123,7 @@ fun FridayChatScreen(
         }
 
         if (inFlight) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 18.dp, vertical = 4.dp),
-                horizontalArrangement = Arrangement.End,
-            ) {
-                TextButton(onClick = viewModel::cancel) {
-                    Text(stringResource(R.string.friday_voice_notif_stop))
-                }
-            }
+            FridayChatStopRow(onStop = viewModel::cancel)
         }
 
         error?.let { message ->

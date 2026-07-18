@@ -371,6 +371,34 @@ class FridayChatViewModelTest {
         assertNull(vm.error.value)
     }
 
+    // FRI-574 B2 re-review: the composer draft lives as screen-local state, so the VM exposes a
+    // monotonic composerResetSignal the screen observes to clear it. Prove BOTH new-chat entry
+    // points bump it: the header's newChat() and the sidebar's requestNewChat() (routed through
+    // newChat() by the newChatRequests collector). The shell/UI regression (draft -> drawer ->
+    // New conversation -> empty composer) lives in the androidTest suite; this locks the seam.
+    @Test
+    fun composerResetSignal_bumpsOnHeaderNewChat_andSidebarRequest() = runTest {
+        val activeStore = DefaultActiveConversationStore()
+        val (vm, _, _, _) = vmWith(
+            listOf(user("u1", "hi"), assistant("a1", "old")),
+            activeConversationStore = activeStore,
+        ) { flow { emit(GatewayEvent.Done("ok")) } }
+
+        val initial = vm.composerResetSignal.value
+
+        // Header path: direct newChat() call.
+        vm.newChat()
+        val afterHeader = vm.composerResetSignal.value
+        assertTrue("header newChat() must bump the composer reset signal", afterHeader > initial)
+
+        // Sidebar path: requestNewChat() routes through the newChatRequests collector -> newChat().
+        activeStore.requestNewChat()
+        assertTrue(
+            "sidebar requestNewChat() must also bump the composer reset signal",
+            vm.composerResetSignal.value > afterHeader,
+        )
+    }
+
     // FRI-574 phase 7 (B1): inFlight stays true the entire send→Done/Error window so a second
     // concurrent send cannot fire while the previous assistant answer is still streaming, the
     // Stop row stays visible the entire time, and cancel() flips both flags and routes through
