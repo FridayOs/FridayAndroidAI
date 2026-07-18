@@ -75,9 +75,10 @@ import com.dark.tool_neuron.viewmodel.AccountViewModel
 import com.dark.tool_neuron.ui.screens.terms_conditions.TermsConditionsScreen
 import com.dark.tool_neuron.ui.theme.rememberNavTransitions
 import com.dark.tool_neuron.viewmodel.HomeViewModel
-import com.dark.tool_neuron.viewmodel.DownloadPackOutcome
+import com.dark.tool_neuron.viewmodel.FridayEntryRouting
 import com.dark.tool_neuron.viewmodel.ImageTaskViewModel
 import com.dark.tool_neuron.viewmodel.LanguageViewModel
+import com.dark.tool_neuron.viewmodel.ModelSetupCompletion
 import com.dark.tool_neuron.viewmodel.ModelStoreViewModel
 import com.dark.tool_neuron.viewmodel.PasswordViewModel
 import com.dark.tool_neuron.viewmodel.RagDebugViewModel
@@ -251,13 +252,13 @@ fun TNavigation(
                 // pack ids or unresolved entries return false and the screen
                 // shows an inline error instead of advancing.
                 onLocalPackConfirmed = { packId ->
-                    when (storeVm.downloadPack(packId)) {
-                        is DownloadPackOutcome.Success -> {
-                            storeVm.recordModelPathChoice(path = "local", packId = packId)
-                            onModelSetupComplete()
-                            true
-                        }
-                        else -> false
+                    val outcome = storeVm.downloadPack(packId)
+                    if (ModelSetupCompletion.completesOnboarding(outcome)) {
+                        storeVm.recordModelPathChoice(path = "local", packId = packId)
+                        onModelSetupComplete()
+                        true
+                    } else {
+                        false
                     }
                 },
                 onOpenStore = { navController.navigate(NavScreens.ModelStore.route) },
@@ -551,11 +552,11 @@ fun TNavigation(
         composable(NavScreens.FridayVoice.route) {
             FridayVoiceScreen(
                 innerPadding = innerPadding,
-                onOpenMenu = { navController.navigate(NavScreens.FridayHistory.route) },
+                onOpenMenu = { navController.navigate(FridayEntryRouting.menuRoute) },
                 onToChat = { navController.navigate(NavScreens.FridayChat.BASE) },
                 // FRI-582 QA round-2 B3: "set up later" CTA opens the real
                 // provider selector, not History.
-                onOpenProviderSelector = { navController.navigate(NavScreens.OnboardingProviders.route) },
+                onOpenProviderSelector = { navController.navigate(FridayEntryRouting.providerSelectorRoute) },
             )
         }
         composable(
@@ -570,11 +571,11 @@ fun TNavigation(
             FridayChatScreen(
                 innerPadding = innerPadding,
                 conversationId = cid,
-                onOpenMenu = { navController.navigate(NavScreens.FridayHistory.route) },
+                onOpenMenu = { navController.navigate(FridayEntryRouting.menuRoute) },
                 onToVoice = { navController.navigate(NavScreens.FridayVoice.route) },
                 // FRI-582 QA round-2 B3: no-provider CTA opens the real
                 // provider selector, not History.
-                onOpenProviderSelector = { navController.navigate(NavScreens.OnboardingProviders.route) },
+                onOpenProviderSelector = { navController.navigate(FridayEntryRouting.providerSelectorRoute) },
             )
         }
         composable(NavScreens.FridayHistory.route) {

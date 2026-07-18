@@ -16,6 +16,7 @@ import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import androidx.test.ext.junit.runners.AndroidJUnit4
 import com.dark.tool_neuron.model.NavScreens
+import com.dark.tool_neuron.viewmodel.FridayEntryRouting
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotEquals
 import org.junit.Rule
@@ -23,18 +24,20 @@ import org.junit.Test
 import org.junit.runner.RunWith
 
 /**
- * FRI-582 Codex-QA round-2 B5#3: locks the exact route mapping
- * TNavigation.kt wires for FridayVoice/FridayChat's provider-selector prompt
- * vs. the "open menu" affordance (TNavigation.kt:551-577):
- * `onOpenProviderSelector = { navController.navigate(NavScreens.OnboardingProviders.route) }`
- * `onOpenMenu = { navController.navigate(NavScreens.FridayHistory.route) }`
+ * FRI-582 Codex-QA round-3 B5: locks the exact route mapping TNavigation.kt
+ * wires for FridayVoice/FridayChat's provider-selector prompt vs. the "open
+ * menu" affordance (TNavigation.kt:551-577) by driving a real navController
+ * with the PRODUCTION constants `FridayEntryRouting.providerSelectorRoute` /
+ * `FridayEntryRouting.menuRoute` — no literal route copies. Editing those
+ * production seam constants fails this test.
  *
  * FridayVoiceScreen/FridayChatScreen need Hilt (hiltViewModel()) so this
  * hosts a tiny NavHost with plain button stand-ins wired to the SAME
- * navController.navigate(...) calls TNavigation.kt uses, over the real
- * NavScreens routes with a real rememberNavController — regressing the
- * mapping (e.g. accidentally routing the provider selector to FridayHistory,
- * the "decoy" destination) fails this test.
+ * `navController.navigate(FridayEntryRouting.*)` calls TNavigation.kt uses,
+ * over the real NavScreens destinations with a real rememberNavController.
+ * Scope note: this locks the seam constants' values (which TNavigation now
+ * consumes); it cannot catch a TNavigation edit that bypasses the seam
+ * entirely (Hilt-instrumenting the real composables would — not available here).
  */
 @RunWith(AndroidJUnit4::class)
 class OnboardingProviderRoutingTest {
@@ -48,11 +51,11 @@ class OnboardingProviderRoutingTest {
             composable(NavScreens.FridayVoice.route) {
                 Column {
                     Button(
-                        onClick = { navController.navigate(NavScreens.FridayHistory.route) },
+                        onClick = { navController.navigate(FridayEntryRouting.menuRoute) },
                         modifier = androidx.compose.ui.Modifier.testTag("voice_open_menu"),
                     ) { Text("menu") }
                     Button(
-                        onClick = { navController.navigate(NavScreens.OnboardingProviders.route) },
+                        onClick = { navController.navigate(FridayEntryRouting.providerSelectorRoute) },
                         modifier = androidx.compose.ui.Modifier.testTag("voice_open_provider_selector"),
                     ) { Text("providers") }
                     Button(
@@ -71,11 +74,11 @@ class OnboardingProviderRoutingTest {
             ) {
                 Column {
                     Button(
-                        onClick = { navController.navigate(NavScreens.FridayHistory.route) },
+                        onClick = { navController.navigate(FridayEntryRouting.menuRoute) },
                         modifier = androidx.compose.ui.Modifier.testTag("chat_open_menu"),
                     ) { Text("menu") }
                     Button(
-                        onClick = { navController.navigate(NavScreens.OnboardingProviders.route) },
+                        onClick = { navController.navigate(FridayEntryRouting.providerSelectorRoute) },
                         modifier = androidx.compose.ui.Modifier.testTag("chat_open_provider_selector"),
                     ) { Text("providers") }
                 }
@@ -98,6 +101,7 @@ class OnboardingProviderRoutingTest {
         val route = navController.currentDestination?.route
         assertEquals(NavScreens.OnboardingProviders.route, route)
         assertNotEquals(NavScreens.FridayHistory.route, route)
+        assertNotEquals(FridayEntryRouting.providerSelectorRoute, FridayEntryRouting.menuRoute)
     }
 
     @Test

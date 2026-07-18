@@ -31,6 +31,7 @@ import com.dark.tool_neuron.ui.theme.LocalDimens
 import com.dark.tool_neuron.ui.theme.groteskFamily
 import com.dark.tool_neuron.ui.theme.jakartaFamily
 import com.dark.tool_neuron.viewmodel.LanguageViewModel
+import com.dark.tool_neuron.viewmodel.OnboardingLocaleTransition
 import com.friday.ai.R
 
 /*
@@ -155,13 +156,18 @@ fun LanguageSelectionScreen(
                     // against the LIVE Activity Configuration (not the already-updated selected
                     // StateFlow) is what detects the mismatch that needs a recreate.
                     val activityTag = context.resources.configuration.locales[0].language
-                    val localeChanged = selected.uiTag.isNotBlank() &&
-                        !selected.uiTag.equals(activityTag, ignoreCase = true)
+                    // confirm() MUST persist synchronously (LanguageController.markFirstSelectionDone
+                    // → AppPreferences flushAll) so resolveNext() below already reads
+                    // languageSelected=true and routes to Terms — and so the post-recreate restore
+                    // lands on Terms, not Language. A future async-prefs refactor would break one-tap.
                     viewModel.confirm()
                     val activity = context as? Activity
-                    if (localeChanged && activity != null) {
-                        // recreate() re-runs attachBaseContext → re-wraps with the new persisted
-                        // locale; the gate then resumes forward to Terms in that locale.
+                    if (OnboardingLocaleTransition.localeChanged(selected.uiTag, activityTag) && activity != null) {
+                        // Navigate FIRST so the saved NavController back stack captures the next
+                        // route (Terms). recreate() re-runs attachBaseContext → re-wraps with the
+                        // new persisted locale; restoreState() then shows THAT destination (Terms)
+                        // in the new locale — one tap, no double-Continue.
+                        onContinue()
                         activity.recreate()
                     } else {
                         // No locale change, or no Activity to recreate — never leave the CTA dead.
