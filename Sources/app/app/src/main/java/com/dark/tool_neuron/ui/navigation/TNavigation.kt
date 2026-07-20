@@ -103,6 +103,21 @@ interface ActiveConversationStoreEntryPoint {
     fun activeConversationStore(): ActiveConversationStore
 }
 
+// FRI-574 round-6 BLOCKER 2: lifted the origin-aware OnboardingProviders Continue decision
+// out of the TNavigation composable so ProviderFlowOriginNavTest can exercise the real
+// production logic instead of a copy. Behavior-preserving: shell-management entry
+// (originName != null) returns to the Voice/Chat origin via popBackStack, preserving the
+// active conversation; first-run entry (originName == null) runs the legacy onboarding
+// completion callback.
+fun onboardingProvidersContinue(
+    originName: String?,
+    navController: NavHostController,
+    onFirstRunContinue: () -> Unit,
+): () -> Unit = {
+    if (originName != null) navController.popBackStack()
+    else onFirstRunContinue()
+}
+
 @Composable
 fun TNavigation(
     navController: NavHostController,
@@ -675,13 +690,12 @@ fun TNavigation(
                 viewModel = viewModel,
                 onBack = { navController.popBackStack() },
                 onAddProvider = onAddProvider,
-                // FRI-574 round-5 BLOCKER 1: shell-management entry (origin != null) returns
-                // to the Voice/Chat origin via popBackStack, preserving the active conversation;
-                // first-run entry (origin == null) keeps the legacy onboarding completion.
-                onContinueToFriday = {
-                    if (originName != null) navController.popBackStack()
-                    else onContinueToFriday()
-                },
+                // FRI-574 round-6 BLOCKER 2: the origin-aware Continue decision is now routed
+                // through the top-level onboardingProvidersContinue(...) seam so the nav test
+                // exercises the real production logic. Behavior-preserving: shell-management
+                // entry (origin != null) returns to the Voice/Chat origin via popBackStack,
+                // preserving the active conversation; first-run (origin == null) keeps legacy.
+                onContinueToFriday = onboardingProvidersContinue(originName, navController, onContinueToFriday),
             )
         }
         composable(

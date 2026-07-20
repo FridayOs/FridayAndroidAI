@@ -360,15 +360,6 @@ private fun AppScaffoldInner() {
         }
     }
 
-    // FRI-574 round-5 BLOCKER 1: map the current Friday surface to the origin arg
-    // carried by OnboardingProviders so Add/Manage + Continue return here, not Voice.
-    // null covers first-run onboarding (no Friday route) -> legacy Voice landing.
-    fun originForRoute(route: String?): ProviderFlowOrigin? = when (route) {
-        NavScreens.FridayChat.route, NavScreens.FridayChat.BASE -> ProviderFlowOrigin.Chat
-        NavScreens.FridayVoice.route -> ProviderFlowOrigin.Voice
-        else -> null
-    }
-
     Box(modifier = Modifier.fillMaxSize()) {
         if (isExpanded && showDrawer && !isFullscreen) {
             PermanentNavigationDrawer(
@@ -404,19 +395,11 @@ private fun AppScaffoldInner() {
                 // instead of always landing on FridayVoice. null -> first-run BASE.
                 onAddProvider = {
                     selectorOpen = false
-                    val origin = originForRoute(currentRoute)
-                    navController.navigate(
-                        if (origin != null) NavScreens.OnboardingProviders.routeFor(origin)
-                        else NavScreens.OnboardingProviders.BASE
-                    )
+                    navController.navigate(onboardingProvidersRouteFromOrigin(currentRoute))
                 },
                 onManageProviders = {
                     selectorOpen = false
-                    val origin = originForRoute(currentRoute)
-                    navController.navigate(
-                        if (origin != null) NavScreens.OnboardingProviders.routeFor(origin)
-                        else NavScreens.OnboardingProviders.BASE
-                    )
+                    navController.navigate(onboardingProvidersRouteFromOrigin(currentRoute))
                 },
                 onDismiss = { selectorOpen = false },
             )
@@ -426,4 +409,25 @@ private fun AppScaffoldInner() {
             )
         }
     }
+}
+
+// FRI-574 round-6 BLOCKER 2: lifted from AppScaffoldInner to a top-level (non-private)
+// function so ProviderFlowOriginNavTest can assert the real production routing decision
+// instead of a copy. Behavior-preserving. Maps the current Friday surface to the origin
+// arg carried by OnboardingProviders so Add/Manage + Continue return here, not Voice.
+// null covers first-run onboarding (no Friday route) -> legacy Voice landing.
+fun originForRoute(route: String?): ProviderFlowOrigin? = when (route) {
+    NavScreens.FridayChat.route, NavScreens.FridayChat.BASE -> ProviderFlowOrigin.Chat
+    NavScreens.FridayVoice.route -> ProviderFlowOrigin.Voice
+    else -> null
+}
+
+// FRI-574 round-6 BLOCKER 2: lifted the routing decision out of AppScaffoldInner so the
+// selector-sheet onAddProvider/onManageProviders callbacks (and the nav test) both resolve
+// the OnboardingProviders destination through one production seam. Behavior-preserving:
+// origin != null -> routeFor(origin); first-run (origin == null) -> BASE (onChooseGateway path).
+fun onboardingProvidersRouteFromOrigin(currentRoute: String?): String {
+    val origin = originForRoute(currentRoute)
+    return if (origin != null) NavScreens.OnboardingProviders.routeFor(origin)
+    else NavScreens.OnboardingProviders.BASE
 }

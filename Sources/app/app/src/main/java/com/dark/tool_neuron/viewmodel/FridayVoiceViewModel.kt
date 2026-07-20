@@ -98,8 +98,10 @@ class FridayVoiceViewModel internal constructor(
     private val serviceGate: VoiceSessionServiceGate,
     private val foregroundService: VoiceForegroundServicePort,
     private val pendingAssist: PendingAssistInvocation = PendingAssistInvocation(),
-    // Trailing default keeps pre-existing positional test call sites compiling unmodified;
-    // Hilt's generated factory still supplies the real bound singleton explicitly.
+    // Trailing default keeps pre-existing positional test call sites compiling unmodified.
+    // The @Inject constructor below forwards the Hilt-bound singleton explicitly; without
+    // that forwarding (the round-6 BLOCKER 1 gap) Hilt's factory would fall back to this
+    // NoOp-backed default and Chat -> Voice / post-restart Voice would lose persistence.
     private val activeConversationStore: ActiveConversationStore = DefaultActiveConversationStore(),
 ) : ViewModel() {
 
@@ -116,10 +118,12 @@ class FridayVoiceViewModel internal constructor(
         serviceGate: VoiceSessionServiceGate,
         pendingAssist: PendingAssistInvocation,
         @ApplicationContext context: Context,
+        activeConversationStore: ActiveConversationStore,
     ) : this(
         voiceRouter, bridge, convoRepo, voiceManager, contextEngine, adapter,
         AppPreferencesVoicePrefsPort(prefs), gatewayState,
         lifecycleHost, serviceGate, AndroidVoiceForegroundServicePort(context), pendingAssist,
+        activeConversationStore,
     )
 
     // Confirm/cancel card renders while the brain has a gate armed; user tap is the ONLY resolver.
