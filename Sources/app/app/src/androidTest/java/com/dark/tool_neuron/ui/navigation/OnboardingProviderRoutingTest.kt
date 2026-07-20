@@ -55,7 +55,7 @@ class OnboardingProviderRoutingTest {
                         modifier = androidx.compose.ui.Modifier.testTag("voice_open_menu"),
                     ) { Text("menu") }
                     Button(
-                        onClick = { navController.navigate(FridayEntryRouting.providerSelectorRoute) },
+                        onClick = { navController.navigate(NavScreens.OnboardingProviders.BASE) },
                         modifier = androidx.compose.ui.Modifier.testTag("voice_open_provider_selector"),
                     ) { Text("providers") }
                     Button(
@@ -78,13 +78,23 @@ class OnboardingProviderRoutingTest {
                         modifier = androidx.compose.ui.Modifier.testTag("chat_open_menu"),
                     ) { Text("menu") }
                     Button(
-                        onClick = { navController.navigate(FridayEntryRouting.providerSelectorRoute) },
+                        onClick = { navController.navigate(NavScreens.OnboardingProviders.BASE) },
                         modifier = androidx.compose.ui.Modifier.testTag("chat_open_provider_selector"),
                     ) { Text("providers") }
                 }
             }
             composable(NavScreens.FridayHistory.route) { Text("history decoy") }
-            composable(NavScreens.OnboardingProviders.route) { Text("provider selector") }
+            // FRI-574 round-5 BLOCKER 1: OnboardingProviders now carries an optional
+            // origin arg. Register it the way TNavigation does (nullable ARG_ORIGIN) so
+            // navigating to BASE resolves; the destination route is still the pattern.
+            composable(
+                route = NavScreens.OnboardingProviders.route,
+                arguments = listOf(navArgument(NavScreens.OnboardingProviders.ARG_ORIGIN) {
+                    type = NavType.StringType
+                    nullable = true
+                    defaultValue = null
+                }),
+            ) { Text("provider selector") }
         }
     }
 

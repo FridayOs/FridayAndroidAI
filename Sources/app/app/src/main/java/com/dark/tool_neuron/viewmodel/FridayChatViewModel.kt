@@ -120,6 +120,21 @@ class FridayChatViewModel @Inject constructor(
         }
     }
 
+    /**
+     * FRI-574 round-5 BLOCKER 2: open the persisted active conversation only if it still
+     * exists in the repo (a process restart may rehydrate an id for a conversation that was
+     * since deleted). Returns false + clears the stale persisted id when the conversation is
+     * gone so the screen falls back to the empty state instead of retrying a dead id.
+     */
+    fun openIfExists(id: String): Boolean {
+        if (convoRepo.getConversation(id) == null) {
+            activeConversationStore.set(null)
+            return false
+        }
+        open(id)
+        return true
+    }
+
     fun newChat() {
         replyJob?.cancel()
         _thinking.value = false

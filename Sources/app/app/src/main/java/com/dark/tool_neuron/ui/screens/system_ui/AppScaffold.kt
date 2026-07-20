@@ -30,6 +30,7 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.compose.currentBackStackEntryAsState
 import androidx.navigation.compose.rememberNavController
 import com.dark.tool_neuron.model.NavScreens
+import com.dark.tool_neuron.model.ProviderFlowOrigin
 import com.dark.tool_neuron.repo.ActiveConversationStore
 import com.dark.tool_neuron.ui.components.RootWarningDialog
 import com.dark.tool_neuron.ui.navigation.ActiveConversationStoreEntryPoint
@@ -331,7 +332,7 @@ private fun AppScaffoldInner() {
                     }
                 },
                 onChooseGateway = {
-                    navController.navigate(NavScreens.OnboardingProviders.route)
+                    navController.navigate(NavScreens.OnboardingProviders.BASE)
                 },
                 onFeatureTourComplete = {
                     scaffoldViewModel.markOnboardingComplete()
@@ -357,6 +358,15 @@ private fun AppScaffoldInner() {
                 openSelector = { selectorOpen = true },
             )
         }
+    }
+
+    // FRI-574 round-5 BLOCKER 1: map the current Friday surface to the origin arg
+    // carried by OnboardingProviders so Add/Manage + Continue return here, not Voice.
+    // null covers first-run onboarding (no Friday route) -> legacy Voice landing.
+    fun originForRoute(route: String?): ProviderFlowOrigin? = when (route) {
+        NavScreens.FridayChat.route, NavScreens.FridayChat.BASE -> ProviderFlowOrigin.Chat
+        NavScreens.FridayVoice.route -> ProviderFlowOrigin.Voice
+        else -> null
     }
 
     Box(modifier = Modifier.fillMaxSize()) {
@@ -388,13 +398,25 @@ private fun AppScaffoldInner() {
                 // OnboardingProviders is the one catalog/configured-provider list
                 // screen and already exposes its own onAddProvider(catalogId) to
                 // OnboardingAddProvider — both quick actions land there.
+                // FRI-574 round-5 BLOCKER 1: capture the origin from the current
+                // Friday surface (still the active route here, BEFORE navigation) so
+                // OnboardingProviders' Continue CTA returns here via popBackStack
+                // instead of always landing on FridayVoice. null -> first-run BASE.
                 onAddProvider = {
                     selectorOpen = false
-                    navController.navigate(NavScreens.OnboardingProviders.route)
+                    val origin = originForRoute(currentRoute)
+                    navController.navigate(
+                        if (origin != null) NavScreens.OnboardingProviders.routeFor(origin)
+                        else NavScreens.OnboardingProviders.BASE
+                    )
                 },
                 onManageProviders = {
                     selectorOpen = false
-                    navController.navigate(NavScreens.OnboardingProviders.route)
+                    val origin = originForRoute(currentRoute)
+                    navController.navigate(
+                        if (origin != null) NavScreens.OnboardingProviders.routeFor(origin)
+                        else NavScreens.OnboardingProviders.BASE
+                    )
                 },
                 onDismiss = { selectorOpen = false },
             )

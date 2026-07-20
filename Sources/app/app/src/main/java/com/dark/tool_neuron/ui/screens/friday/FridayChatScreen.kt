@@ -35,6 +35,7 @@ import com.dark.tool_neuron.ui.screens.friday.components.FridayChatHeader
 import com.dark.tool_neuron.ui.screens.friday.components.FridayChatMessageList
 import com.dark.tool_neuron.ui.screens.friday.components.FridayChatStopRow
 import com.dark.tool_neuron.viewmodel.FridayChatViewModel
+import kotlinx.coroutines.flow.StateFlow
 
 @Composable
 fun FridayChatScreen(
@@ -47,6 +48,10 @@ fun FridayChatScreen(
     // onOpenMenu only to avoid breaking older call sites.
     onOpenProviderSelector: () -> Unit = onOpenMenu,
     conversationId: String? = null,
+    // FRI-574 round-5 BLOCKER 2: when the base route is opened (cid == null) after a
+    // process restart, restore the persisted active conversation if it still exists.
+    // Null in tests/legacy call sites -> no restore, prior behavior preserved.
+    activeConversationId: StateFlow<String?>? = null,
     viewModel: FridayChatViewModel = hiltViewModel(),
 ) {
     val messages by viewModel.messages.collectAsStateWithLifecycle()
@@ -73,8 +78,15 @@ fun FridayChatScreen(
         if (composerResetSignal > 0) input = ""
     }
 
-    LaunchedEffect(conversationId) {
-        if (conversationId != null) viewModel.open(conversationId)
+    LaunchedEffect(conversationId, activeConversationId?.value) {
+        // FRI-574 round-5 BLOCKER 2: explicit route arg wins; otherwise restore the
+        // persisted active conversation (validated by the VM against the repo) so a
+        // process restart reopens it instead of landing on the empty state.
+        if (conversationId != null) {
+            viewModel.open(conversationId)
+        } else {
+            activeConversationId?.value?.let { viewModel.openIfExists(it) }
+        }
     }
 
     // No brain selected: intercept before the VM ever sees the send call and route to the

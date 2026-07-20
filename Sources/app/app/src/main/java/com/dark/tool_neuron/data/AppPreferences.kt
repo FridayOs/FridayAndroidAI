@@ -134,6 +134,17 @@ class AppPreferences @Inject constructor(
             if (value.isNullOrBlank()) deleteKey(KEY_MODEL_PACK) else putString(KEY_MODEL_PACK, value)
         }
 
+    /**
+     * Active Friday conversation id (FRI-574 round-5 BLOCKER 2) so process restart reopens
+     * the same conversation. Null/blank -> no active conversation (cleared on new chat).
+     */
+    var fridayActiveConversationId: String?
+        get() = getString(KEY_FRIDAY_ACTIVE_CONVERSATION).ifBlank { null }
+        set(value) {
+            if (value.isNullOrBlank()) deleteKey(KEY_FRIDAY_ACTIVE_CONVERSATION)
+            else putString(KEY_FRIDAY_ACTIVE_CONVERSATION, value)
+        }
+
     var tourDone: Boolean
         get() = getBoolean(KEY_TOUR_DONE)
         set(value) = putBoolean(KEY_TOUR_DONE, value)
@@ -406,6 +417,7 @@ class AppPreferences @Inject constructor(
         const val DEFAULT_FRIDAY_VOICE_ANIM = "orb"
         const val KEY_FRIDAY_VOICE_FOREGROUND_CONTINUE = "friday_voice_foreground_continue"
         const val KEY_FRIDAY_VOICE_BARGE_IN = "friday_voice_barge_in"
+        const val KEY_FRIDAY_ACTIVE_CONVERSATION = "friday_active_conversation"
         const val KEY_BACKEND_MODE = "backend_mode"
         const val DEFAULT_FRIDAY_API_BASE_URL = "http://localhost:3101"
         const val DEFAULT_SERVER_PORT = 11434

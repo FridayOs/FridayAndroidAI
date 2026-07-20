@@ -434,4 +434,51 @@ class FridayChatViewModelTest {
             vm.messages.value.last { !it.isUser }.text,
         )
     }
+
+    // FRI-574 round-5 BLOCKER 2: openIfExists restores the persisted active conversation
+    // when it still lives in the repo, and clears the stale persisted id when it doesn't
+    // (process restart may rehydrate an id for a since-deleted conversation).
+    @Test
+    fun openIfExists_opensAndReturnsTrue_whenConversationExists() = runTest {
+        val activeStore = DefaultActiveConversationStore()
+        val (vm, store, _, _) = vmWith(
+            listOf(user("u1", "hi"), assistant("a1", "old")),
+            activeConversationStore = activeStore,
+        ) { flow { emit(GatewayEvent.Done("ok")) } }
+
+        assertTrue("existing conversation opens", vm.openIfExists("c1"))
+        assertEquals("c1", activeStore.activeConversationId.value)
+        assertEquals("turns are hydrated from the repo", 2, vm.messages.value.size)
+        assertEquals("hi", vm.messages.value.first { it.isUser }.text)
+    }
+
+    @Test
+    fun openIfExists_returnsFalseAndClearsActive_whenConversationMissing() = runTest {
+        // A FridayConvoStore whose getConversation reports the id as gone (deleted) —
+        // mirrors a stale persisted id rehydrated after process death.
+        val missingStore = object : FridayConvoStore {
+            override val conversations = MutableStateFlow<List<FridayConversation>>(emptyList())
+            override fun refresh() {}
+            override fun createConversation(gatewayId: String) =
+                FridayConversation("c1", "t", "g1", 0, 0, 0)
+            override fun getConversation(id: String): FridayConversation? = null
+            override fun getTurns(conversationId: String): List<FridayTurn> = emptyList()
+            override fun addTurn(turn: FridayTurn) {}
+            override fun updateTurn(turn: FridayTurn) {}
+            override fun deleteConversation(id: String) {}
+        }
+        val activeStore = DefaultActiveConversationStore().apply { set("ghost") }
+        val brain = FakeChatBrain { flow { emit(GatewayEvent.Done("ok")) } }
+        val vm = FridayChatViewModel(
+            FakeGateways(),
+            missingStore,
+            brain,
+            FakeContextEngine(missingStore),
+            activeStore,
+        )
+
+        assertFalse("missing conversation does not open", vm.openIfExists("ghost"))
+        assertNull("stale persisted id is cleared so it won't retry", activeStore.activeConversationId.value)
+        assertTrue(vm.messages.value.isEmpty())
+    }
 }

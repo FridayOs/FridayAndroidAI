@@ -609,6 +609,9 @@ fun TNavigation(
             FridayChatScreen(
                 innerPadding = innerPadding,
                 conversationId = cid,
+                // FRI-574 round-5 BLOCKER 2: feed the persisted active-conversation id so
+                // the base route (cid == null) reopens it after a process restart.
+                activeConversationId = activeConversationStore.activeConversationId,
                 // FRI-574 Phase 4: hamburger opens the real sidebar drawer
                 // (was mis-wired to History via FridayEntryRouting.menuRoute).
                 onOpenMenu = openDrawer,
@@ -657,14 +660,28 @@ fun TNavigation(
                 onBack = onboardingBack(NavScreens.FeatureTour.route),
             )
         }
-        composable(NavScreens.OnboardingProviders.route) {
+        composable(
+            route = NavScreens.OnboardingProviders.route,
+            arguments = listOf(navArgument(NavScreens.OnboardingProviders.ARG_ORIGIN) {
+                type = NavType.StringType
+                nullable = true
+                defaultValue = null
+            }),
+        ) { backStack ->
             val viewModel: OnboardingProvidersViewModel = hiltViewModel()
+            val originName = backStack.arguments?.getString(NavScreens.OnboardingProviders.ARG_ORIGIN)
             OnboardingProvidersScreen(
                 innerPadding = innerPadding,
                 viewModel = viewModel,
                 onBack = { navController.popBackStack() },
                 onAddProvider = onAddProvider,
-                onContinueToFriday = onContinueToFriday,
+                // FRI-574 round-5 BLOCKER 1: shell-management entry (origin != null) returns
+                // to the Voice/Chat origin via popBackStack, preserving the active conversation;
+                // first-run entry (origin == null) keeps the legacy onboarding completion.
+                onContinueToFriday = {
+                    if (originName != null) navController.popBackStack()
+                    else onContinueToFriday()
+                },
             )
         }
         composable(

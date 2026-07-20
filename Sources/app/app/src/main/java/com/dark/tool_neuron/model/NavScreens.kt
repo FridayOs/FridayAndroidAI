@@ -8,7 +8,11 @@ sealed class NavScreens(val route: String) {
     object TermsConditions : NavScreens("terms_conditions")
     object DevNotes : NavScreens("dev_notes")
     object FeatureTour : NavScreens("feature_tour")
-    object OnboardingProviders : NavScreens("onboarding_providers")
+    object OnboardingProviders : NavScreens("onboarding_providers?origin={origin}") {
+        const val ARG_ORIGIN = "origin"
+        const val BASE = "onboarding_providers"
+        fun routeFor(origin: ProviderFlowOrigin) = "onboarding_providers?origin=${origin.name}"
+    }
     object OnboardingAddProvider : NavScreens("onboarding_add_provider?catalogId={catalogId}") {
         const val ARG_CATALOG_ID = "catalogId"
         const val BASE = "onboarding_add_provider"
