@@ -71,6 +71,8 @@ import com.dark.tool_neuron.ui.screens.onboarding_providers.add.OnboardingAddPro
 import com.dark.tool_neuron.viewmodel.OnboardingAddProviderViewModel
 import com.dark.tool_neuron.viewmodel.OnboardingProvidersViewModel
 import com.dark.tool_neuron.data.AccountState
+import com.dark.tool_neuron.data.LanguageController
+import com.dark.tool_neuron.data.ThemeController
 import com.dark.tool_neuron.viewmodel.AccountViewModel
 import com.dark.tool_neuron.ui.screens.terms_conditions.TermsConditionsScreen
 import com.dark.tool_neuron.ui.theme.rememberNavTransitions
@@ -101,6 +103,20 @@ import dagger.hilt.components.SingletonComponent
 @InstallIn(SingletonComponent::class)
 interface ActiveConversationStoreEntryPoint {
     fun activeConversationStore(): ActiveConversationStore
+}
+
+// FRI-633 phase-10 QA rework round 2 (Blocker 1b): androidTest-only accessor for the real
+// @Singleton LanguageController/ThemeController instances, so a full-activity device-capture
+// test can deterministically drive locale/theme BEFORE each ActivityScenario.launch(MainActivity)
+// call. Same EntryPointAccessors.fromApplication pattern as ActiveConversationStoreEntryPoint
+// above -- required because MainActivity.attachBaseContext/onCreate reads these singletons'
+// already-initialized in-memory StateFlow; a fresh test-local LanguageController/ThemeController
+// built from the same AppPreferences would never be seen by the real Activity's live instance.
+@EntryPoint
+@InstallIn(SingletonComponent::class)
+interface Fri633LocaleThemeEntryPoint {
+    fun languageController(): LanguageController
+    fun themeController(): ThemeController
 }
 
 // FRI-574 round-6 BLOCKER 2: lifted the origin-aware OnboardingProviders Continue decision
@@ -580,9 +596,12 @@ fun TNavigation(
             val accountViewModel: AccountViewModel = hiltViewModel()
             val accountState by accountViewModel.state.collectAsStateWithLifecycle()
             LaunchedEffect(accountState) {
-                if (accountState is AccountState.Authenticated) {
-                    // Resolve fresh so a no-language/no-onboarding install routes through the gate chain, not straight to FridayVoice.
-                    navController.navigate(resolveNext()) {
+                // Real success-nav decision extracted to loginSuccessDestination()
+                // (resolves fresh so a no-language/no-onboarding install routes
+                // through the gate chain, not straight to FridayVoice).
+                val destination = loginSuccessDestination(accountState) { resolveNext() }
+                if (destination != null) {
+                    navController.navigate(destination) {
                         popUpTo(NavScreens.FridayLogin.route) { inclusive = true }
                     }
                 }

@@ -16,19 +16,23 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.alpha
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 
 @Composable
-fun FridayThinkingDots(modifier: Modifier = Modifier) {
+fun FridayThinkingDots(
+    modifier: Modifier = Modifier,
+    color: Color = MaterialTheme.colorScheme.onSurfaceVariant,
+) {
     Row(modifier = modifier, horizontalArrangement = Arrangement.spacedBy(5.dp)) {
-        Dot(0)
-        Dot(200)
-        Dot(400)
+        Dot(0, color)
+        Dot(200, color)
+        Dot(400, color)
     }
 }
 
 @Composable
-private fun Dot(delayMillis: Int) {
+private fun Dot(delayMillis: Int, color: Color) {
     val transition = rememberInfiniteTransition(label = "thinking$delayMillis")
     val alpha by transition.animateFloat(
         initialValue = 0.3f,
@@ -43,6 +47,6 @@ private fun Dot(delayMillis: Int) {
         modifier = Modifier
             .size(7.dp)
             .alpha(alpha)
-            .background(MaterialTheme.colorScheme.onSurfaceVariant, CircleShape)
+            .background(color, CircleShape)
     )
 }

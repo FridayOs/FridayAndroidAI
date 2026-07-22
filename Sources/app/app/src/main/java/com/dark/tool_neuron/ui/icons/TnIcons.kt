@@ -308,6 +308,17 @@ object TnIcons {
             "M12 7v5l3 2",
         )
     }
+
+    val Key by lazy {
+        icon("M15 7.5a4.5 4.5 0 1 1-4.3 5.8L4 20l-1-1 1.5-1.5L6 19l1.5-1.5L6 16l2-2a4.5 4.5 0 0 1 7-6.5Z")
+    }
+
+    val Phone by lazy {
+        icon(
+            "M8 2h8a2 2 0 0 1 2 2v16a2 2 0 0 1-2 2H8a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2Z",
+            "M11 18h2",
+        )
+    }
 }
 
 private fun icon(vararg paths: String): ImageVector {

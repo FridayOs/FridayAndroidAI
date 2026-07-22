@@ -4,6 +4,7 @@ import com.dark.tool_neuron.model.gateway.GatewayConfig
 import com.dark.tool_neuron.model.gateway.GatewayProvider
 import com.dark.tool_neuron.model.gateway.GatewayStatus
 import com.dark.tool_neuron.viewmodel.OnboardingProvidersLogic
+import com.dark.tool_neuron.viewmodel.ProviderAvailableDesc
 import com.friday.ai.R
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
@@ -78,6 +79,67 @@ class OnboardingProvidersLogicTest {
             GatewayProvider.FRIDAY,
         )
         assertEquals(expected, OnboardingProvidersLogic.availableCatalog())
+        assertFalse(OnboardingProvidersLogic.availableCatalog().contains(GatewayProvider.LOCAL))
+    }
+
+    // availableDescription (design-spec §4.2, HTML:2045-2048 + fridayDesc 1273/1311):
+    //   - catalog providers with a default model -> DefaultModel("<model>")
+    //   - urlRequired catalog rows (OpenClaw/Hermes/Custom) -> OpenAiCompatible
+    //   - disabled Friday placeholder -> ManagedFriday
+    @Test
+    fun `available description for catalog providers is DefaultModel with their default model`() {
+        assertEquals(
+            ProviderAvailableDesc.DefaultModel("gemini-2.0-flash"),
+            OnboardingProvidersLogic.availableDescription(GatewayProvider.GEMINI),
+        )
+        assertEquals(
+            ProviderAvailableDesc.DefaultModel("gpt-4o-mini"),
+            OnboardingProvidersLogic.availableDescription(GatewayProvider.OPENAI),
+        )
+        assertEquals(
+            ProviderAvailableDesc.DefaultModel("claude-sonnet-4-5"),
+            OnboardingProvidersLogic.availableDescription(GatewayProvider.ANTHROPIC),
+        )
+        assertEquals(
+            ProviderAvailableDesc.DefaultModel("deepseek-chat"),
+            OnboardingProvidersLogic.availableDescription(GatewayProvider.DEEPSEEK),
+        )
+    }
+
+    @Test
+    fun `available description for urlRequired catalog rows is OpenAiCompatible`() {
+        assertEquals(
+            ProviderAvailableDesc.OpenAiCompatible,
+            OnboardingProvidersLogic.availableDescription(GatewayProvider.OPENCLAW),
+        )
+        assertEquals(
+            ProviderAvailableDesc.OpenAiCompatible,
+            OnboardingProvidersLogic.availableDescription(GatewayProvider.HERMES),
+        )
+        assertEquals(
+            ProviderAvailableDesc.OpenAiCompatible,
+            OnboardingProvidersLogic.availableDescription(GatewayProvider.CUSTOM),
+        )
+    }
+
+    @Test
+    fun `available description for disabled Friday placeholder is ManagedFriday`() {
+        assertEquals(
+            ProviderAvailableDesc.ManagedFriday,
+            OnboardingProvidersLogic.availableDescription(GatewayProvider.FRIDAY),
+        )
+    }
+
+    @Test
+    fun `available description is never returned for LOCAL because LOCAL is excluded from the catalog`() {
+        // LOCAL is not part of the available catalog (filter excludes isLocal), so
+        // availableDescription is never called with it in production. Documenting the
+        // boundary: if it ever were, urlRequired=false + enabled=true would yield
+        // DefaultModel("") — which is why LOCAL is correctly excluded upstream.
+        assertEquals(
+            ProviderAvailableDesc.DefaultModel(""),
+            OnboardingProvidersLogic.availableDescription(GatewayProvider.LOCAL),
+        )
         assertFalse(OnboardingProvidersLogic.availableCatalog().contains(GatewayProvider.LOCAL))
     }
 }

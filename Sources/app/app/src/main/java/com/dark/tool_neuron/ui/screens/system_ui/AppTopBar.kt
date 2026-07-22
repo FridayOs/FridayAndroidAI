@@ -40,8 +40,8 @@ fun AppTopBar(
         NavScreens.TermsConditions.route -> TermsConditionsTopBar()
         NavScreens.DevNotes.route -> DevNotesTopBar()
         NavScreens.PasswordScreen.route -> PasswordScreenTopBar()
-        NavScreens.SetupScreen.route -> SetupScreenTopBar()
-        NavScreens.ModelSetup.route -> SetupScreenTopBar()
+        NavScreens.SetupScreen.route -> Unit
+        NavScreens.ModelSetup.route -> Unit
         NavScreens.ModelStore.route -> Unit
         NavScreens.Downloads.route -> DownloadsTopBar(onBack = onBack)
         NavScreens.AppGuide.route -> GuideTopBar(title = "App Guide", onBack = onBack)
@@ -55,7 +55,7 @@ fun AppTopBar(
         NavScreens.GuideServer.route -> GuideTopBar(title = "Remote Server", onBack = onBack)
         NavScreens.GuidePlugins.route -> GuideTopBar(title = "Plugins", onBack = onBack)
         NavScreens.GuideImages.route -> GuideTopBar(title = "Image generation", onBack = onBack)
-        NavScreens.SetupTheme.route -> SetupScreenTopBar()
+        NavScreens.SetupTheme.route -> Unit
         NavScreens.SetupRag.route -> SetupScreenTopBar()
         NavScreens.ModelManager.route -> Unit
         NavScreens.Settings.route -> SettingsTopBar(onBack = onBack)

@@ -1,0 +1,24 @@
+<!--
+  Full-color Google "G" logo. Extracted verbatim from the canonical Login
+  prototype (Documents/Designs/android-ai-app-prototype/project/Friday Agent.dc.html,
+  login social row SVG) so the sign-in button matches exact design parity instead
+  of the previous mono-blue "G" text glyph. FRI-633 phase-11 blocker 1a.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#4285F4"
+        android:pathData="M22.5,12.2c0,-0.7 -0.06,-1.4 -0.18,-2.06H12v3.9h5.9a5.05,5.05 0,0 1,-2.19 3.31v2.74h3.54c2.07,-1.9 3.25,-4.71 3.25,-7.89Z" />
+    <path
+        android:fillColor="#34A853"
+        android:pathData="M12,23c2.95,0 5.43,-0.98 7.24,-2.65l-3.54,-2.74c-0.98,0.66 -2.24,1.05 -3.7,1.05 -2.85,0 -5.26,-1.92 -6.12,-4.5H2.23v2.83A11,11 0,0 0,12 23Z" />
+    <path
+        android:fillColor="#FBBC05"
+        android:pathData="M5.88,14.16a6.6,6.6 0,0 1,0 -4.32V7.01H2.23a11,11 0,0 0,0 9.98l3.65,-2.83Z" />
+    <path
+        android:fillColor="#EA4335"
+        android:pathData="M12,5.38c1.6,0 3.05,0.55 4.18,1.63l3.14,-3.14A11,11 0,0 0,12 1 11,11 0,0 0,2.23 7.01l3.65,2.83C6.74,7.3 9.15,5.38 12,5.38Z" />
+</vector>

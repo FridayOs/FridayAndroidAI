@@ -10,6 +10,18 @@
     <string name="friday_or_use_account_help">Friday chỉ dùng Google để đăng nhập. Nhấn nút bên dưới để tiếp tục.</string>
     <string name="friday_name_label">Tên của bạn</string>
     <string name="friday_password_label">Mật khẩu</string>
+    <string name="friday_login_create_account_prompt">Tạo tài khoản mới?</string>
+    <string name="friday_login_account_link">Đăng nhập tài khoản</string>
+    <string name="friday_login_name_placeholder">vd: tênbạn</string>
+    <string name="friday_login_password_placeholder">Nhập mật khẩu</string>
+    <string name="friday_login_forgot_password">Quên mật khẩu?</string>
+    <string name="friday_login_now_button">Đăng nhập</string>
+    <string name="friday_login_register_now_button">Đăng ký ngay</string>
+    <string name="friday_login_coming_soon">Tùy chọn đăng nhập này sắp ra mắt.</string>
+    <string name="friday_login_validation_message">Vui lòng nhập tên và mật khẩu để tiếp tục.</string>
+    <string name="friday_login_password_show_cd">Hiện mật khẩu</string>
+    <string name="friday_login_password_hide_cd">Ẩn mật khẩu</string>
+    <string name="friday_login_facebook_cd">Tiếp tục với Facebook</string>
     <string name="friday_sign_out">Đăng xuất</string>
     <string name="friday_settings_title">Cài đặt</string>
     <string name="friday_drawer_free_plan">Gói miễn phí</string>
@@ -163,34 +175,38 @@
     <string name="friday_model_setup_pack_unavailable">Gói model này hiện chưa dùng được. Hãy thử gói khác hoặc bỏ qua.</string>
 
     <!-- Onboarding Providers (FRI-582 P7, design-spec §8) -->
-    <string name="friday_providers_title">Provider</string>
-    <string name="friday_providers_hero_title">Chìa khóa của bạn, quyết định của bạn</string>
-    <string name="friday_providers_hero_body">FRIDAY gọi thẳng tới provider của bạn từ máy này. Khóa và endpoint được lưu mã hóa cục bộ.</string>
-    <string name="friday_providers_chip_local">Lưu cục bộ</string>
-    <string name="friday_providers_chip_direct">Trực tiếp từ máy</string>
-    <string name="friday_providers_chip_no_sync">Không đồng bộ server</string>
-    <string name="friday_providers_configured_label">Provider của bạn</string>
+    <string name="friday_providers_title">AI Providers</string>
+    <string name="friday_providers_hero_title">Provider của bạn ở lại trên máy này</string>
+    <string name="friday_providers_hero_body">API key, base URL, model và trạng thái provider được lưu cục bộ. FRIDAY gọi provider trực tiếp từ Android — không qua proxy FRIDAY.</string>
+    <string name="friday_providers_chip_local">Key chỉ lưu cục bộ</string>
+    <string name="friday_providers_chip_direct">Gọi trực tiếp từ Android</string>
+    <string name="friday_providers_chip_no_sync">Không đồng bộ prompt</string>
+    <string name="friday_providers_configured_label">Đã cấu hình</string>
     <string name="friday_providers_available_label">Thêm provider</string>
     <string name="friday_providers_add">Thêm</string>
-    <string name="friday_providers_coming_soon">Sắp ra mắt</string>
-    <string name="friday_providers_direct_from_phone">Yêu cầu đi trực tiếp từ máy này</string>
-    <string name="friday_providers_empty_title">Chưa có provider nào</string>
-    <string name="friday_providers_empty_body">Thêm một provider bên dưới để Friday có thể chat và nói bằng tài khoản của bạn.</string>
+    <string name="friday_providers_coming_soon">Sắp có</string>
+    <string name="friday_providers_direct_from_phone">Trực tiếp từ Android</string>
+    <string name="friday_providers_empty_title">Chưa có AI provider</string>
+    <string name="friday_providers_empty_body">Thêm provider của riêng bạn để Friday có thể trả lời. Key lưu cục bộ, gọi trực tiếp từ máy này.</string>
     <string name="friday_providers_status_ready">Sẵn sàng</string>
     <string name="friday_providers_status_not_tested">Chưa kiểm tra</string>
-    <string name="friday_providers_status_failed">Lỗi</string>
+    <string name="friday_providers_status_failed">Kết nối lỗi</string>
     <string name="friday_providers_status_selected">Đang dùng</string>
-    <string name="friday_providers_continue">Tiếp tục đến Friday</string>
-    <string name="friday_providers_deleted_toast">Đã xóa provider</string>
+    <string name="friday_providers_continue">Tiếp tục với Friday</string>
+    <string name="friday_providers_deleted_toast">Đã xóa provider khỏi máy này.</string>
     <string name="friday_providers_delete_dialog_title">Xóa provider này?</string>
-    <string name="friday_providers_delete_dialog_body">FRIDAY sẽ quên nhãn, khóa và endpoint này. Không thể hoàn tác.</string>
-    <string name="friday_providers_delete">Xóa</string>
+    <string name="friday_providers_delete_dialog_body">Thao tác này xóa API key, base URL, model và trạng thái khỏi máy. Key phía provider không bị thu hồi. Bạn có thể thêm lại sau.</string>
+    <string name="friday_providers_delete">Xóa provider</string>
     <string name="friday_providers_cancel">Hủy</string>
     <string name="friday_providers_got_it">Đã hiểu</string>
-    <string name="friday_providers_friday_dialog_title">Model Friday sắp ra mắt</string>
-    <string name="friday_providers_friday_dialog_body">Model do FRIDAY tự vận hành chưa sẵn sàng. Hãy dùng gateway riêng hoặc model cục bộ lúc này — chúng tôi sẽ báo khi ra mắt.</string>
-    <string name="friday_providers_privacy_dialog_title">Quyền riêng tư provider hoạt động thế nào</string>
-    <string name="friday_providers_privacy_dialog_body">FRIDAY lưu cấu hình provider trong bộ nhớ mã hóa cục bộ trên máy này.\n\nKhi bạn gửi tin nhắn, FRIDAY gửi thẳng từ Android tới provider bạn chọn. Máy chủ FRIDAY không chuyển tiếp, xem hay lưu các yêu cầu đó.\n\nProvider của bạn có thể lưu hoặc xử lý yêu cầu theo điều khoản riêng của họ. Hãy dùng provider bạn tin tưởng.</string>
+    <string name="friday_providers_friday_dialog_title">Provider Friday chưa khả dụng</string>
+    <string name="friday_providers_friday_dialog_body">Bản dựng này chỉ hỗ trợ provider do bạn sở hữu. Hãy thêm Gemini, OpenAI, Anthropic, DeepSeek, OpenClaw, Hermes hoặc endpoint tùy chỉnh. FRIDAY sẽ không proxy prompt của bạn.</string>
+    <string name="friday_providers_privacy_dialog_title">Quyền riêng tư provider hoạt động ra sao</string>
+    <string name="friday_providers_privacy_dialog_body">FRIDAY lưu cấu hình provider trong bộ nhớ mã hóa cục bộ trên máy này.\n\nKhi bạn gửi tin nhắn, FRIDAY gửi prompt trực tiếp từ Android tới provider bạn chọn. Máy chủ FRIDAY không proxy, không đọc, không lưu các yêu cầu đó.\n\nProvider của bạn có thể lưu hoặc xử lý yêu cầu theo điều khoản riêng của họ. Hãy dùng provider bạn tin tưởng.</string>
+    <!-- Per-provider available-row descriptions (design-spec §4.2, HTML:2045-2048 + fridayDesc 1311). -->
+    <string name="friday_providers_desc_default_model">Mặc định: %1$s</string>
+    <string name="friday_providers_desc_openai_compatible">Tương thích OpenAI · cần base URL</string>
+    <string name="friday_providers_desc_managed_friday">Provider FRIDAY được quản lý</string>
 
     <!-- Add Provider (FRI-582 P8, design-spec §8) -->
     <string name="friday_add_provider_title_prefix">Thêm </string>
@@ -267,9 +283,11 @@
 
     <!-- Onboarding language selection (FRI-582 M2-00 re-skin) -->
     <!-- Both languages shown simultaneously (pre-locale). title_en/title_vi, subtitle_dual, card -->
-    <!-- descriptions, notes, and cta_en/cta_vi are locale-invariant (translatable="false") and live -->
-    <!-- only in values/strings.xml. Only cta_prompt is a real VI translation. -->
-    <string name="onboarding_lang_cta_prompt">Chọn ngôn ngữ để tiếp tục</string>
+    <!-- Language screen: the fixed EN+VI title/subtitle/card names/descriptions/note -->
+    <!-- and cta_en/cta_vi are locale-invariant (translatable="false") and live -->
+    <!-- only in values/strings.xml. cta_prompt is also locale-invariant in P0 -->
+    <!-- (rendered as one bilingual "Select a language / Chọn ngôn ngữ" string) and -->
+    <!-- lives only in values/strings.xml — no values-vi copy needed. -->
 
     <!-- Onboarding shared back navigation (FRI-582 QA blocker fixes, design `goBack` HTML:1499-1501) -->
     <string name="friday_onboarding_back_content_description">Quay lại</string>

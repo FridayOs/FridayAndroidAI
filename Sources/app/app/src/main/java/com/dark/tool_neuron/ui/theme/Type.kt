@@ -60,6 +60,18 @@ val FigtreeFontFamily = FontFamily(
 )
 
 /*
+ * Poppins — canonical typography for the Friday Login screen (FRI-633 QA
+ * round-5 blocker). Static per-weight TTFs (not a variable font), so each
+ * weight maps directly to its own file — no [FontVariation] settings needed.
+ */
+val PoppinsFontFamily = FontFamily(
+    Font(R.font.poppins_regular, weight = FontWeight.Normal),
+    Font(R.font.poppins_medium, weight = FontWeight.Medium),
+    Font(R.font.poppins_semibold, weight = FontWeight.SemiBold),
+    Font(R.font.poppins_bold, weight = FontWeight.Bold),
+)
+
+/*
  * Maple Mono — variable monospace for AI chat responses, model output,
  * model name badges, and technical stats (tokens, speed, context length).
  * Keeps a clear visual split between UI chrome and AI voice.

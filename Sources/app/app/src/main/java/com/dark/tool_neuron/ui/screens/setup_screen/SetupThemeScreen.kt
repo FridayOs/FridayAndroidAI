@@ -116,7 +116,7 @@ fun SetupThemeScreen(
             ) {
                 ThemeModeCard(
                     label = stringResource(R.string.friday_setup_theme_mode_system_title),
-                    icon = TnIcons.Sparkles,
+                    icon = TnIcons.Phone,
                     selected = mode == ThemeController.Mode.SYSTEM,
                     onClick = { viewModel.selectMode(ThemeController.Mode.SYSTEM) },
                     modifier = Modifier.weight(1f),

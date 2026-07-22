@@ -12,7 +12,9 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.MaterialTheme
@@ -86,6 +88,7 @@ fun FeatureTourScreen(
             modifier = Modifier
                 .weight(1f)
                 .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
                 .padding(horizontal = dimens.screenPadding, vertical = dimens.spacingLg),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
@@ -142,6 +145,17 @@ fun FeatureTourScreen(
                     body = stringResource(R.string.onboarding_tour_card5_body),
                 )
             }
+
+            Text(
+                text = stringResource(R.string.friday_setup_change_later),
+                fontFamily = jakartaFamily,
+                fontSize = 11.5.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 14.dp),
+            )
         }
 
         Box(modifier = Modifier.padding(horizontal = 26.dp, vertical = 10.dp)) {

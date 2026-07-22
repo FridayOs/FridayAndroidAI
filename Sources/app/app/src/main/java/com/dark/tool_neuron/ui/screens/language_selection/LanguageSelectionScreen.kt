@@ -109,6 +109,10 @@ fun LanguageSelectionScreen(
                     .padding(top = 26.dp),
                 verticalArrangement = Arrangement.spacedBy(12.dp),
             ) {
+                // P0 langCards (HTML:1987-1990): name is the language name, desc is the
+                // full sentence — never the name duplicated. EN name="English"/desc="Use
+                // FRIDAY AI in English.", VI name="Tiếng Việt"/desc="Dùng FRIDAY AI bằng
+                // tiếng Việt.".
                 LanguageCard(
                     name = stringResource(R.string.friday_language_english),
                     description = stringResource(R.string.onboarding_lang_card_en_desc),
@@ -123,28 +127,17 @@ fun LanguageSelectionScreen(
                 )
             }
 
-            Column(
-                modifier = Modifier.padding(top = 18.dp, start = 6.dp, end = 6.dp),
-            ) {
-                Text(
-                    text = stringResource(R.string.onboarding_lang_note_en),
-                    fontFamily = jakartaFamily,
-                    fontSize = 11.5.sp,
-                    lineHeight = 18.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-                Text(
-                    text = stringResource(R.string.onboarding_lang_note_vi),
-                    fontFamily = jakartaFamily,
-                    fontSize = 11.5.sp,
-                    lineHeight = 18.sp,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            }
+            Text(
+                text = stringResource(R.string.onboarding_lang_note),
+                fontFamily = jakartaFamily,
+                fontSize = 11.5.sp,
+                lineHeight = 18.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 18.dp, start = 6.dp, end = 6.dp),
+            )
         }
 
         Box(modifier = Modifier.padding(horizontal = 26.dp, vertical = 10.dp)) {

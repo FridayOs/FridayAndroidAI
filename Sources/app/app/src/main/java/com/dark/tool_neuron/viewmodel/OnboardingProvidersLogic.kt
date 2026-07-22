@@ -34,4 +34,24 @@ object OnboardingProvidersLogic {
     // relying on the `enabled` filter that selects the other 7.
     fun availableCatalog(): List<GatewayProvider> =
         GatewayProvider.entries.filter { it.enabled && !it.isLocal } + GatewayProvider.FRIDAY
+
+    // Per-provider available-row description (design-spec §4.2 availableItems, HTML:2045-2048).
+    // Returns a pure value the Composable layer maps to a string resource — keeps this
+    // JVM-unit-testable with no Context dependency. Mirrors P0 exactly:
+    //   - Friday (disabled placeholder) -> fridayDesc "Managed FRIDAY provider"
+    //   - urlRequired catalog rows (OpenClaw/Hermes/Custom) -> "OpenAI-compatible · custom base URL"
+    //   - other catalog rows -> "Default: <defaultModel>"
+    fun availableDescription(provider: GatewayProvider): ProviderAvailableDesc = when {
+        !provider.enabled -> ProviderAvailableDesc.ManagedFriday
+        provider.urlRequired -> ProviderAvailableDesc.OpenAiCompatible
+        else -> ProviderAvailableDesc.DefaultModel(provider.defaultModel)
+    }
+}
+
+// Pure description kind for an available-catalog row (see availableDescription above).
+// The Composable layer resolves each kind to the matching string resource.
+sealed interface ProviderAvailableDesc {
+    data class DefaultModel(val model: String) : ProviderAvailableDesc
+    data object OpenAiCompatible : ProviderAvailableDesc
+    data object ManagedFriday : ProviderAvailableDesc
 }

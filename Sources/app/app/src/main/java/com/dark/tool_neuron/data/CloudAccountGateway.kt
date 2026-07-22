@@ -6,6 +6,7 @@ import com.dark.tool_neuron.data.firebase.FirebaseCloud
 import com.dark.tool_neuron.data.firebase.FirebaseGoogleAuth
 import com.dark.tool_neuron.data.firebase.FirebasePolicy
 import com.dark.tool_neuron.data.firebase.FirebaseProfileStore
+import androidx.annotation.VisibleForTesting
 import com.google.firebase.auth.FirebaseAuth
 import dagger.hilt.android.qualifiers.ApplicationContext
 import kotlinx.coroutines.tasks.await
@@ -82,13 +83,37 @@ class FirebaseAccountGateway @Inject constructor(
 }
 
 @Singleton
-class CloudAccountGatewayProvider @Inject constructor(
-    private val prefs: AppPreferences,
-    private val fridayApi: FridayApiAccountGateway,
-    private val firebase: FirebaseAccountGateway,
-) {
-    fun current(): CloudAccountGateway = when (prefs.backendMode) {
-        BackendMode.FIREBASE -> firebase
-        BackendMode.FRIDAY_API -> fridayApi
+class CloudAccountGatewayProvider {
+
+    // Resolves the active gateway. Production wires this to the backend-mode
+    // switch below via the @Inject constructor; a test can bind a fixed gateway
+    // through the @VisibleForTesting constructor without any Firebase/API deps.
+    private val resolver: () -> CloudAccountGateway
+
+    @Inject
+    constructor(
+        prefs: AppPreferences,
+        fridayApi: FridayApiAccountGateway,
+        firebase: FirebaseAccountGateway,
+    ) {
+        resolver = {
+            when (prefs.backendMode) {
+                BackendMode.FIREBASE -> firebase
+                BackendMode.FRIDAY_API -> fridayApi
+            }
+        }
     }
+
+    /**
+     * Test-only seam: bind a single [CloudAccountGateway] so an instrumented test
+     * can drive the REAL [com.dark.tool_neuron.viewmodel.AccountViewModel] sign-in
+     * path against a fake gateway. Production never calls this constructor — the
+     * Hilt-injected primary constructor keeps backend-mode selection unchanged.
+     */
+    @VisibleForTesting
+    constructor(gateway: CloudAccountGateway) {
+        resolver = { gateway }
+    }
+
+    fun current(): CloudAccountGateway = resolver()
 }

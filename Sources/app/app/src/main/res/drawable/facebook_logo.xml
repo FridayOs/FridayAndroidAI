@@ -1,0 +1,15 @@
+<!--
+  Facebook brand logo. Extracted verbatim from the canonical Login prototype
+  (Documents/Designs/android-ai-app-prototype/project/Friday Agent.dc.html, login
+  social row SVG) so the social button matches design parity instead of the
+  previous mono "f" text glyph. FRI-633 phase-11 blocker 1a.
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp"
+    android:height="24dp"
+    android:viewportWidth="24"
+    android:viewportHeight="24">
+    <path
+        android:fillColor="#1877F2"
+        android:pathData="M24,12a12,12 0,1 0,-13.88 11.85v-8.38H7.08V12h3.04V9.36c0,-3 1.79,-4.67 4.53,-4.67 1.31,0 2.69,0.24 2.69,0.24v2.95h-1.52c-1.49,0 -1.96,0.93 -1.96,1.88V12h3.33l-0.53,3.47h-2.8v8.38A12,12 0,0 0,24 12Z" />
+</vector>

@@ -125,7 +125,7 @@ fun SetupScreen(
             ) {
                 Column {
                     Icon(
-                        imageVector = TnIcons.Shield,
+                        imageVector = TnIcons.Lock,
                         contentDescription = null,
                         modifier = Modifier.size(48.dp),
                         tint = MaterialTheme.colorScheme.primary
@@ -161,7 +161,7 @@ fun SetupScreen(
             ) {
                 Column {
                     SecurityOption(
-                        icon = TnIcons.Lock,
+                        icon = TnIcons.Key,
                         title = stringResource(R.string.friday_setup_app_password_title),
                         subtitle = stringResource(R.string.friday_setup_app_password_subtitle),
                         detail = stringResource(R.string.friday_setup_app_password_detail),
@@ -173,7 +173,7 @@ fun SetupScreen(
                     Spacer(Modifier.height(dimens.spacingSm))
 
                     SecurityOption(
-                        icon = TnIcons.Eye,
+                        icon = TnIcons.Phone,
                         title = stringResource(R.string.friday_setup_no_lock_title),
                         subtitle = stringResource(R.string.friday_setup_no_lock_subtitle),
                         detail = stringResource(R.string.friday_setup_no_lock_detail),

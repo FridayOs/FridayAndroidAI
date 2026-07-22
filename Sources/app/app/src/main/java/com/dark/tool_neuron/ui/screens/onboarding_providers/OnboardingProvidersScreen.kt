@@ -25,6 +25,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.testTag
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -37,7 +38,9 @@ import com.dark.tool_neuron.ui.theme.LocalDimens
 import com.dark.tool_neuron.ui.theme.LocalFridayAccent
 import com.dark.tool_neuron.ui.theme.groteskFamily
 import com.dark.tool_neuron.ui.theme.jakartaFamily
+import com.dark.tool_neuron.viewmodel.OnboardingProvidersLogic
 import com.dark.tool_neuron.viewmodel.OnboardingProvidersViewModel
+import com.dark.tool_neuron.viewmodel.ProviderAvailableDesc
 import com.friday.ai.R
 
 /*
@@ -63,6 +66,7 @@ fun OnboardingProvidersScreen(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
+            .testTag("onboarding_providers_list")
             .padding(innerPadding),
         contentPadding = PaddingValues(
             horizontal = dimens.screenPadding,
@@ -118,9 +122,14 @@ fun OnboardingProvidersScreen(
             )
         }
         items(viewModel.availableCatalog, key = GatewayProvider::name) { provider ->
+            // Per-provider desc (design-spec §4.2, HTML:2045-2048): "Default: <model>"
+            // for catalog providers, "OpenAI-compatible · custom base URL" for
+            // urlRequired rows (OpenClaw/Hermes/Custom), "Managed FRIDAY provider"
+            // for the disabled Friday placeholder. Resolved via the pure
+            // OnboardingProvidersLogic.availableDescription seam.
             ProviderAvailableRow(
                 provider = provider,
-                description = stringResource(R.string.friday_providers_direct_from_phone),
+                description = availableDescriptionString(provider),
                 onAdd = { onAddProvider(provider.name) },
             )
         }
@@ -143,6 +152,13 @@ fun OnboardingProvidersScreen(
             }
         }
     }
+}
+
+@Composable
+private fun availableDescriptionString(provider: GatewayProvider): String = when (val desc = OnboardingProvidersLogic.availableDescription(provider)) {
+    is ProviderAvailableDesc.DefaultModel -> stringResource(R.string.friday_providers_desc_default_model, desc.model)
+    ProviderAvailableDesc.OpenAiCompatible -> stringResource(R.string.friday_providers_desc_openai_compatible)
+    ProviderAvailableDesc.ManagedFriday -> stringResource(R.string.friday_providers_desc_managed_friday)
 }
 
 @Composable

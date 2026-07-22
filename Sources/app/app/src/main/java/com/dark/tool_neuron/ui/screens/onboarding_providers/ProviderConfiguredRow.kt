@@ -78,12 +78,21 @@ fun ProviderConfiguredRow(
                 Spacer(modifier = Modifier.width(6.dp))
                 StatusChip(text = stringResource(statusLabelRes), selected = isSelected)
             }
+            // P0 configured row (HTML:390-392): two muted sub-lines — "label · model"
+            // then "Direct from Android" / "Trực tiếp từ Android" (directFromPhone).
             Text(
                 text = "${config.label} · ${config.displayModel}",
                 fontFamily = jakartaFamily,
                 fontSize = 12.sp,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                 modifier = Modifier.padding(top = 2.dp),
+            )
+            Text(
+                text = stringResource(R.string.friday_providers_direct_from_phone),
+                fontFamily = jakartaFamily,
+                fontSize = 10.5.sp,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(top = 1.dp),
             )
         }
         if (isSelected) {

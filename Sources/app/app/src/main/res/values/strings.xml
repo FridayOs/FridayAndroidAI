@@ -10,6 +10,18 @@
     <string name="friday_or_use_account_help">Friday uses Google for sign-in only. Continue with Google below.</string>
     <string name="friday_name_label">Your name</string>
     <string name="friday_password_label">Password</string>
+    <string name="friday_login_create_account_prompt">Create new account?</string>
+    <string name="friday_login_account_link">Login account</string>
+    <string name="friday_login_name_placeholder">ex: yourname</string>
+    <string name="friday_login_password_placeholder">Enter Password</string>
+    <string name="friday_login_forgot_password">Forgot password?</string>
+    <string name="friday_login_now_button">Login Now</string>
+    <string name="friday_login_register_now_button">Register Now</string>
+    <string name="friday_login_coming_soon">This sign-in option is coming soon.</string>
+    <string name="friday_login_validation_message">Enter your name and password to continue.</string>
+    <string name="friday_login_password_show_cd">Show password</string>
+    <string name="friday_login_password_hide_cd">Hide password</string>
+    <string name="friday_login_facebook_cd">Continue with Facebook</string>
     <string name="friday_sign_out">Sign out</string>
     <string name="friday_settings_title">Settings</string>
     <string name="friday_drawer_free_plan">Free plan</string>
@@ -166,34 +178,38 @@
     <string name="friday_model_setup_pack_unavailable">That model pack isn\'t available right now. Try another pack or skip for now.</string>
 
     <!-- Onboarding Providers (FRI-582 P7, design-spec §8) -->
-    <string name="friday_providers_title">Providers</string>
-    <string name="friday_providers_hero_title">Your keys, your calls</string>
-    <string name="friday_providers_hero_body">FRIDAY calls your provider directly from this phone. Keys and endpoints stay in encrypted local storage.</string>
-    <string name="friday_providers_chip_local">Local storage</string>
-    <string name="friday_providers_chip_direct">Direct from phone</string>
-    <string name="friday_providers_chip_no_sync">No server sync</string>
-    <string name="friday_providers_configured_label">Your providers</string>
-    <string name="friday_providers_available_label">Add a provider</string>
+    <string name="friday_providers_title">AI Providers</string>
+    <string name="friday_providers_hero_title">Your providers stay on this phone</string>
+    <string name="friday_providers_hero_body">API keys, base URLs, model choices, and provider status are stored locally. FRIDAY calls providers directly from Android — no FRIDAY proxy.</string>
+    <string name="friday_providers_chip_local">Local-only keys</string>
+    <string name="friday_providers_chip_direct">Direct Android calls</string>
+    <string name="friday_providers_chip_no_sync">No prompt sync</string>
+    <string name="friday_providers_configured_label">Configured</string>
+    <string name="friday_providers_available_label">Add provider</string>
     <string name="friday_providers_add">Add</string>
-    <string name="friday_providers_coming_soon">Coming soon</string>
-    <string name="friday_providers_direct_from_phone">Requests go directly from this phone</string>
-    <string name="friday_providers_empty_title">No providers yet</string>
-    <string name="friday_providers_empty_body">Add a provider below to let Friday chat and speak using your own account.</string>
+    <string name="friday_providers_coming_soon">Coming later</string>
+    <string name="friday_providers_direct_from_phone">Direct from Android</string>
+    <string name="friday_providers_empty_title">No AI provider yet</string>
+    <string name="friday_providers_empty_body">Add a user-owned provider so Friday can answer. Keys stay local and calls go directly from this phone.</string>
     <string name="friday_providers_status_ready">Ready</string>
     <string name="friday_providers_status_not_tested">Not tested</string>
-    <string name="friday_providers_status_failed">Failed</string>
+    <string name="friday_providers_status_failed">Connection failed</string>
     <string name="friday_providers_status_selected">Selected</string>
     <string name="friday_providers_continue">Continue to Friday</string>
-    <string name="friday_providers_deleted_toast">Provider removed</string>
-    <string name="friday_providers_delete_dialog_title">Remove this provider?</string>
-    <string name="friday_providers_delete_dialog_body">FRIDAY will forget this label, key, and endpoint. This can\'t be undone.</string>
-    <string name="friday_providers_delete">Delete</string>
+    <string name="friday_providers_deleted_toast">Provider deleted from this phone.</string>
+    <string name="friday_providers_delete_dialog_title">Delete this provider?</string>
+    <string name="friday_providers_delete_dialog_body">This removes the local API key, base URL, model, and status from this phone. It does not revoke the key at the provider. You can add it again later.</string>
+    <string name="friday_providers_delete">Delete provider</string>
     <string name="friday_providers_cancel">Cancel</string>
     <string name="friday_providers_got_it">Got it</string>
-    <string name="friday_providers_friday_dialog_title">Friday model coming soon</string>
-    <string name="friday_providers_friday_dialog_body">FRIDAY\'s own hosted model isn\'t available yet. Use your own gateway or local models for now — we\'ll let you know when it ships.</string>
+    <string name="friday_providers_friday_dialog_title">Friday provider is not available yet</string>
+    <string name="friday_providers_friday_dialog_body">This build only supports user-owned providers. Add Gemini, OpenAI, Anthropic, DeepSeek, OpenClaw, Hermes, or a custom endpoint. FRIDAY will not proxy your prompts.</string>
     <string name="friday_providers_privacy_dialog_title">How provider privacy works</string>
     <string name="friday_providers_privacy_dialog_body">FRIDAY stores provider configs in encrypted local storage on this phone.\n\nWhen you send a message, FRIDAY sends your prompt directly from Android to the provider you selected. FRIDAY servers do not proxy, inspect, or store those requests.\n\nYour provider may store or process requests under its own terms. Use a provider you trust.</string>
+    <!-- Per-provider available-row descriptions (design-spec §4.2, HTML:2045-2048 + fridayDesc 1273). -->
+    <string name="friday_providers_desc_default_model">Default: %1$s</string>
+    <string name="friday_providers_desc_openai_compatible">OpenAI-compatible · custom base URL</string>
+    <string name="friday_providers_desc_managed_friday">Managed FRIDAY provider</string>
 
     <!-- Add Provider (FRI-582 P8, design-spec §8) -->
     <string name="friday_add_provider_title_prefix">Add </string>
@@ -274,13 +290,12 @@
     <string name="onboarding_lang_title_en" translatable="false">Choose language</string>
     <string name="onboarding_lang_title_vi" translatable="false">Chọn ngôn ngữ</string>
     <string name="onboarding_lang_subtitle_dual" translatable="false">You can change this later in Settings.\nBạn có thể đổi lại trong Cài đặt.</string>
-    <string name="onboarding_lang_card_en_desc" translatable="false">English</string>
-    <string name="onboarding_lang_card_vi_desc" translatable="false">Tiếng Việt</string>
-    <string name="onboarding_lang_note_en" translatable="false">This changes app text only.</string>
-    <string name="onboarding_lang_note_vi" translatable="false">Chỉ thay đổi ngôn ngữ hiển thị của ứng dụng.</string>
+    <string name="onboarding_lang_card_en_desc" translatable="false">Use FRIDAY AI in English.</string>
+    <string name="onboarding_lang_card_vi_desc" translatable="false">Dùng FRIDAY AI bằng tiếng Việt.</string>
+    <string name="onboarding_lang_note" translatable="false">This changes app text only. · Thiết lập này chỉ đổi ngôn ngữ giao diện.</string>
     <string name="onboarding_lang_cta_en" translatable="false">Continue</string>
     <string name="onboarding_lang_cta_vi" translatable="false">Tiếp tục</string>
-    <string name="onboarding_lang_cta_prompt">Select a language to continue</string>
+    <string name="onboarding_lang_cta_prompt" translatable="false">Select a language / Chọn ngôn ngữ</string>
 
     <!-- Onboarding shared back navigation (FRI-582 QA blocker fixes, design `goBack` HTML:1499-1501) -->
     <string name="friday_onboarding_back_content_description">Back</string>
